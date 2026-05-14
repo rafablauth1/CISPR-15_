@@ -1,0 +1,241 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Design tokens ── */
+:root {
+  --sidebar-w: 220px;
+  --topbar-h: 52px;
+  --bg:     #0B0E14;
+  --bg2:    #111620;
+  --deep:   #060911;
+  --gold:   #E8B94B;
+  --teal:   #22D3C8;
+  --acc:    #4F8EF7;
+  --gn:     #22C55E;
+  --am:     #F59E0B;
+  --rd:     #F87171;
+}
+
+@layer base {
+  * { border-color: rgba(255,255,255,0.07); box-sizing: border-box; }
+
+  /* Previne fundo branco padrão do sistema em botões/inputs no Windows */
+  button, input, select, textarea {
+    -webkit-appearance: none;
+    appearance: none;
+    background: transparent;
+  }
+
+  body {
+    @apply bg-navy;
+    /* Cor explícita sem variável Tailwind para não vazar em filhos */
+    color: rgba(255,255,255,0.88);
+    font-feature-settings: 'cv11', 'ss01';
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Scrollbar fina e discreta */
+  ::-webkit-scrollbar       { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 99px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.16); }
+}
+
+@layer components {
+
+  /* ── CARDS ───────────────────────────────────────────────── */
+  .card {
+    background: linear-gradient(145deg, rgba(255,255,255,0.038) 0%, rgba(255,255,255,0.012) 100%);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04);
+  }
+  .card:hover { border-color: rgba(255,255,255,0.11); }
+
+  .card-accent {
+    @apply card;
+    border-top: 2px solid var(--gold);
+  }
+
+  /* Stat card — grande, horizontal */
+  .stat-card {
+    @apply card flex items-center gap-4 px-5 py-4;
+    min-width: 0;
+  }
+
+  /* ── BOTÕES ──────────────────────────────────────────────── */
+  .btn-primary {
+    @apply inline-flex items-center gap-2 px-4 py-2 font-bold text-sm text-navy rounded-btn
+           transition-all duration-150 active:scale-95;
+    background: linear-gradient(135deg, #F5D27A 0%, #E8B94B 50%, #C49A2E 100%);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.25);
+  }
+  .btn-primary:hover {
+    box-shadow: 0 4px 12px rgba(232,185,75,0.35), inset 0 1px 0 rgba(255,255,255,0.3);
+    filter: brightness(1.08);
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white/70 rounded-btn
+           border border-white/10 transition-all duration-150 active:scale-95;
+    background: rgba(255,255,255,0.04);
+  }
+  .btn-secondary:hover {
+    @apply text-white border-white/20;
+    background: rgba(255,255,255,0.07);
+  }
+
+  .btn-danger {
+    @apply inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-danger rounded-btn
+           border border-danger/20 transition-all duration-150 active:scale-95;
+    background: rgba(248,113,113,0.06);
+  }
+  .btn-danger:hover { background: rgba(248,113,113,0.14); @apply border-danger/40; }
+
+  .btn-ghost {
+    @apply inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-white/50 rounded-btn
+           transition-all duration-150 active:scale-95;
+  }
+  .btn-ghost:hover { @apply text-white; background: rgba(255,255,255,0.06); }
+
+  /* ── INPUTS ─────────────────────────────────────────────── */
+  .input {
+    @apply w-full placeholder:text-white/25 text-sm px-3 py-2 rounded-btn
+           transition-all duration-150 focus:outline-none;
+    /* Cor explícita (não via Tailwind opacity) para não afetar option */
+    color: rgba(255,255,255,0.88);
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.10);
+  }
+  .input:focus {
+    border-color: rgba(232,185,75,0.6);
+    box-shadow: 0 0 0 3px rgba(232,185,75,0.08);
+    background: rgba(255,255,255,0.06);
+  }
+  select.input { cursor: pointer; }
+
+  /* Fix crítico Windows Chrome: <select> herda color branco do tema escuro
+     mas o dropdown nativo usa fundo branco do sistema → texto invisível */
+  select option {
+    background-color: #141B28;
+    color: rgba(255,255,255,0.85);
+  }
+  select option:disabled { color: rgba(255,255,255,0.30); }
+
+  /* ── BADGES ─────────────────────────────────────────────── */
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded-full font-mono text-[10px] font-semibold tracking-wider;
+  }
+  .badge-gold    { @apply badge; background: rgba(232,185,75,0.12); color: #E8B94B; border: 1px solid rgba(232,185,75,0.2); }
+  .badge-teal    { @apply badge; background: rgba(34,211,200,0.10); color: #22D3C8; border: 1px solid rgba(34,211,200,0.18); }
+  .badge-success { @apply badge; background: rgba(34,197,94,0.10);  color: #22C55E; border: 1px solid rgba(34,197,94,0.18); }
+  .badge-warning { @apply badge; background: rgba(245,158,11,0.10); color: #F59E0B; border: 1px solid rgba(245,158,11,0.18); }
+  .badge-danger  { @apply badge; background: rgba(248,113,113,0.10); color: #F87171; border: 1px solid rgba(248,113,113,0.18); }
+  .badge-accent  { @apply badge; background: rgba(79,142,247,0.10); color: #4F8EF7; border: 1px solid rgba(79,142,247,0.18); }
+
+  /* ── TAG CHIP ───────────────────────────────────────────── */
+  .tag-chip {
+    @apply inline-flex items-center px-2 py-0.5 font-mono text-[10px] font-bold tracking-widest;
+    background: rgba(232,185,75,0.10);
+    color: #E8B94B;
+    border: 1px solid rgba(232,185,75,0.22);
+    border-radius: 4px;
+    letter-spacing: 0.08em;
+  }
+
+  /* ── PULSE DOT ──────────────────────────────────────────── */
+  .pulse-dot {
+    @apply w-1.5 h-1.5 rounded-full;
+    animation: pulseDot 2s ease-in-out infinite;
+  }
+
+  /* ── FORM UTILITIES ─────────────────────────────────────── */
+  .form-section {
+    @apply font-mono text-[8.5px] tracking-[2.5px] text-gold/70 uppercase pt-4 pb-2 border-t mt-1;
+    border-color: rgba(255,255,255,0.06);
+  }
+
+  /* ── NAV ITEM (sidebar) ─────────────────────────────────── */
+  .nav-item {
+    @apply flex items-center gap-2.5 px-3 py-2 rounded-lg text-[11.5px] font-medium
+           transition-all duration-150 cursor-pointer select-none;
+    color: rgba(255,255,255,0.42);
+  }
+  .nav-item:hover {
+    color: rgba(255,255,255,0.80);
+    background: rgba(255,255,255,0.05);
+  }
+  .nav-item.active {
+    color: #fff;
+    background: rgba(232,185,75,0.10);
+    box-shadow: inset 2px 0 0 #E8B94B;
+  }
+  .nav-item.active .nav-icon { color: #E8B94B; }
+  .nav-item:not(.active) .nav-icon { color: rgba(255,255,255,0.22); }
+
+  /* ── PAGE HEADER ────────────────────────────────────────── */
+  .page-header {
+    @apply flex items-start justify-between mb-7;
+  }
+  .page-eyebrow {
+    @apply font-mono text-[8.5px] tracking-[3px] text-gold/70 uppercase mb-1;
+  }
+  .page-title {
+    @apply font-display font-bold text-[22px] text-white leading-tight;
+  }
+  .page-sub {
+    @apply text-white/35 text-[12px] mt-1;
+  }
+
+  /* ── TABLE ──────────────────────────────────────────────── */
+  .tbl-head th {
+    @apply px-4 py-2.5 text-left font-mono text-[8px] tracking-[2px] uppercase;
+    /* Cor explícita sem variável Tailwind para não vazar --tw-text-opacity */
+    color: rgba(255,255,255,0.28);
+    background: rgba(0,0,0,0.22);
+  }
+  .tbl-row {
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    transition: background 100ms;
+  }
+  .tbl-row:hover { background: rgba(255,255,255,0.025); }
+  .tbl-row td {
+    @apply px-4 py-2.5;
+    /* Cor base explícita para toda célula — evita herança de --tw-text-opacity */
+    color: rgba(255,255,255,0.68);
+  }
+
+  /* ── SCANLINE (global, muito sutil) ─────────────────────── */
+  .scanline-overlay::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.015) 2px,
+      rgba(0,0,0,0.015) 4px
+    );
+    pointer-events: none;
+    z-index: 9998;
+  }
+
+  /* ── ANIMATIONS ─────────────────────────────────────────── */
+  .animate-fade-in  { animation: fadeIn 0.18s ease both; }
+  .animate-slide-up { animation: slideUp 0.22s ease both; }
+}
+
+/* ── Dot grid background ── */
+.dot-grid {
+  background-image: radial-gradient(circle, rgba(255,255,255,0.035) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+/* ── Keyframes ── */
+/* transform:none no 'to' é crítico: evita criar containing-block para position:fixed (modais, overlays) */
+@keyframes fadeIn   { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+@keyframes slideUp  { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:none; } }
+@keyframes pulseDot { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:0.35; transform:scale(0.75); } }
+@keyframes scan     { 0% { transform:translateY(-100%); } 100% { transform:translateY(100vh); } }

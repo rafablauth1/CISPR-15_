@@ -1,0 +1,87 @@
+{
+  "name": "cispr15-labelo",
+  "version": "1.0.0",
+  "description": "Gerador de Relatórios CISPR 15 — LABELO/PUCRS",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "electron": "electron .",
+    "dist": "electron-builder --win --x64"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.95.2",
+    "mammoth": "^1.12.0",
+    "tesseract.js": "^7.0.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.13.0",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "autoprefixer": "^10.4.19",
+    "cheerio": "^1.2.0",
+    "clsx": "^2.1.1",
+    "date-fns": "^3.6.0",
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3",
+    "lucide-react": "^0.379.0",
+    "next": "14.2.3",
+    "postcss": "^8.4.38",
+    "puppeteer-core": "^24.43.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwindcss": "^3.4.4",
+    "typescript": "^5.4.5"
+  },
+  "build": {
+    "appId": "br.pucrs.labelo.cispr15",
+    "productName": "CISPR 15 LABELO",
+    "copyright": "LABELO/PUCRS",
+    "directories": {
+      "output": "dist"
+    },
+    "forceCodeSigning": false,
+    "win": {
+      "icon": "assets/icon.ico",
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowElevation": false,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "CISPR 15 LABELO",
+      "installerLanguages": [
+        "pt_BR"
+      ],
+      "language": "1046"
+    },
+    "extraResources": [
+      {
+        "from": ".next/standalone",
+        "to": "nextapp",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "assets/icon.ico",
+        "to": "assets/icon.ico"
+      }
+    ],
+    "files": [
+      "electron/**/*"
+    ]
+  }
+}

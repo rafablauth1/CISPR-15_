@@ -1,0 +1,1124 @@
+'use client'
+
+import { useState, useEffect, useMemo } from 'react'
+import { useRouter } from 'next/navigation'
+import {
+  ArrowLeft, Plus, Search, X, CheckCircle2, Clock, Edit2,
+  Trash2, ChevronDown, ChevronUp, FileText, Calendar,
+  Lightbulb, Lamp, Settings, Layers, RotateCcw, Link2, FolderOpen,
+  AlertTriangle, Wifi, BarChart2, Tag,
+} from 'lucide-react'
+import { cn } from '@/lib/utils'
+import {
+  type AgendaItem, type RelatorioSalvo,
+  AGENDA_KEY, RELATORIOS_KEY, today,
+} from '@/app/cispr15/types'
+
+/* ─── tags predefinidas ───────────────────────────────────────────────────── */
+const PREDEFINED_TAGS = [
+  { id: 'urgente',      label: 'Urgente',             cls: 'border-orange-400/40 bg-orange-400/8 text-orange-300' },
+  { id: 'reensaio',     label: 'Reensaio',             cls: 'border-blue-400/40 bg-blue-400/8 text-blue-300' },
+  { id: 'reprov_cond',  label: 'Reprov. Conduzida',    cls: 'border-red-400/40 bg-red-400/8 text-red-300' },
+  { id: 'reprov_loop',  label: 'Reprov. Loop',         cls: 'border-red-400/40 bg-red-400/8 text-red-300' },
+  { id: 'reprov_b',     label: 'Reprov. Anexo B',      cls: 'border-red-400/40 bg-red-400/8 text-red-300' },
+] as const
+
+type TagId = typeof PREDEFINED_TAGS[number]['id']
+
+function tagInfo(id: string) {
+  return PREDEFINED_TAGS.find(t => t.id === id)
+}
+
+function TagChip({ id, small }: { id: string; small?: boolean }) {
+  const t = tagInfo(id)
+  if (!t) return null
+  return (
+    <span className={cn(
+      'inline-flex items-center rounded border font-semibold leading-none',
+      t.cls,
+      small ? 'text-[9px] px-1 py-0.5' : 'text-[10px] px-1.5 py-0.5',
+    )}>
+      {t.label}
+    </span>
+  )
+}
+
+/* ─── helpers ─────────────────────────────────────────────────────────────── */
+function fmtDate(iso: string) {
+  if (!iso) return '—'
+  return new Date(iso + 'T12:00:00').toLocaleDateString('pt-BR')
+}
+
+function fmtMonth(yyyymm: string) {
+  const [y, m] = yyyymm.split('-')
+  const months = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+  return `${months[parseInt(m) - 1]} ${y.slice(2)}`
+}
+
+function daysUntil(dateStr: string): number {
+  if (!dateStr) return 999
+  const now = new Date(today() + 'T00:00:00')
+  const target = new Date(dateStr + 'T00:00:00')
+  return Math.floor((target.getTime() - now.getTime()) / 86400000)
+}
+
+function deadlineColor(item: AgendaItem): string {
+  if (item.numRelatorio) return 'rgba(255,255,255,0.07)'
+  const d = daysUntil(item.previsaoSaida)
+  if (d < 0)   return 'rgba(239,68,68,0.55)'
+  if (d <= 3)  return 'rgba(251,191,36,0.55)'
+  return 'rgba(34,197,94,0.4)'
+}
+
+function addBusinessDays(dateStr: string, days: number): string {
+  const date = new Date((dateStr || today()) + 'T12:00:00')
+  let added = 0
+  while (added < days) {
+    date.setDate(date.getDate() + 1)
+    const dow = date.getDay()
+    if (dow !== 0 && dow !== 6) added++
+  }
+  return date.toISOString().split('T')[0]
+}
+
+function newItem(): AgendaItem {
+  const entrada = today()
+  return {
+    id: crypto.randomUUID(),
+    tipo: 'lampada',
+    protocolo: '', orcamento: '', cliente: '', produto: '',
+    dataEntrada: entrada,
+    previsaoSaida: addBusinessDays(entrada, 10),
+    dataEmissao: '', numRelatorio: '', responsavel: '',
+    statusConduzida: 'pendente', statusLoop: 'pendente', statusAnexoB: 'pendente',
+    observacoes: '', pdfPath: '', tags: [],
+  }
+}
+
+function Label({ children }: { children: React.ReactNode }) {
+  return <label className="text-[10px] text-white/35 uppercase tracking-widest font-mono">{children}</label>
+}
+
+/* ─── modal item único ────────────────────────────────────────────────────── */
+function ItemModal({ item, onSave, onClose, isElectron }: {
+  item: AgendaItem; onSave: (i: AgendaItem) => void; onClose: () => void; isElectron: boolean
+}) {
+  const [form, setForm] = useState<AgendaItem>({ tags: [], ...item })
+  const s = (k: keyof AgendaItem) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
+      setForm(prev => ({ ...prev, [k]: e.target.value }))
+
+  function handleEntrada(e: React.ChangeEvent<HTMLInputElement>) {
+    const v = e.target.value
+    setForm(prev => ({
+      ...prev,
+      dataEntrada: v,
+      previsaoSaida: prev.previsaoSaida === addBusinessDays(prev.dataEntrada, 10)
+        ? addBusinessDays(v, 10)
+        : prev.previsaoSaida,
+    }))
+  }
+
+  function toggleTag(id: string) {
+    setForm(p => {
+      const tags = p.tags ?? []
+      return { ...p, tags: tags.includes(id) ? tags.filter(t => t !== id) : [...tags, id] }
+    })
+  }
+
+  async function browsePDF() {
+    const api = (window as any).electronAPI
+    if (!api) return
+    const res = await api.browsePDF()
+    if (!res.canceled) setForm(p => ({ ...p, pdfPath: res.filePath }))
+  }
+
+  const tags = form.tags ?? []
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+      <div className="card w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 space-y-5 animate-fade-in">
+
+        <div className="flex items-center justify-between">
+          <p className="text-white font-bold text-sm">{item.protocolo ? 'Editar Item' : 'Novo Item'}</p>
+          <button onClick={onClose} className="text-white/30 hover:text-white/70 transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Tipo */}
+        <div className="grid grid-cols-2 gap-3">
+          {(['lampada', 'luminaria'] as const).map(t => (
+            <button key={t} type="button" onClick={() => setForm(p => ({ ...p, tipo: t }))}
+              className={cn(
+                'flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-semibold transition-all',
+                form.tipo === t ? 'border-gold/40 bg-gold/8 text-gold' : 'border-white/8 text-white/40 hover:border-white/20',
+              )}>
+              {t === 'lampada' ? <Lightbulb size={15} /> : <Lamp size={15} />}
+              {t === 'lampada' ? 'Lâmpada' : 'Luminária'}
+            </button>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="flex flex-col gap-1.5">
+            <Label>Protocolo LABELO</Label>
+            <input className="input" value={form.protocolo} onChange={s('protocolo')} placeholder="Ex: 26041953" />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Orçamento LABELO</Label>
+            <input className="input" value={form.orcamento} onChange={s('orcamento')} placeholder="Ex: 0887" />
+          </div>
+          <div className="flex flex-col gap-1.5 col-span-2">
+            <Label>Cliente</Label>
+            <input className="input" value={form.cliente} onChange={s('cliente')} placeholder="Nome do cliente" />
+          </div>
+          <div className="flex flex-col gap-1.5 col-span-2">
+            <Label>Produto / DUT <span className="normal-case text-white/20">(opcional)</span></Label>
+            <input className="input" value={form.produto} onChange={s('produto')} placeholder="Ex: Luminária LED Pública 100W" />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Data de Entrada</Label>
+            <input type="date" className="input" value={form.dataEntrada} onChange={handleEntrada} />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Previsão de Saída</Label>
+            <div className="flex gap-2">
+              <input type="date" className="input flex-1" value={form.previsaoSaida} onChange={s('previsaoSaida')} />
+              <button type="button" title="Recalcular: +10 dias úteis"
+                onClick={() => setForm(p => ({ ...p, previsaoSaida: addBusinessDays(p.dataEntrada, 10) }))}
+                className="w-9 shrink-0 rounded-lg border border-white/10 text-white/30 hover:text-teal hover:border-teal/30 flex items-center justify-center transition-all">
+                <RotateCcw size={12} />
+              </button>
+            </div>
+            <p className="text-[10px] text-white/20 font-mono">↺ recalcula +10 dias úteis a partir da entrada</p>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Responsável pelo Preenchimento</Label>
+            <input className="input" value={form.responsavel} onChange={s('responsavel')} placeholder="Ex: João Silva" />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>N° Relatório <span className="normal-case text-white/20">(quando emitido)</span></Label>
+            <input className="input" value={form.numRelatorio} onChange={s('numRelatorio')} placeholder="Ex: EMC 1244/2026" />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Data de Emissão</Label>
+            <input type="date" className="input" value={form.dataEmissao} onChange={s('dataEmissao')} />
+          </div>
+          <div className="flex flex-col gap-1.5 col-span-2">
+            <Label>PDF do Relatório <span className="normal-case text-white/20">(opcional — vincular arquivo)</span></Label>
+            <div className="flex gap-2">
+              <input
+                className="input flex-1 text-xs font-mono"
+                value={form.pdfPath ?? ''}
+                onChange={e => setForm(p => ({ ...p, pdfPath: e.target.value }))}
+                placeholder="Caminho do arquivo PDF gerado"
+              />
+              {isElectron && (
+                <button type="button" onClick={browsePDF}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-white/10 text-white/50 hover:text-teal hover:border-teal/30 transition-all text-xs shrink-0">
+                  <FolderOpen size={12} /> Procurar
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Tags */}
+        <div className="space-y-2">
+          <Label>Marcadores</Label>
+          <div className="flex flex-wrap gap-2">
+            {PREDEFINED_TAGS.map(t => (
+              <button key={t.id} type="button" onClick={() => toggleTag(t.id)}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all',
+                  tags.includes(t.id)
+                    ? t.cls + ' opacity-100'
+                    : 'border-white/8 text-white/30 hover:border-white/20',
+                )}>
+                <Tag size={10} />
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Status dos ensaios */}
+        <div className="space-y-2">
+          <Label>Status dos Ensaios</Label>
+          <div className="grid grid-cols-3 gap-3">
+            {(['statusConduzida', 'statusLoop', 'statusAnexoB'] as const).map((k, i) => {
+              const labels = ['Conduzida', 'Loop', 'Anexo B']
+              return (
+                <button key={k} type="button"
+                  onClick={() => setForm(p => ({ ...p, [k]: p[k] === 'pendente' ? 'realizado' : 'pendente' }))}
+                  className={cn(
+                    'flex items-center justify-center gap-2 py-2.5 rounded-xl border text-xs font-semibold transition-all',
+                    form[k] === 'realizado'
+                      ? 'border-green/30 bg-green/8 text-green-400'
+                      : 'border-white/10 text-white/35 hover:border-white/20',
+                  )}>
+                  {form[k] === 'realizado' ? <CheckCircle2 size={12} /> : <Clock size={12} />}
+                  {labels[i]}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label>Observações</Label>
+          <textarea className="input min-h-[60px] resize-none" value={form.observacoes} onChange={s('observacoes')}
+            placeholder="Anotações livres..." />
+        </div>
+
+        <div className="flex gap-2 justify-end pt-1">
+          <button type="button" onClick={onClose}
+            className="px-4 py-2 rounded-lg border border-white/10 text-white/40 hover:text-white/70 text-sm transition-all">
+            Cancelar
+          </button>
+          <button type="button" onClick={() => onSave(form)}
+            className="btn-primary px-6 py-2 text-sm font-bold flex items-center gap-2">
+            <CheckCircle2 size={13} /> Salvar
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ─── modal lote ──────────────────────────────────────────────────────────── */
+interface LoteForm {
+  protocolos: string
+  tipo: 'lampada' | 'luminaria'
+  orcamento: string
+  cliente: string
+  produto: string
+  responsavel: string
+  dataEntrada: string
+  previsaoSaida: string
+}
+
+function LoteModal({ onSave, onClose }: {
+  onSave: (items: AgendaItem[]) => void; onClose: () => void
+}) {
+  const entrada = today()
+  const [form, setForm] = useState<LoteForm>({
+    protocolos: '',
+    tipo: 'lampada',
+    orcamento: '', cliente: '', produto: '', responsavel: '',
+    dataEntrada: entrada,
+    previsaoSaida: addBusinessDays(entrada, 10),
+  })
+
+  const s = (k: keyof LoteForm) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+      setForm(p => ({ ...p, [k]: e.target.value }))
+
+  function handleEntrada(e: React.ChangeEvent<HTMLInputElement>) {
+    const v = e.target.value
+    setForm(p => ({
+      ...p,
+      dataEntrada: v,
+      previsaoSaida: p.previsaoSaida === addBusinessDays(p.dataEntrada, 10)
+        ? addBusinessDays(v, 10)
+        : p.previsaoSaida,
+    }))
+  }
+
+  const parsed = useMemo(() => {
+    return form.protocolos.split(/[\n,;]+/).map(s => s.trim()).filter(Boolean)
+  }, [form.protocolos])
+
+  function handleSave() {
+    if (parsed.length === 0) { alert('Informe ao menos um protocolo.'); return }
+    const items: AgendaItem[] = parsed.map(proto => ({
+      id: crypto.randomUUID(),
+      tipo: form.tipo,
+      protocolo: proto,
+      orcamento: form.orcamento,
+      cliente: form.cliente,
+      produto: form.produto,
+      dataEntrada: form.dataEntrada,
+      previsaoSaida: form.previsaoSaida,
+      dataEmissao: '', numRelatorio: '',
+      responsavel: form.responsavel,
+      statusConduzida: 'pendente', statusLoop: 'pendente', statusAnexoB: 'pendente',
+      observacoes: '', pdfPath: '', tags: [],
+    }))
+    onSave(items)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+      <div className="card w-full max-w-xl max-h-[90vh] overflow-y-auto p-6 space-y-5 animate-fade-in">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Layers size={16} className="text-gold" />
+            <p className="text-white font-bold text-sm">Cadastrar Lote</p>
+          </div>
+          <button onClick={onClose} className="text-white/30 hover:text-white/70 transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label>Protocolos (um por linha, ou separados por vírgula)</Label>
+          <textarea
+            className="input min-h-[110px] resize-none font-mono text-sm"
+            value={form.protocolos}
+            onChange={s('protocolos')}
+            placeholder={"26041953\n26041954\n26041955"}
+            autoFocus
+          />
+          {parsed.length > 0 && (
+            <p className="text-[11px] text-teal font-mono">
+              {parsed.length} protocolo(s): {parsed.slice(0, 5).join(', ')}{parsed.length > 5 ? ` …+${parsed.length - 5}` : ''}
+            </p>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          {(['lampada', 'luminaria'] as const).map(t => (
+            <button key={t} type="button" onClick={() => setForm(p => ({ ...p, tipo: t }))}
+              className={cn(
+                'flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-semibold transition-all',
+                form.tipo === t ? 'border-gold/40 bg-gold/8 text-gold' : 'border-white/8 text-white/40 hover:border-white/20',
+              )}>
+              {t === 'lampada' ? <Lightbulb size={15} /> : <Lamp size={15} />}
+              {t === 'lampada' ? 'Lâmpada' : 'Luminária'}
+            </button>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div className="flex flex-col gap-1.5">
+            <Label>Orçamento LABELO <span className="normal-case text-white/20">(opcional)</span></Label>
+            <input className="input" value={form.orcamento} onChange={s('orcamento')} placeholder="Ex: 0887" />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Responsável pelo Preenchimento</Label>
+            <input className="input" value={form.responsavel} onChange={s('responsavel')} placeholder="Ex: João Silva" />
+          </div>
+          <div className="flex flex-col gap-1.5 col-span-2">
+            <Label>Cliente <span className="normal-case text-white/20">(opcional)</span></Label>
+            <input className="input" value={form.cliente} onChange={s('cliente')} placeholder="Nome do cliente" />
+          </div>
+          <div className="flex flex-col gap-1.5 col-span-2">
+            <Label>Produto / DUT <span className="normal-case text-white/20">(opcional)</span></Label>
+            <input className="input" value={form.produto} onChange={s('produto')} placeholder="Ex: Luminária LED 100W" />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Data de Entrada</Label>
+            <input type="date" className="input" value={form.dataEntrada} onChange={handleEntrada} />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>Previsão de Saída</Label>
+            <div className="flex gap-2">
+              <input type="date" className="input flex-1" value={form.previsaoSaida} onChange={s('previsaoSaida')} />
+              <button type="button" title="Recalcular: +10 dias úteis"
+                onClick={() => setForm(p => ({ ...p, previsaoSaida: addBusinessDays(p.dataEntrada, 10) }))}
+                className="w-9 shrink-0 rounded-lg border border-white/10 text-white/30 hover:text-teal hover:border-teal/30 flex items-center justify-center transition-all">
+                <RotateCcw size={12} />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex gap-2 justify-end pt-1">
+          <button type="button" onClick={onClose}
+            className="px-4 py-2 rounded-lg border border-white/10 text-white/40 hover:text-white/70 text-sm transition-all">
+            Cancelar
+          </button>
+          <button type="button" onClick={handleSave}
+            className="btn-primary px-6 py-2 text-sm font-bold flex items-center gap-2">
+            <Layers size={13} /> Cadastrar {parsed.length > 0 ? `${parsed.length} item(s)` : 'Lote'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ─── página principal ─────────────────────────────────────────────────────── */
+export default function AgendaPage() {
+  const router = useRouter()
+  const [tab,           setTab]           = useState<'agenda' | 'busca' | 'analise'>('agenda')
+  const [agenda,        setAgenda]        = useState<AgendaItem[]>([])
+  const [busca,         setBusca]         = useState('')
+  const [editItem,      setEditItem]      = useState<AgendaItem | null>(null)
+  const [showLote,      setShowLote]      = useState(false)
+  const [filter,        setFilter]        = useState<'andamento' | 'concluidos' | 'todos'>('andamento')
+  const [relatorios,    setRelatorios]    = useState<RelatorioSalvo[]>([])
+  const [sortKey,       setSortKey]       = useState<'dataEntrada' | 'previsaoSaida' | 'protocolo'>('dataEntrada')
+  const [sortDir,       setSortDir]       = useState<'asc' | 'desc'>('desc')
+  const [search,        setSearch]        = useState('')
+  const [filterCliente, setFilterCliente] = useState('')
+  const [isElectron,    setIsElectron]    = useState(false)
+  const [fromNetwork,   setFromNetwork]   = useState<boolean | null>(null)
+
+  useEffect(() => {
+    setIsElectron(!!(window as any).electronAPI)
+    loadAgenda()
+    loadRelatorios()
+  }, [])
+
+  async function loadAgenda() {
+    const api = (window as any).electronAPI
+    if (api) {
+      try {
+        const res = await api.getAgenda()
+        setFromNetwork(!!res.fromNetwork)
+        if (res.ok && res.fromNetwork && Array.isArray(res.agenda)) {
+          setAgenda(res.agenda); return
+        }
+      } catch {}
+    }
+    try {
+      const raw = localStorage.getItem(AGENDA_KEY)
+      if (raw) setAgenda(JSON.parse(raw))
+    } catch {}
+  }
+
+  async function saveAgenda(items: AgendaItem[]) {
+    setAgenda(items)
+    const api = (window as any).electronAPI
+    if (api) {
+      try {
+        const res = await api.saveAgenda(items)
+        if (res?.ok) return
+      } catch {}
+    }
+    localStorage.setItem(AGENDA_KEY, JSON.stringify(items))
+  }
+
+  async function loadRelatorios() {
+    const api = (window as any).electronAPI
+    if (api) {
+      try {
+        const res = await api.getRelatorios()
+        if (res.ok && Array.isArray(res.relatorios)) { setRelatorios(res.relatorios); return }
+      } catch {}
+    }
+    try {
+      const raw = localStorage.getItem(RELATORIOS_KEY)
+      if (raw) setRelatorios(JSON.parse(raw))
+    } catch {}
+  }
+
+  function handleSave(item: AgendaItem) {
+    const exists = agenda.some(a => a.id === item.id)
+    saveAgenda(exists ? agenda.map(a => a.id === item.id ? item : a) : [...agenda, item])
+    setEditItem(null)
+  }
+
+  function handleSaveLote(items: AgendaItem[]) {
+    saveAgenda([...agenda, ...items])
+    setShowLote(false)
+  }
+
+  function handleDelete(id: string) {
+    if (!confirm('Remover este item da agenda?')) return
+    saveAgenda(agenda.filter(a => a.id !== id))
+  }
+
+  function toggleStatus(id: string, field: 'statusConduzida' | 'statusLoop' | 'statusAnexoB') {
+    saveAgenda(agenda.map(a => a.id !== id ? a : {
+      ...a, [field]: a[field] === 'pendente' ? 'realizado' : 'pendente',
+    }))
+  }
+
+  function openPDF(pdfPath: string) {
+    const api = (window as any).electronAPI
+    if (api) api.openPath(pdfPath)
+  }
+
+  const clienteOptions = useMemo(
+    () => [...new Set(agenda.map(a => a.cliente).filter(Boolean))].sort(),
+    [agenda],
+  )
+
+  const filteredItems = useMemo(() => {
+    let items = [...agenda]
+    if (filter === 'andamento')   items = items.filter(a => !a.numRelatorio)
+    else if (filter === 'concluidos') items = items.filter(a => !!a.numRelatorio)
+    const q = search.trim().toLowerCase()
+    if (q) items = items.filter(a =>
+      [a.protocolo, a.orcamento, a.cliente, a.produto, a.numRelatorio, a.responsavel]
+        .some(v => v?.toLowerCase().includes(q))
+    )
+    if (filterCliente) items = items.filter(a => a.cliente === filterCliente)
+    items.sort((a, b) => {
+      const va = a[sortKey] ?? ''; const vb = b[sortKey] ?? ''
+      return sortDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va)
+    })
+    return items
+  }, [agenda, filter, search, filterCliente, sortKey, sortDir])
+
+  const counts = useMemo(() => ({
+    andamento: agenda.filter(a => !a.numRelatorio).length,
+    concluidos: agenda.filter(a => !!a.numRelatorio).length,
+    todos: agenda.length,
+  }), [agenda])
+
+  /* ── analytics ── */
+  const analytics = useMemo(() => {
+    const now = today()
+    const andamento = agenda.filter(a => !a.numRelatorio)
+    const concluidos = agenda.filter(a => !!a.numRelatorio)
+    const vencidos   = andamento.filter(a => a.previsaoSaida && a.previsaoSaida < now)
+    const urgentes   = andamento.filter(a => { const d = daysUntil(a.previsaoSaida); return d >= 0 && d <= 3 })
+    const emDia      = andamento.filter(a => daysUntil(a.previsaoSaida) > 3)
+
+    // entradas por mês (últimos 6 meses)
+    const months: { key: string; label: string; count: number; concluidos: number }[] = []
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - i)
+      const key = d.toISOString().substring(0, 7)
+      months.push({
+        key, label: fmtMonth(key),
+        count:     agenda.filter(a => a.dataEntrada?.startsWith(key)).length,
+        concluidos: concluidos.filter(a => a.dataEmissao?.startsWith(key)).length,
+      })
+    }
+
+    // top clientes
+    const clientMap: Record<string, number> = {}
+    agenda.forEach(a => { if (a.cliente) clientMap[a.cliente] = (clientMap[a.cliente] ?? 0) + 1 })
+    const topClientes = Object.entries(clientMap).sort((a, b) => b[1] - a[1]).slice(0, 6)
+
+    // contagem de tags
+    const tagMap: Record<string, number> = {}
+    agenda.forEach(a => a.tags?.forEach(t => { tagMap[t] = (tagMap[t] ?? 0) + 1 }))
+
+    return {
+      total: agenda.length,
+      andamento: andamento.length,
+      concluidos: concluidos.length,
+      vencidos: vencidos.length,
+      urgentes: urgentes.length,
+      emDia: emDia.length,
+      vencidosList: vencidos.slice(0, 6),
+      urgentesList: urgentes.slice(0, 6),
+      months,
+      topClientes,
+      tagMap,
+      maxMonth: Math.max(1, ...months.map(m => m.count)),
+    }
+  }, [agenda])
+
+  function SortBtn({ k, label }: { k: typeof sortKey; label: string }) {
+    const active = sortKey === k
+    return (
+      <button type="button"
+        onClick={() => {
+          if (active) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+          else { setSortKey(k); setSortDir('desc') }
+        }}
+        className={cn(
+          'flex items-center gap-0.5 text-[10px] font-mono uppercase tracking-wider transition-colors',
+          active ? 'text-gold' : 'text-white/30 hover:text-white/60',
+        )}>
+        {label}
+        {active ? (sortDir === 'asc' ? <ChevronUp size={9} /> : <ChevronDown size={9} />) : null}
+      </button>
+    )
+  }
+
+  const buscaResults = useMemo(() => {
+    const q = busca.trim().toLowerCase()
+    if (!q) return { agenda: [], relatorios: [] }
+    return {
+      agenda: agenda.filter(a =>
+        [a.protocolo, a.orcamento, a.cliente, a.produto, a.numRelatorio, a.responsavel]
+          .some(v => v?.toLowerCase().includes(q))
+      ),
+      relatorios: relatorios.filter(r =>
+        [r.protocolo, r.numRelatorio, r.clienteNome, r.produto, r.cfg?.fabricante]
+          .some(v => v?.toLowerCase().includes(q))
+      ),
+    }
+  }, [busca, agenda, relatorios])
+
+  /* ── stat card helper ── */
+  function StatCard({ label, value, color }: { label: string; value: number; color: string }) {
+    return (
+      <div className={cn('card p-4 flex flex-col gap-1', color)}>
+        <span className="text-2xl font-bold font-mono">{value}</span>
+        <span className="text-[10px] uppercase tracking-widest font-mono opacity-60">{label}</span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="max-w-6xl mx-auto px-4 py-6">
+
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-5">
+        <button onClick={() => router.push('/cispr15')}
+          className="flex items-center gap-1.5 text-white/40 hover:text-white text-sm transition-colors">
+          <ArrowLeft size={14} /> Voltar
+        </button>
+        <div className="flex-1" />
+        <button onClick={() => router.push('/configuracoes')}
+          className="w-8 h-8 rounded-xl border border-white/10 text-white/30 hover:text-gold hover:border-gold/30 flex items-center justify-center transition-all">
+          <Settings size={14} />
+        </button>
+      </div>
+
+      <div className="mb-5">
+        <p className="text-[11px] text-white/30 font-mono uppercase tracking-widest mb-0.5">LABELO · PUCRS</p>
+        <h1 className="text-xl font-bold text-white">Agenda de Execução</h1>
+        <p className="text-white/35 text-xs mt-0.5">Acompanhamento de protocolos e ensaios</p>
+      </div>
+
+      {/* Aviso rede */}
+      {isElectron && fromNetwork === false && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/8 border border-amber-500/20 text-amber-400 text-xs mb-4">
+          <AlertTriangle size={12} className="shrink-0" />
+          <span>
+            Pasta de rede não configurada — dados salvos apenas neste computador.{' '}
+            <button onClick={() => router.push('/configuracoes')} className="underline hover:text-amber-300 transition-colors">
+              Configurar agora
+            </button>
+          </span>
+        </div>
+      )}
+      {isElectron && fromNetwork === true && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-teal/6 border border-teal/15 text-teal/70 text-[10px] font-mono mb-4">
+          <Wifi size={11} className="shrink-0" /> Dados sincronizados via pasta de rede
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div className="flex gap-0.5 p-0.5 rounded-lg bg-white/4 border border-white/8 mb-4 w-fit">
+        {([
+          ['agenda',  'Agenda'],
+          ['busca',   'Busca'],
+          ['analise', 'Análise'],
+        ] as const).map(([t, label]) => (
+          <button key={t} type="button" onClick={() => setTab(t)}
+            className={cn(
+              'flex items-center gap-1.5 px-4 py-1.5 rounded text-xs font-semibold transition-all',
+              tab === t ? 'bg-gold/15 border border-gold/25 text-gold' : 'text-white/40 hover:text-white/70',
+            )}>
+            {t === 'analise' && <BarChart2 size={11} />}
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── ABA AGENDA ── */}
+      {tab === 'agenda' && (
+        <div className="space-y-3">
+          {/* Toolbar */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex gap-0.5 p-0.5 rounded-lg bg-white/4 border border-white/8">
+              {([
+                ['andamento',  'Em andamento', counts.andamento],
+                ['concluidos', 'Concluídos',   counts.concluidos],
+                ['todos',      'Todos',         counts.todos],
+              ] as const).map(([f, label, count]) => (
+                <button key={f} type="button" onClick={() => setFilter(f)}
+                  className={cn(
+                    'flex items-center gap-1 px-2.5 py-1 rounded text-[11px] font-semibold transition-all',
+                    filter === f ? 'bg-white/10 text-white' : 'text-white/35 hover:text-white/60',
+                  )}>
+                  {label}
+                  <span className={cn('text-[9px] px-1 rounded-full font-mono', filter === f ? 'text-white/60' : 'text-white/20')}>
+                    {count}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            <div className="relative min-w-[160px] max-w-[220px]">
+              <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/25" />
+              <input
+                className="input pl-7 py-1 text-xs w-full"
+                placeholder="Protocolo, cliente…"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+              {search && (
+                <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60">
+                  <X size={9} />
+                </button>
+              )}
+            </div>
+
+            {clienteOptions.length > 0 && (
+              <select className="input py-1 text-xs max-w-[150px]" value={filterCliente} onChange={e => setFilterCliente(e.target.value)}>
+                <option value="">Todos clientes</option>
+                {clienteOptions.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            )}
+
+            <div className="flex items-center gap-1.5 font-mono ml-1">
+              <span className="text-[9px] text-white/20 uppercase">ord</span>
+              <SortBtn k="dataEntrada" label="Entrada" />
+              <SortBtn k="previsaoSaida" label="Saída" />
+              <SortBtn k="protocolo" label="Proto" />
+            </div>
+
+            <div className="flex-1" />
+            <span className="text-[10px] text-white/25 font-mono">{filteredItems.length} item(s)</span>
+            <button type="button" onClick={() => setShowLote(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-teal/30 bg-teal/8 text-teal hover:bg-teal/14 text-xs font-semibold transition-all">
+              <Layers size={11} /> Lote
+            </button>
+            <button type="button" onClick={() => setEditItem(newItem())}
+              className="btn-primary flex items-center gap-1.5 px-3 py-1.5 text-xs">
+              <Plus size={11} /> Novo
+            </button>
+          </div>
+
+          {filter !== 'concluidos' && (
+            <div className="flex items-center gap-4 text-[10px] font-mono text-white/25">
+              <span className="flex items-center gap-1.5"><span className="w-2 h-3 rounded-sm inline-block" style={{ background: 'rgba(34,197,94,0.45)' }} />Em dia</span>
+              <span className="flex items-center gap-1.5"><span className="w-2 h-3 rounded-sm inline-block" style={{ background: 'rgba(251,191,36,0.55)' }} />Vence em ≤ 3 dias</span>
+              <span className="flex items-center gap-1.5"><span className="w-2 h-3 rounded-sm inline-block" style={{ background: 'rgba(239,68,68,0.55)' }} />Vencido</span>
+            </div>
+          )}
+
+          {filteredItems.length === 0 ? (
+            <div className="card p-8 text-center text-white/25 text-sm">
+              {agenda.length === 0
+                ? <>Nenhum item. Clique em <strong className="text-white/40">Novo</strong> ou <strong className="text-white/40">Lote</strong>.</>
+                : 'Nenhum item corresponde aos filtros.'}
+            </div>
+          ) : (
+            <div className="space-y-px">
+              {filteredItems.map(item => {
+                const isConcluido = !!item.numRelatorio
+                const d = daysUntil(item.previsaoSaida)
+                const color = deadlineColor(item)
+                const itemTags = item.tags ?? []
+                return (
+                  <div key={item.id}
+                    style={{ borderLeftColor: color }}
+                    className="flex flex-col px-3 py-1.5 rounded-lg bg-white/[0.025] border border-white/[0.07] border-l-2 hover:bg-white/[0.04] transition-all group"
+                  >
+                    <div className="flex items-center gap-2">
+                      {/* tipo */}
+                      <div className={cn('shrink-0', item.tipo === 'lampada' ? 'text-yellow-400/60' : 'text-blue-400/60')}>
+                        {item.tipo === 'lampada' ? <Lightbulb size={11} /> : <Lamp size={11} />}
+                      </div>
+
+                      {/* protocolo */}
+                      <span className="font-mono font-bold text-white text-xs w-[100px] shrink-0 truncate">
+                        {item.protocolo || '—'}
+                      </span>
+
+                      {/* orcamento */}
+                      {item.orcamento
+                        ? <span className="text-[9px] text-white/22 font-mono w-14 shrink-0 truncate">{item.orcamento}</span>
+                        : <span className="w-14 shrink-0" />
+                      }
+
+                      {/* cliente · produto */}
+                      <span className="flex-1 text-white/50 text-xs truncate min-w-0">
+                        {item.cliente || '—'}{item.produto ? ` · ${item.produto}` : ''}
+                      </span>
+
+                      {/* datas */}
+                      <div className="hidden md:flex items-center gap-1 text-[10px] font-mono shrink-0">
+                        <span className="text-white/22">{fmtDate(item.dataEntrada)}</span>
+                        <span className="text-white/12">→</span>
+                        <span className={cn(
+                          !isConcluido && d < 0  ? 'text-red-400/80' :
+                          !isConcluido && d <= 3 ? 'text-amber-400/80' : 'text-white/22',
+                        )}>
+                          {fmtDate(item.previsaoSaida)}
+                        </span>
+                      </div>
+
+                      {/* concluído: numRelatorio link | andamento: badges C/L/B */}
+                      {isConcluido ? (
+                        <div className="shrink-0">
+                          {item.pdfPath ? (
+                            <button type="button" onClick={() => openPDF(item.pdfPath!)}
+                              title="Abrir PDF do relatório"
+                              className="flex items-center gap-1 text-[10px] font-mono text-teal hover:text-teal/70 bg-teal/8 border border-teal/20 px-2 py-0.5 rounded transition-all">
+                              <Link2 size={8} /> {item.numRelatorio}
+                            </button>
+                          ) : (
+                            <span className="flex items-center gap-1 text-[10px] font-mono text-green-400/75 bg-green/8 border border-green/15 px-2 py-0.5 rounded">
+                              <FileText size={8} /> {item.numRelatorio}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex gap-0.5 shrink-0">
+                          {(['statusConduzida', 'statusLoop', 'statusAnexoB'] as const).map((k, i) => (
+                            <button key={k} type="button" onClick={() => toggleStatus(item.id, k)}
+                              title={['Conduzida', 'Loop', 'Anexo B'][i]}
+                              className={cn(
+                                'w-5 h-5 rounded border text-[9px] font-bold flex items-center justify-center transition-all',
+                                item[k] === 'realizado'
+                                  ? 'border-green/30 bg-green/10 text-green-400'
+                                  : 'border-white/10 text-white/22 hover:border-white/25 hover:text-white/50',
+                              )}>
+                              {['C', 'L', 'B'][i]}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* ações hover */}
+                      <div className="flex gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button type="button" onClick={() => setEditItem(item)}
+                          className="w-6 h-6 rounded border border-white/8 text-white/28 hover:text-white/70 hover:border-white/20 flex items-center justify-center transition-all">
+                          <Edit2 size={10} />
+                        </button>
+                        <button type="button" onClick={() => handleDelete(item.id)}
+                          className="w-6 h-6 rounded border border-white/8 text-white/28 hover:text-red-400 hover:border-red-400/30 flex items-center justify-center transition-all">
+                          <Trash2 size={10} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* tags */}
+                    {itemTags.length > 0 && (
+                      <div className="flex gap-1 mt-1 ml-5 flex-wrap">
+                        {itemTags.map(t => <TagChip key={t} id={t} small />)}
+                        {item.observacoes && (
+                          <span className="text-[9px] text-white/22 italic ml-1 truncate max-w-xs">{item.observacoes}</span>
+                        )}
+                      </div>
+                    )}
+                    {/* observação sem tags */}
+                    {itemTags.length === 0 && item.observacoes && (
+                      <p className="text-[9px] text-white/22 italic mt-0.5 ml-5 truncate">{item.observacoes}</p>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── ABA BUSCA ── */}
+      {tab === 'busca' && (
+        <div className="space-y-4">
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+            <input
+              className="input pl-9 text-sm"
+              placeholder="Protocolo, orçamento, cliente, produto, nº relatório…"
+              value={busca}
+              onChange={e => setBusca(e.target.value)}
+              autoFocus
+            />
+            {busca && (
+              <button onClick={() => setBusca('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/70 transition-colors">
+                <X size={13} />
+              </button>
+            )}
+          </div>
+
+          {!busca && <p className="text-center text-white/25 text-sm py-10">Digite para buscar na agenda e nos relatórios emitidos.</p>}
+          {busca && buscaResults.agenda.length === 0 && buscaResults.relatorios.length === 0 && (
+            <p className="text-center text-white/25 text-sm py-10">Nenhum resultado para <strong className="text-white/40">"{busca}"</strong>.</p>
+          )}
+
+          {buscaResults.agenda.length > 0 && (
+            <div className="space-y-px">
+              <p className="text-[10px] text-white/30 font-mono uppercase tracking-widest mb-1">Agenda ({buscaResults.agenda.length})</p>
+              {buscaResults.agenda.map(item => (
+                <div key={item.id}
+                  style={{ borderLeftColor: deadlineColor(item) }}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.025] border border-white/[0.07] border-l-2 cursor-pointer hover:bg-white/[0.04] transition-all"
+                  onClick={() => { setEditItem(item); setTab('agenda') }}>
+                  <div className={cn('shrink-0', item.tipo === 'lampada' ? 'text-yellow-400/60' : 'text-blue-400/60')}>
+                    {item.tipo === 'lampada' ? <Lightbulb size={11} /> : <Lamp size={11} />}
+                  </div>
+                  <span className="font-bold text-white text-xs font-mono w-[100px] shrink-0">{item.protocolo || '—'}</span>
+                  <span className="flex-1 text-white/50 text-xs truncate min-w-0">{item.cliente || '—'}{item.produto ? ` · ${item.produto}` : ''}</span>
+                  {item.numRelatorio && <span className="text-[10px] text-green-400/75 font-mono shrink-0">{item.numRelatorio}</span>}
+                  <div className="flex gap-1 shrink-0">
+                    {(item.tags ?? []).slice(0, 2).map(t => <TagChip key={t} id={t} small />)}
+                  </div>
+                  <div className="flex gap-0.5 shrink-0">
+                    {(['statusConduzida', 'statusLoop', 'statusAnexoB'] as const).map((k, i) => (
+                      <span key={k} className={cn(
+                        'w-4 h-4 rounded border flex items-center justify-center text-[8px] font-bold',
+                        item[k] === 'realizado' ? 'border-green/25 bg-green/8 text-green-400' : 'border-white/8 text-white/18',
+                      )}>
+                        {['C', 'L', 'B'][i]}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {buscaResults.relatorios.length > 0 && (
+            <div className="space-y-px">
+              <p className="text-[10px] text-white/30 font-mono uppercase tracking-widest mb-1">Relatórios Emitidos ({buscaResults.relatorios.length})</p>
+              {buscaResults.relatorios.map(rel => (
+                <div key={rel.id} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.025] border border-white/[0.07]">
+                  <FileText size={11} className="text-teal/60 shrink-0" />
+                  <span className="font-bold text-white text-xs font-mono w-[100px] shrink-0">{rel.numRelatorio || '—'}</span>
+                  <span className="flex-1 text-white/50 text-xs truncate min-w-0">{rel.clienteNome} · {rel.produto}</span>
+                  <span className="text-[10px] text-white/25 font-mono shrink-0">{fmtDate(rel.dataEmissao)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── ABA ANÁLISE ── */}
+      {tab === 'analise' && (
+        <div className="space-y-6">
+
+          {/* cards de resumo */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            <div className="card p-4 flex flex-col gap-1">
+              <span className="text-2xl font-bold font-mono text-white">{analytics.total}</span>
+              <span className="text-[10px] uppercase tracking-widest font-mono text-white/35">Total</span>
+            </div>
+            <div className="card p-4 flex flex-col gap-1">
+              <span className="text-2xl font-bold font-mono text-white/70">{analytics.andamento}</span>
+              <span className="text-[10px] uppercase tracking-widest font-mono text-white/35">Em andamento</span>
+            </div>
+            <div className="card p-4 flex flex-col gap-1 border-green/15">
+              <span className="text-2xl font-bold font-mono text-green-400">{analytics.concluidos}</span>
+              <span className="text-[10px] uppercase tracking-widest font-mono text-white/35">Concluídos</span>
+            </div>
+            <div className="card p-4 flex flex-col gap-1 border-amber-400/20">
+              <span className="text-2xl font-bold font-mono text-amber-400">{analytics.urgentes}</span>
+              <span className="text-[10px] uppercase tracking-widest font-mono text-white/35">Vence em 3 dias</span>
+            </div>
+            <div className="card p-4 flex flex-col gap-1 border-red-500/20">
+              <span className="text-2xl font-bold font-mono text-red-400">{analytics.vencidos}</span>
+              <span className="text-[10px] uppercase tracking-widest font-mono text-white/35">Vencidos</span>
+            </div>
+          </div>
+
+          {/* Distribuição de status */}
+          {analytics.andamento > 0 && (
+            <div className="card p-4 space-y-3">
+              <p className="text-[10px] text-white/30 font-mono uppercase tracking-widest">Distribuição — Em andamento</p>
+              {[
+                { label: 'Em dia',      value: analytics.emDia,    bg: 'rgba(34,197,94,0.5)' },
+                { label: 'Urgente (≤3d)', value: analytics.urgentes, bg: 'rgba(251,191,36,0.55)' },
+                { label: 'Vencido',     value: analytics.vencidos,  bg: 'rgba(239,68,68,0.55)' },
+              ].map(({ label, value, bg }) => (
+                <div key={label} className="flex items-center gap-3">
+                  <span className="text-[11px] text-white/40 font-mono w-28 shrink-0 text-right">{label}</span>
+                  <div className="flex-1 h-3 bg-white/5 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full transition-all duration-500"
+                      style={{ width: `${analytics.andamento > 0 ? (value / analytics.andamento) * 100 : 0}%`, background: bg }} />
+                  </div>
+                  <span className="text-[11px] font-mono text-white/50 w-5 text-right">{value}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Entradas por mês */}
+            <div className="card p-4 space-y-3">
+              <p className="text-[10px] text-white/30 font-mono uppercase tracking-widest">Entradas por mês (últimos 6)</p>
+              <div className="space-y-2">
+                {analytics.months.map(m => (
+                  <div key={m.key} className="flex items-center gap-3">
+                    <span className="text-[10px] text-white/35 font-mono w-12 shrink-0 text-right">{m.label}</span>
+                    <div className="flex-1 h-3 bg-white/5 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full bg-gold/50 transition-all duration-500"
+                        style={{ width: `${(m.count / analytics.maxMonth) * 100}%` }} />
+                    </div>
+                    <span className="text-[10px] font-mono text-white/40 w-5 text-right">{m.count}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Top clientes */}
+            {analytics.topClientes.length > 0 && (
+              <div className="card p-4 space-y-3">
+                <p className="text-[10px] text-white/30 font-mono uppercase tracking-widest">Top Clientes</p>
+                <div className="space-y-2">
+                  {analytics.topClientes.map(([cliente, count]) => (
+                    <div key={cliente} className="flex items-center gap-3">
+                      <span className="text-[10px] text-white/45 truncate flex-1">{cliente}</span>
+                      <div className="w-24 h-2.5 bg-white/5 rounded-full overflow-hidden">
+                        <div className="h-full rounded-full bg-teal/50 transition-all duration-500"
+                          style={{ width: `${(count / (analytics.topClientes[0]?.[1] ?? 1)) * 100}%` }} />
+                      </div>
+                      <span className="text-[10px] font-mono text-white/40 w-5 text-right">{count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Atenção: vencidos + urgentes */}
+          {(analytics.vencidosList.length > 0 || analytics.urgentesList.length > 0) && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {analytics.vencidosList.length > 0 && (
+                <div className="card p-4 space-y-2 border-red-500/20">
+                  <p className="text-[10px] text-red-400/70 font-mono uppercase tracking-widest flex items-center gap-1.5">
+                    <AlertTriangle size={10} /> Vencidos ({analytics.vencidosList.length})
+                  </p>
+                  {analytics.vencidosList.map(item => (
+                    <div key={item.id} className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
+                      onClick={() => { setEditItem(item); setTab('agenda') }}>
+                      <span className="font-mono text-xs text-white/70">{item.protocolo || '—'}</span>
+                      <span className="text-[10px] text-white/35 truncate flex-1">{item.cliente}</span>
+                      <span className="text-[10px] text-red-400 font-mono shrink-0">{fmtDate(item.previsaoSaida)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {analytics.urgentesList.length > 0 && (
+                <div className="card p-4 space-y-2 border-amber-400/20">
+                  <p className="text-[10px] text-amber-400/70 font-mono uppercase tracking-widest flex items-center gap-1.5">
+                    <Clock size={10} /> Vence em ≤ 3 dias ({analytics.urgentesList.length})
+                  </p>
+                  {analytics.urgentesList.map(item => (
+                    <div key={item.id} className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity"
+                      onClick={() => { setEditItem(item); setTab('agenda') }}>
+                      <span className="font-mono text-xs text-white/70">{item.protocolo || '—'}</span>
+                      <span className="text-[10px] text-white/35 truncate flex-1">{item.cliente}</span>
+                      <span className="text-[10px] text-amber-400 font-mono shrink-0">{fmtDate(item.previsaoSaida)} ({daysUntil(item.previsaoSaida)}d)</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Tags usadas */}
+          {Object.keys(analytics.tagMap).length > 0 && (
+            <div className="card p-4 space-y-3">
+              <p className="text-[10px] text-white/30 font-mono uppercase tracking-widest">Marcadores em uso</p>
+              <div className="flex flex-wrap gap-2">
+                {PREDEFINED_TAGS.filter(t => analytics.tagMap[t.id] > 0).map(t => (
+                  <div key={t.id} className="flex items-center gap-2">
+                    <TagChip id={t.id} />
+                    <span className="text-[11px] text-white/40 font-mono">{analytics.tagMap[t.id]}×</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {analytics.total === 0 && (
+            <div className="card p-10 text-center text-white/25 text-sm">
+              Nenhum dado na agenda para analisar.
+            </div>
+          )}
+        </div>
+      )}
+
+      {editItem && <ItemModal item={editItem} onSave={handleSave} onClose={() => setEditItem(null)} isElectron={isElectron} />}
+      {showLote && <LoteModal onSave={handleSaveLote} onClose={() => setShowLote(false)} />}
+    </div>
+  )
+}

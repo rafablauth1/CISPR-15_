@@ -1,0 +1,527 @@
+﻿'use client'
+
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import {
+  ArrowLeft, ArrowRight, X, Loader2, CheckCircle2,
+  FolderOpen, Upload, ChevronDown, Users,
+  Shield, ShieldCheck, ShieldX, Plus, Minus,
+  Lightbulb, Lamp, Trash2,
+} from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { type LoteAmostra, type LoteConfig, newAmostra, LOTE_KEY } from '../types'
+
+/* ─── helpers ─────────────────────────────────────────────────────────────── */
+async function resizeToBase64(file: File, maxW = 1024): Promise<{ name: string; base64: string }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    const obj = URL.createObjectURL(file)
+    img.onload = () => {
+      const r = Math.min(1, maxW / img.width)
+      const canvas = document.createElement('canvas')
+      canvas.width  = Math.round(img.width  * r)
+      canvas.height = Math.round(img.height * r)
+      canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height)
+      const base64 = canvas.toDataURL('image/jpeg', 0.82).split(',')[1]
+      URL.revokeObjectURL(obj)
+      resolve({ name: file.name, base64 })
+    }
+    img.onerror = reject
+    img.src = obj
+  })
+}
+
+const getNum = (n: string) => parseInt(n.replace(/\.[^/.]+$/, '').replace(/\D/g, ''), 10) || 0
+
+/* ─── sub-componentes ─────────────────────────────────────────────────────── */
+function Label({ children }: { children: React.ReactNode }) {
+  return <label className="text-[10px] text-white/35 uppercase tracking-widest font-mono">{children}</label>
+}
+
+function Row({ label, children, span2 }: { label: string; children: React.ReactNode; span2?: boolean }) {
+  return (
+    <div className={cn('flex flex-col gap-1.5', span2 && 'col-span-2')}>
+      <Label>{label}</Label>
+      {children}
+    </div>
+  )
+}
+
+/* ─── AmostraCard ─────────────────────────────────────────────────────────── */
+function AmostraCard({ index, amostra, expanded, onToggle, onChange, tipoLote }: {
+  index: number
+  amostra: LoteAmostra
+  expanded: boolean
+  onToggle: () => void
+  onChange: (a: LoteAmostra) => void
+  tipoLote: 'lampada' | 'luminaria'
+}) {
+  const [pastaLoading, setPastaLoading] = useState(false)
+  const [docxLoading,  setDocxLoading]  = useState(false)
+
+  const set = (k: keyof LoteAmostra) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    onChange({ ...amostra, [k]: e.target.value })
+
+  const labelId = tipoLote === 'lampada' ? 'Código de Barras' : 'Número de Série'
+
+  const borderCls =
+    amostra.conformidade === 'reprovado' ? 'border-red/25 bg-red/3' :
+    amostra.conformidade === 'conforme'  ? 'border-green/20 bg-green/3' :
+    'border-white/8'
+
+  const badge: Record<LoteAmostra['conformidade'], string> = {
+    pendente:  'text-white/30 border-white/10',
+    conforme:  'text-green-400 border-green/25 bg-green/8',
+    reprovado: 'text-red-400 border-red/25 bg-red/8',
+  }
+
+  async function handlePhotosFromFiles(files: File[]) {
+    const sorted = files.filter(f => f.type.startsWith('image/')).sort((a, b) => getNum(a.name) - getNum(b.name))
+    const next: { name: string; base64: string }[] = []
+    for (const f of sorted) {
+      try { next.push(await resizeToBase64(f)) } catch {}
+    }
+    onChange({ ...amostra, photos: next })
+  }
+
+  async function handleDocxFile(file: File) {
+    setDocxLoading(true)
+    try {
+      const fd = new FormData(); fd.append('file', file)
+      const res  = await fetch('/api/parse-docx', { method: 'POST', body: fd })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      onChange({ ...amostra, docxHtml: data.html, docxFilename: file.name })
+    } catch (err: any) {
+      alert(`Erro ao processar DOCX: ${err.message}`)
+    } finally { setDocxLoading(false) }
+  }
+
+  async function handlePasta(files: FileList) {
+    setPastaLoading(true)
+    try {
+      const all = Array.from(files)
+      const docxFile   = all.find(f => f.name.toLowerCase().endsWith('.docx'))
+      const imageFiles = all.filter(f => f.type.startsWith('image/')).sort((a, b) => getNum(a.name) - getNum(b.name))
+
+      let updated = { ...amostra }
+
+      if (docxFile) {
+        const fd = new FormData(); fd.append('file', docxFile)
+        const res  = await fetch('/api/parse-docx', { method: 'POST', body: fd })
+        const data = await res.json()
+        if (!data.error) updated = { ...updated, docxHtml: data.html, docxFilename: docxFile.name }
+      }
+
+      if (imageFiles.length > 0) {
+        const photos: { name: string; base64: string }[] = []
+        for (const f of imageFiles) {
+          try { photos.push(await resizeToBase64(f)) } catch {}
+        }
+        updated = { ...updated, photos }
+      }
+
+      onChange(updated)
+    } finally { setPastaLoading(false) }
+  }
+
+  return (
+    <div className={cn('rounded-xl border transition-all', borderCls)}>
+
+      {/* Header */}
+      <button type="button" onClick={onToggle}
+        className="w-full flex items-center gap-3 px-4 py-3 text-left">
+        <span className="font-mono text-[10px] text-white/30 w-12 shrink-0">#{index + 1}</span>
+        <span className="text-sm text-white/70 flex-1 truncate">
+          {amostra.produto || <span className="text-white/20 italic">sem produto</span>}
+        </span>
+        {amostra.numRelatorio && (
+          <span className="text-[10px] font-mono text-gold shrink-0">{amostra.numRelatorio}</span>
+        )}
+        {amostra.docxFilename && (
+          <span className="text-[9px] font-mono text-teal/60 shrink-0">docx</span>
+        )}
+        {amostra.photos.length > 0 && (
+          <span className="text-[9px] font-mono text-teal/60 shrink-0">{amostra.photos.length}f</span>
+        )}
+        <span className={cn(
+          'px-2 py-0.5 rounded-md text-[9px] font-mono border uppercase tracking-wider shrink-0',
+          badge[amostra.conformidade]
+        )}>
+          {amostra.conformidade}
+        </span>
+        <ChevronDown size={12} className={cn('text-white/20 transition-transform shrink-0', expanded && 'rotate-180')} />
+      </button>
+
+      {expanded && (
+        <div className="px-4 pb-4 pt-1 border-t border-white/5 space-y-4">
+
+          {/* Campos de texto */}
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+            <Row label="Produto / Descrição" span2>
+              <input className="input text-sm" value={amostra.produto} onChange={set('produto')} placeholder="Ex: Luminária LED" />
+            </Row>
+            <Row label="Fabricante">
+              <input className="input text-sm" value={amostra.fabricante} onChange={set('fabricante')} />
+            </Row>
+            <Row label="Modelo">
+              <input className="input text-sm" value={amostra.modelo} onChange={set('modelo')} />
+            </Row>
+            <Row label={labelId}>
+              <input className="input text-sm" value={amostra.identificador} onChange={set('identificador')} />
+            </Row>
+            <Row label="Potência">
+              <input className="input text-sm" value={amostra.potencia} onChange={set('potencia')} placeholder="Ex: 60W" />
+            </Row>
+            <Row label="Tensão de Alimentação">
+              <input className="input text-sm" value={amostra.tensaoAlim} onChange={set('tensaoAlim')} />
+            </Row>
+            <Row label="Protocolo LABELO">
+              <input className="input text-sm" value={amostra.protocolo} onChange={set('protocolo')} />
+            </Row>
+            <Row label="Orçamento LABELO">
+              <input className="input text-sm" value={amostra.orcamento} onChange={set('orcamento')} />
+            </Row>
+            <Row label="Período — Início">
+              <input className="input text-sm" type="date" value={amostra.periodoInicio} onChange={set('periodoInicio')} />
+            </Row>
+            <Row label="Período — Fim">
+              <input className="input text-sm" type="date" value={amostra.periodoFim} onChange={set('periodoFim')} />
+            </Row>
+          </div>
+
+          {/* Anexos */}
+          <div className="border-t border-white/5 pt-3 space-y-3">
+            <p className="text-[9px] text-white/25 font-mono uppercase tracking-wider">Anexos</p>
+
+            <label className={cn(
+              'flex items-center justify-center gap-2 w-full px-3 py-3 rounded-xl border-2 border-dashed text-xs font-semibold cursor-pointer transition-all',
+              pastaLoading
+                ? 'border-blue-400/40 bg-blue-500/8 text-blue-400 cursor-wait'
+                : (amostra.docxHtml || amostra.photos.length > 0)
+                ? 'border-green/30 bg-green/6 text-green-400 hover:border-green/50'
+                : 'border-gold/30 bg-gold/4 text-gold hover:border-gold/60 hover:bg-gold/8',
+            )}>
+              {pastaLoading
+                ? <><Loader2 size={13} className="animate-spin" /> Processando…</>
+                : <><FolderOpen size={13} /> Carregar Pasta do Ensaio</>}
+              <input type="file" className="hidden" disabled={pastaLoading}
+                {...{ webkitdirectory: '' } as any}
+                onChange={e => { if (e.target.files?.length) handlePasta(e.target.files) }} />
+            </label>
+
+            {(amostra.docxHtml || amostra.photos.length > 0) && (
+              <div className="flex flex-col gap-1.5">
+                {amostra.docxHtml && (
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-green/8 border border-green/20">
+                    <CheckCircle2 size={11} className="text-green-400 shrink-0" />
+                    <span className="text-green-400 text-[11px] font-mono truncate flex-1">{amostra.docxFilename}</span>
+                    <button type="button"
+                      onClick={() => onChange({ ...amostra, docxHtml: null, docxFilename: null })}
+                      className="text-white/25 hover:text-red-400 transition-colors">
+                      <X size={11} />
+                    </button>
+                  </div>
+                )}
+                {amostra.photos.length > 0 && (
+                  <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-green/8 border border-green/20">
+                    <CheckCircle2 size={11} className="text-green-400 shrink-0" />
+                    <span className="text-green-400 text-[11px] font-mono flex-1">{amostra.photos.length} foto(s)</span>
+                    <button type="button"
+                      onClick={() => onChange({ ...amostra, photos: [] })}
+                      className="text-white/25 hover:text-red-400 transition-colors">
+                      <X size={11} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {amostra.photos.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {amostra.photos.map((ph, i) => (
+                  <div key={i} className="relative group">
+                    <img src={`data:image/jpeg;base64,${ph.base64}`} alt={`Foto ${i + 1}`}
+                      className="w-14 h-10 object-cover rounded-lg border border-white/10" />
+                    <button type="button"
+                      onClick={() => onChange({ ...amostra, photos: amostra.photos.filter((_, j) => j !== i) })}
+                      className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-500/90 text-white items-center justify-center hidden group-hover:flex">
+                      <X size={8} />
+                    </button>
+                    <span className="text-[8px] text-white/30 block text-center">{i + 1}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 text-[11px] text-white/40 hover:text-gold hover:border-gold/30 cursor-pointer transition-all">
+                <Upload size={10} /> Fotos
+                <input type="file" multiple accept="image/*" className="hidden"
+                  onChange={e => { if (e.target.files?.length) handlePhotosFromFiles(Array.from(e.target.files)) }} />
+              </label>
+              {!amostra.docxHtml && !docxLoading && (
+                <label className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/10 text-[11px] text-white/40 hover:text-gold hover:border-gold/30 cursor-pointer transition-all">
+                  <Upload size={10} /> Radimation .docx
+                  <input type="file" accept=".docx" className="hidden"
+                    onChange={e => { const f = e.target.files?.[0]; if (f) handleDocxFile(f) }} />
+                </label>
+              )}
+              {docxLoading && (
+                <div className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] text-blue-400">
+                  <Loader2 size={10} className="animate-spin" /> Processando…
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Conformidade */}
+          <div className="border-t border-white/5 pt-3">
+            <Label>Conformidade</Label>
+            <div className="flex gap-2 mt-2">
+              {(['pendente', 'conforme', 'reprovado'] as const).map(s => (
+                <button key={s} type="button"
+                  onClick={() => onChange({ ...amostra, conformidade: s })}
+                  className={cn(
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono border capitalize transition-all',
+                    amostra.conformidade === s
+                      ? badge[s]
+                      : 'text-white/20 border-white/5 hover:border-white/15 hover:text-white/40'
+                  )}>
+                  {s === 'conforme'  && <ShieldCheck size={10} />}
+                  {s === 'reprovado' && <ShieldX size={10} />}
+                  {s === 'pendente'  && <Shield size={10} />}
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ─── página ──────────────────────────────────────────────────────────────── */
+export default function LotePage() {
+  const router = useRouter()
+  const [lote,      setLote]      = useState<LoteConfig | null>(null)
+  const [expanded,  setExpanded]  = useState<number | null>(0)
+  const [emitindo,  setEmitindo]  = useState(false)
+  const [resultado, setResultado] = useState<{ reprovados: number[]; checked: boolean } | null>(null)
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LOTE_KEY)
+      if (raw) setLote(JSON.parse(raw))
+      else router.push('/cispr15')
+    } catch {
+      router.push('/cispr15')
+    }
+  }, [])
+
+  function saveLote(next: LoteConfig) {
+    setLote(next)
+    try { localStorage.setItem(LOTE_KEY, JSON.stringify(next)) }
+    catch { alert('Armazenamento cheio — reduza o número de fotos.') }
+  }
+
+  function handleQtd(n: number) {
+    if (!lote) return
+    const qtd = Math.max(1, Math.min(20, n))
+    const amostras = qtd > lote.amostras.length
+      ? [...lote.amostras, ...Array.from({ length: qtd - lote.amostras.length }, newAmostra)]
+      : lote.amostras.slice(0, qtd)
+    saveLote({ ...lote, qtd, amostras })
+    setResultado(null)
+  }
+
+  function handleTipo(tipo: 'lampada' | 'luminaria') {
+    if (!lote) return
+    saveLote({ ...lote, tipo })
+  }
+
+  function updateAmostra(i: number, a: LoteAmostra) {
+    if (!lote) return
+    saveLote({ ...lote, amostras: lote.amostras.map((x, j) => j === i ? a : x) })
+  }
+
+  function verificarConformidade() {
+    if (!lote) return
+    const reprovados = lote.amostras
+      .map((a, i) => ({ a, i }))
+      .filter(({ a }) => a.conformidade === 'reprovado')
+      .map(({ i }) => i)
+    setResultado({ reprovados, checked: true })
+  }
+
+  function removerReprovados() {
+    if (!lote || !resultado) return
+    const novas = lote.amostras.filter((_, i) => !resultado.reprovados.includes(i))
+    saveLote({ ...lote, qtd: Math.max(1, novas.length), amostras: novas })
+    setResultado(null)
+  }
+
+  async function emitirLote() {
+    if (!lote) return
+    const paraEmitir = lote.amostras.map((a, i) => ({ a, i })).filter(({ a }) => a.conformidade !== 'reprovado')
+    if (paraEmitir.length === 0) { alert('Nenhuma amostra para emitir.'); return }
+    setEmitindo(true)
+    const numeros: string[] = []
+    try {
+      for (const { a: am, i } of paraEmitir) {
+        const res = await fetch('/api/registrar-excel', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            cliente: lote.cliente, produto: am.produto,
+            protocolo: am.protocolo, orcamento: am.orcamento,
+            responsavel: lote.responsavel,
+          }),
+        })
+        const data = await res.json()
+        if (data.error) throw new Error(`Amostra ${i + 1}: ${data.error}`)
+        const updated = lote.amostras.map((a, j) => j === i ? { ...a, numRelatorio: data.numRelatorio } : a)
+        saveLote({ ...lote, amostras: updated })
+        numeros.push(data.numRelatorio)
+      }
+      alert(`Lote emitido com sucesso!\n${numeros.join('\n')}`)
+    } catch (err: any) {
+      alert(`Erro ao emitir lote: ${err.message}`)
+    } finally {
+      setEmitindo(false)
+    }
+  }
+
+  if (!lote) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 size={24} className="animate-spin text-white/20" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="max-w-3xl mx-auto pb-10">
+
+      {/* Header */}
+      <div className="mb-6">
+        <button type="button" onClick={() => router.push('/cispr15')}
+          className="flex items-center gap-2 text-white/40 hover:text-white/70 text-sm mb-4 transition-colors">
+          <ArrowLeft size={14} /> Voltar ao formulário
+        </button>
+        <p className="form-section mb-1">CISPR 15 · EMC</p>
+        <h1 className="text-2xl font-display font-bold text-white">Emitir Lote</h1>
+        <p className="text-white/40 text-sm mt-1">Configure cada amostra individualmente antes de emitir</p>
+      </div>
+
+      {/* Config bar */}
+      <div className="card p-4 mb-5 flex flex-wrap items-center gap-6">
+        <div className="flex flex-col gap-2">
+          <Label>Amostras</Label>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => handleQtd(lote.qtd - 1)}
+              className="w-7 h-7 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:bg-white/10 flex items-center justify-center transition-all">
+              <Minus size={12} />
+            </button>
+            <span className="text-white font-bold font-mono w-8 text-center">{lote.qtd}</span>
+            <button type="button" onClick={() => handleQtd(lote.qtd + 1)}
+              className="w-7 h-7 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:bg-white/10 flex items-center justify-center transition-all">
+              <Plus size={12} />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <Label>Tipo</Label>
+          <div className="flex gap-2">
+            {(['lampada', 'luminaria'] as const).map(t => (
+              <button key={t} type="button" onClick={() => handleTipo(t)}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono border transition-all',
+                  lote.tipo === t ? 'border-gold bg-gold/10 text-gold' : 'border-white/8 text-white/35 hover:border-white/20'
+                )}>
+                {t === 'lampada' ? <Lightbulb size={11} /> : <Lamp size={11} />}
+                {t === 'lampada' ? 'Lâmpada' : 'Luminária'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2 flex-1 min-w-0">
+          <Label>Cliente</Label>
+          <p className="text-sm text-white/50 truncate">
+            {lote.cliente || <span className="text-white/20 italic">não definido</span>}
+          </p>
+        </div>
+      </div>
+
+      {/* Lista de amostras */}
+      <div className="space-y-3">
+        {lote.amostras.map((am, i) => (
+          <AmostraCard key={i} index={i} amostra={am} tipoLote={lote.tipo}
+            expanded={expanded === i}
+            onToggle={() => setExpanded(expanded === i ? null : i)}
+            onChange={a => updateAmostra(i, a)}
+          />
+        ))}
+      </div>
+
+      {/* Resultado de conformidade */}
+      {resultado?.checked && (
+        <div className={cn(
+          'mt-4 px-4 py-3 rounded-xl border text-sm',
+          resultado.reprovados.length > 0
+            ? 'border-red/20 bg-red/8 text-red-400'
+            : 'border-green/20 bg-green/8 text-green-400'
+        )}>
+          {resultado.reprovados.length === 0 ? (
+            <span className="flex items-center gap-2">
+              <ShieldCheck size={14} /> Todas as amostras estão conformes.
+            </span>
+          ) : (
+            <div className="flex items-center justify-between gap-4">
+              <span className="flex items-center gap-2">
+                <ShieldX size={14} />
+                {resultado.reprovados.length} reprovada(s):{' '}
+                {resultado.reprovados.map(i => `Amostra ${i + 1}`).join(', ')}
+              </span>
+              <button type="button" onClick={removerReprovados}
+                className="text-xs font-semibold underline hover:no-underline shrink-0">
+                Remover do lote
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Footer */}
+      <div className="flex items-center gap-3 mt-6 pt-5 border-t border-white/8 flex-wrap">
+        <button type="button" onClick={verificarConformidade}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-white/10 text-sm text-white/50 hover:text-white hover:border-white/25 transition-all">
+          <Shield size={13} /> Verificar Conformidade
+        </button>
+        <button type="button" onClick={() => {
+          if (!confirm('Limpar todos os dados do lote?')) return
+          localStorage.removeItem(LOTE_KEY)
+          router.push('/cispr15')
+        }}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-red/20 bg-red/8 text-red-400 hover:bg-red/15 transition-all text-sm">
+          <Trash2 size={13} /> Limpar Lote
+        </button>
+        <div className="flex-1" />
+        <button type="button" onClick={() => router.push('/cispr15')}
+          className="btn-secondary flex items-center gap-2 px-4 py-2.5 text-sm">
+          <ArrowLeft size={13} /> Voltar
+        </button>
+        <button type="button" onClick={emitirLote} disabled={emitindo}
+          className="btn-primary flex items-center gap-2 px-5 py-2.5 text-sm font-bold">
+          {emitindo ? <Loader2 size={13} className="animate-spin" /> : <Users size={13} />}
+          {emitindo ? 'Emitindo…' : 'Emitir Lote'}
+        </button>
+      </div>
+
+    </div>
+  )
+}
