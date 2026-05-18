@@ -28,7 +28,7 @@ export function EmendasTab({ relatorios, onCarregarRelatorio }: Props) {
   const [expanded, setExpanded] = useState<string | null>(null)
 
   const todasEmendas: EmendaFlat[] = relatorios.flatMap(r =>
-    r.emendas.map(e => ({
+    (r.emendas ?? []).map(e => ({
       relatorio: r,
       numero: e.numero,
       dataEmenda: e.dataEmenda,
@@ -40,9 +40,9 @@ export function EmendasTab({ relatorios, onCarregarRelatorio }: Props) {
   const filtradas = busca.trim()
     ? todasEmendas.filter(e =>
         e.numFormatado.toLowerCase().includes(busca.toLowerCase()) ||
-        e.relatorio.clienteNome.toLowerCase().includes(busca.toLowerCase()) ||
-        e.relatorio.protocolo.toLowerCase().includes(busca.toLowerCase()) ||
-        e.relatorio.produto.toLowerCase().includes(busca.toLowerCase())
+        e.relatorio.clienteNome?.toLowerCase().includes(busca.toLowerCase()) ||
+        e.relatorio.protocolo?.toLowerCase().includes(busca.toLowerCase()) ||
+        e.relatorio.produto?.toLowerCase().includes(busca.toLowerCase())
       )
     : todasEmendas
 

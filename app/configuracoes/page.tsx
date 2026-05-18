@@ -4,10 +4,10 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Settings, FolderOpen, FileSpreadsheet,
-  CheckCircle2, AlertTriangle, Save, RotateCcw, Lock,
+  CheckCircle2, AlertTriangle, Save, RotateCcw, Lock, ArrowRight,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { type AppSettings, SETTINGS_DEFAULTS, SETTINGS_KEY } from '@/app/cispr15/types'
+import { type AppSettings, SETTINGS_DEFAULTS, SETTINGS_KEY, AUTH_KEY } from '@/app/cispr15/types'
 
 function Label({ children }: { children: React.ReactNode }) {
   return <label className="text-[10px] text-white/35 uppercase tracking-widest font-mono">{children}</label>
@@ -28,16 +28,31 @@ export default function ConfiguracoesPage() {
   const [saved,      setSaved]      = useState(false)
   const [error,      setError]      = useState<string | null>(null)
   const [isElectron, setIsElectron] = useState(false)
+  const [gateOpen,   setGateOpen]   = useState(false)
+  const [gateInput,  setGateInput]  = useState('')
+  const [gateError,  setGateError]  = useState(false)
+  const [appPassword, setAppPassword] = useState('')
 
   useEffect(() => {
     const api = (window as any).electronAPI
     if (api) {
       setIsElectron(true)
-      api.getSettings().then((s: AppSettings) => setSettings(s))
+      api.getSettings().then((s: AppSettings) => {
+        setSettings(s)
+        const senha = s.senhaEmissao ?? ''
+        setAppPassword(senha)
+        if (senha && !sessionStorage.getItem(AUTH_KEY)) setGateOpen(true)
+      })
     } else {
       try {
         const raw = localStorage.getItem(SETTINGS_KEY)
-        if (raw) setSettings({ ...SETTINGS_DEFAULTS, ...JSON.parse(raw) })
+        if (raw) {
+          const s = { ...SETTINGS_DEFAULTS, ...JSON.parse(raw) }
+          setSettings(s)
+          const senha = s.senhaEmissao ?? ''
+          setAppPassword(senha)
+          if (senha && !sessionStorage.getItem(AUTH_KEY)) setGateOpen(true)
+        }
       } catch {}
     }
   }, [])
@@ -73,12 +88,27 @@ export default function ConfiguracoesPage() {
     if (!res.canceled) setSettings(s => ({ ...s, dataFolder: res.folderPath }))
   }
 
+  async function browseAgendaFolder() {
+    const api = (window as any).electronAPI
+    if (!api) return
+    const res = await api.browseFolder('Selecionar pasta da Agenda de Execução')
+    if (!res.canceled) setSettings(s => ({ ...s, agendaFolder: res.folderPath }))
+  }
+
+  async function browsePdfCopyFolder() {
+    const api = (window as any).electronAPI
+    if (!api) return
+    const res = await api.browseFolder('Selecionar pasta de cópias de PDF')
+    if (!res.canceled) setSettings(s => ({ ...s, pdfCopyFolder: res.folderPath }))
+  }
+
   function restaurarPadroes() {
     if (!confirm('Restaurar todas as configurações para os valores padrão?')) return
     setSettings(SETTINGS_DEFAULTS)
   }
 
   return (
+    <>
     <div className="max-w-2xl mx-auto px-4 py-8">
       {/* Header */}
       <button onClick={() => router.back()}
@@ -168,6 +198,58 @@ export default function ConfiguracoesPage() {
           )}
         </Section>
 
+        {/* Pasta da Agenda */}
+        <Section title="Pasta da Agenda de Execução">
+          <div className="space-y-2">
+            <Label>Pasta da agenda <span className="normal-case text-white/20">(separada dos dados gerais)</span></Label>
+            <div className="flex gap-2">
+              <input
+                className="input flex-1 text-sm font-mono"
+                value={settings.agendaFolder ?? ''}
+                onChange={e => setSettings(s => ({ ...s, agendaFolder: e.target.value }))}
+                placeholder="Ex: \\servidor\projetos\CISPR15\agenda"
+              />
+              {isElectron && (
+                <button type="button" onClick={browseAgendaFolder}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-white/10 text-white/50 hover:text-teal hover:border-teal/30 transition-all text-xs shrink-0">
+                  <FolderOpen size={13} /> Procurar
+                </button>
+              )}
+            </div>
+            <p className="text-[10px] text-white/25 font-mono">
+              Pasta onde <span className="text-white/40">cispr15_agenda.json</span> será armazenado.
+              Se vazio, usa a mesma pasta de dados compartilhados acima.
+              Técnicos que apenas consultam podem ter acesso somente a esta pasta.
+            </p>
+          </div>
+        </Section>
+
+        {/* Pasta de cópias de PDF */}
+        <Section title="Pasta de Cópias de PDF">
+          <div className="space-y-2">
+            <Label>Pasta de destino para cópias dos PDFs gerados</Label>
+            <div className="flex gap-2">
+              <input
+                className="input flex-1 text-sm font-mono"
+                value={settings.pdfCopyFolder ?? ''}
+                onChange={e => setSettings(s => ({ ...s, pdfCopyFolder: e.target.value }))}
+                placeholder="Ex: \\servidor\projetos\CISPR15\relatorios_pdf"
+              />
+              {isElectron && (
+                <button type="button" onClick={browsePdfCopyFolder}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-white/10 text-white/50 hover:text-teal hover:border-teal/30 transition-all text-xs shrink-0">
+                  <FolderOpen size={13} /> Procurar
+                </button>
+              )}
+            </div>
+            <p className="text-[10px] text-white/25 font-mono">
+              Toda vez que um PDF for gerado ou atualizado (inclusive com assinatura), uma cópia é salva aqui automaticamente.
+              Ao excluir um item da agenda, a cópia correspondente também é removida.
+              Ideal para acesso de consulta sem expor a pasta original da EUT.
+            </p>
+          </div>
+        </Section>
+
         {/* PDF / HTML */}
         <Section title="Saída de PDF e HTML">
           <label className="flex items-center gap-3 cursor-pointer group">
@@ -246,5 +328,61 @@ export default function ConfiguracoesPage() {
 
       </div>
     </div>
+
+    {/* ── Gate de senha ── */}
+
+    {gateOpen && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+        <div className="card w-full max-w-sm mx-4 p-7 space-y-5 animate-fade-in">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-gold/12 border border-gold/25 flex items-center justify-center">
+              <Lock size={20} className="text-gold" />
+            </div>
+            <div>
+              <p className="font-bold text-white">Configurações</p>
+              <p className="text-[11px] text-white/40">Informe a senha para acessar</p>
+            </div>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[10px] text-white/35 uppercase tracking-widest font-mono">Senha</label>
+            <input
+              type="password"
+              className={cn('input', gateError && 'border-red-500/50')}
+              placeholder="••••••"
+              value={gateInput}
+              autoFocus
+              onChange={e => { setGateInput(e.target.value); setGateError(false) }}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  if (gateInput === appPassword) {
+                    sessionStorage.setItem(AUTH_KEY, '1')
+                    setGateOpen(false); setGateInput('')
+                  } else { setGateError(true); setGateInput('') }
+                }
+              }}
+            />
+            {gateError && <p className="text-[11px] text-red-400">Senha incorreta.</p>}
+          </div>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => router.back()}
+              className="flex-1 py-2.5 rounded-xl border border-white/10 text-white/40 hover:text-white/70 text-sm transition-all">
+              Voltar
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (gateInput === appPassword) {
+                  sessionStorage.setItem(AUTH_KEY, '1')
+                  setGateOpen(false); setGateInput('')
+                } else { setGateError(true); setGateInput('') }
+              }}
+              className="btn-primary flex-1 py-2.5 text-sm font-bold flex items-center justify-center gap-2">
+              <ArrowRight size={14} /> Entrar
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   )
 }

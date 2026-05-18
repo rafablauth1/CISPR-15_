@@ -46,7 +46,7 @@ let eutFolderPath = null
 
 /* ─── settings ────────────────────────────────────────────────────────────── */
 
-const SETTINGS_DEFAULTS = { excelPath: '', dataFolder: '', pdfAutoSaveToEut: true }
+const SETTINGS_DEFAULTS = { excelPath: '', dataFolder: '', agendaFolder: '', pdfCopyFolder: '', pdfAutoSaveToEut: true }
 
 function getUserDataDir() {
   return app.getPath('userData')
@@ -80,6 +80,43 @@ function dataFilePath(filename) {
   const { dataFolder } = readSettings()
   if (!dataFolder) return null
   return path.join(dataFolder, filename)
+}
+
+function agendaFilePath() {
+  const { agendaFolder, dataFolder } = readSettings()
+  const folder = agendaFolder || dataFolder
+  if (!folder) return null
+  return path.join(folder, 'cispr15_agenda.json')
+}
+
+function readAgendaFile() {
+  const fp = agendaFilePath()
+  if (!fp) return null
+  try {
+    if (fs.existsSync(fp)) return JSON.parse(fs.readFileSync(fp, 'utf-8'))
+  } catch {}
+  return []
+}
+
+function writeAgendaFile(data) {
+  const fp = agendaFilePath()
+  if (!fp) throw new Error('Pasta de agenda não configurada. Vá em Configurações.')
+  fs.mkdirSync(path.dirname(fp), { recursive: true })
+  let lastErr = null
+  for (let i = 0; i < 4; i++) {
+    try { fs.writeFileSync(fp, JSON.stringify(data, null, 2), 'utf-8'); return }
+    catch (e) { lastErr = e }
+  }
+  throw lastErr
+}
+
+function copyPdfToFolder(filePath) {
+  const { pdfCopyFolder } = readSettings()
+  if (!pdfCopyFolder || !filePath) return
+  try {
+    fs.mkdirSync(pdfCopyFolder, { recursive: true })
+    fs.copyFileSync(filePath, path.join(pdfCopyFolder, path.basename(filePath)))
+  } catch {}
 }
 
 function readDataFile(filename) {
@@ -376,12 +413,12 @@ ipcMain.handle('data:save-relatorios', (_, { relatorios }) => {
 })
 
 ipcMain.handle('data:get-agenda', () => {
-  const data = readDataFile('cispr15_agenda.json')
+  const data = readAgendaFile()
   return { ok: true, agenda: data ?? [], fromNetwork: data !== null }
 })
 
 ipcMain.handle('data:save-agenda', (_, { agenda }) => {
-  try { writeDataFile('cispr15_agenda.json', agenda); return { ok: true } }
+  try { writeAgendaFile(agenda); return { ok: true } }
   catch (err) { return { ok: false, error: String(err) } }
 })
 
@@ -402,24 +439,55 @@ ipcMain.handle('pdf:save', async (_, { filename }) => {
       margins: { marginType: 'none' }, displayHeaderFooter: false,
     })
     fs.writeFileSync(filePath, data)
+    copyPdfToFolder(filePath)
     shell.openPath(filePath)
     return { ok: true, filePath }
   } catch (err) { return { ok: false, error: String(err) } }
 })
 
-ipcMain.handle('pdf:save-eut', async (_, { filename }) => {
-  const win = BrowserWindow.getFocusedWindow()
+ipcMain.handle('pdf:save-eut', async (_, { filename, folderPath }) => {
+  const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]
   if (!win) return { ok: false, error: 'sem janela' }
   try {
-    const outDir  = eutFolderPath || app.getPath('documents')
+    const outDir  = folderPath || eutFolderPath || app.getPath('documents')
     const outPath = path.join(outDir, (filename || 'relatorio.pdf').replace(/[\\/:"*?<>|]/g, '_'))
+    // Se já existe, apenas abre a pasta sem regerar
+    if (fs.existsSync(outPath)) {
+      copyPdfToFolder(outPath)
+      shell.showItemInFolder(outPath)
+      return { ok: true, filePath: outPath, skipped: true }
+    }
     const data = await win.webContents.printToPDF({
       printBackground: true, pageSize: 'A4', landscape: false,
       margins: { marginType: 'none' }, displayHeaderFooter: false,
     })
     await writeWithRetry(outPath, data)
+    copyPdfToFolder(outPath)
     shell.showItemInFolder(outPath)
     return { ok: true, filePath: outPath }
+  } catch (err) { return { ok: false, error: String(err) } }
+})
+
+ipcMain.handle('pdf:find-in-copy-folder', (_, { query }) => {
+  const { pdfCopyFolder } = readSettings()
+  if (!pdfCopyFolder || !query) return { ok: false, filePath: null }
+  try {
+    if (!fs.existsSync(pdfCopyFolder)) return { ok: false, filePath: null }
+    const needle = String(query).trim().toLowerCase()
+    const files = fs.readdirSync(pdfCopyFolder)
+    const match = files.find(f => f.toLowerCase().endsWith('.pdf') && f.toLowerCase().includes(needle))
+    if (match) return { ok: true, filePath: path.join(pdfCopyFolder, match) }
+    return { ok: false, filePath: null, folder: pdfCopyFolder }
+  } catch (err) { return { ok: false, filePath: null, error: String(err) } }
+})
+
+ipcMain.handle('pdf:delete-copy', (_, { pdfPath }) => {
+  const { pdfCopyFolder } = readSettings()
+  if (!pdfCopyFolder || !pdfPath) return { ok: true }
+  try {
+    const copyPath = path.join(pdfCopyFolder, path.basename(pdfPath))
+    if (fs.existsSync(copyPath)) fs.unlinkSync(copyPath)
+    return { ok: true }
   } catch (err) { return { ok: false, error: String(err) } }
 })
 
@@ -487,6 +555,12 @@ ipcMain.handle('eut:open-folder', async () => {
 
 ipcMain.handle('eut:get-folder',   () => ({ folderPath: eutFolderPath }))
 ipcMain.handle('eut:clear-folder', () => { eutFolderPath = null; return { ok: true } })
+
+ipcMain.handle('window:focus', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  if (win) { win.focus(); win.webContents.focus() }
+  return { ok: true }
+})
 
 /* ─── IPC: Excel ──────────────────────────────────────────────────────────── */
 

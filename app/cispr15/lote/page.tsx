@@ -9,7 +9,10 @@ import {
   Lightbulb, Lamp, Trash2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { type LoteAmostra, type LoteConfig, newAmostra, LOTE_KEY } from '../types'
+import {
+  type LoteAmostra, type LoteConfig, type Cispr15Config, type RelatorioSalvo, type EquipamentoSalvo,
+  newAmostra, LOTE_KEY, RELATORIOS_KEY, CFG_KEY, PHOTOS_KEY, DOCX_HTML_KEY, DOCX_NAME_KEY, EQUIPAMENTOS_KEY, RELATORIO_DOCX_PFX, AGENDA_KEY,
+} from '../types'
 
 /* ─── helpers ─────────────────────────────────────────────────────────────── */
 async function resizeToBase64(file: File, maxW = 1024): Promise<{ name: string; base64: string }> {
@@ -48,19 +51,34 @@ function Row({ label, children, span2 }: { label: string; children: React.ReactN
 }
 
 /* ─── AmostraCard ─────────────────────────────────────────────────────────── */
-function AmostraCard({ index, amostra, expanded, onToggle, onChange, tipoLote }: {
+function AmostraCard({ index, amostra, expanded, onToggle, onChange, tipoLote, onVerPDF, equipamentos }: {
   index: number
   amostra: LoteAmostra
   expanded: boolean
   onToggle: () => void
   onChange: (a: LoteAmostra) => void
   tipoLote: 'lampada' | 'luminaria'
+  onVerPDF?: () => void
+  equipamentos?: EquipamentoSalvo[]
 }) {
-  const [pastaLoading, setPastaLoading] = useState(false)
-  const [docxLoading,  setDocxLoading]  = useState(false)
+  const [pastaLoading,  setPastaLoading]  = useState(false)
+  const [docxLoading,   setDocxLoading]   = useState(false)
+  const [equipSearch,   setEquipSearch]   = useState('')
+  const [showEquipPick, setShowEquipPick] = useState(false)
 
   const set = (k: keyof LoteAmostra) => (e: React.ChangeEvent<HTMLInputElement>) =>
     onChange({ ...amostra, [k]: e.target.value })
+
+  function aplicarEquipamento(eq: EquipamentoSalvo) {
+    onChange({
+      ...amostra,
+      produto: eq.produto, fabricante: eq.fabricante, modelo: eq.modelo,
+      potencia: eq.potencia, tensaoAlim: eq.tensaoAlim,
+      frequencia: eq.frequencia || amostra.frequencia,
+    })
+    setShowEquipPick(false)
+    setEquipSearch('')
+  }
 
   const labelId = tipoLote === 'lampada' ? 'Código de Barras' : 'Número de Série'
 
@@ -135,6 +153,12 @@ function AmostraCard({ index, amostra, expanded, onToggle, onChange, tipoLote }:
         <span className="text-sm text-white/70 flex-1 truncate">
           {amostra.produto || <span className="text-white/20 italic">sem produto</span>}
         </span>
+        {onVerPDF && (
+          <button type="button" onClick={e => { e.stopPropagation(); onVerPDF() }}
+            className="text-[10px] font-mono text-teal hover:text-teal/70 bg-teal/8 border border-teal/20 px-2 py-0.5 rounded transition-all shrink-0 flex items-center gap-1">
+            <ArrowRight size={8} /> {amostra.numRelatorio ? 'Ver PDF' : 'Preview'}
+          </button>
+        )}
         {amostra.numRelatorio && (
           <span className="text-[10px] font-mono text-gold shrink-0">{amostra.numRelatorio}</span>
         )}
@@ -155,6 +179,45 @@ function AmostraCard({ index, amostra, expanded, onToggle, onChange, tipoLote }:
 
       {expanded && (
         <div className="px-4 pb-4 pt-1 border-t border-white/5 space-y-4">
+
+          {/* Equipment picker */}
+          {equipamentos && equipamentos.length > 0 && (
+            <div className="mb-1">
+              {showEquipPick ? (
+                <div className="rounded-xl border border-white/10 bg-[#0d1017] p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] text-white/40 font-mono uppercase tracking-wider flex items-center gap-1.5">
+                      <Upload size={10} /> Catálogo de Equipamentos
+                    </p>
+                    <button type="button" onClick={() => setShowEquipPick(false)} className="text-white/25 hover:text-white/60 transition-colors">
+                      <X size={12} />
+                    </button>
+                  </div>
+                  <input className="input py-1 text-xs w-full" placeholder="Filtrar…"
+                    value={equipSearch} onChange={e => setEquipSearch(e.target.value)} autoFocus />
+                  <div className="max-h-[120px] overflow-y-auto space-y-0.5">
+                    {equipamentos
+                      .filter(e => !equipSearch || [e.produto, e.fabricante, e.modelo].some(v => v?.toLowerCase().includes(equipSearch.toLowerCase())))
+                      .slice(0, 20).map(e => (
+                        <button key={e.id} type="button" onClick={() => aplicarEquipamento(e)}
+                          className="w-full text-left px-2 py-1.5 rounded hover:bg-white/5 transition-colors">
+                          <span className="text-xs text-white/80 font-semibold">{e.produto}</span>
+                          {(e.fabricante || e.modelo) && (
+                            <span className="text-[10px] text-white/35 ml-1.5">{[e.fabricante, e.modelo].filter(Boolean).join(' · ')}</span>
+                          )}
+                          {e.potencia && <span className="text-[10px] text-white/25 ml-1">{e.potencia}</span>}
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              ) : (
+                <button type="button" onClick={() => setShowEquipPick(true)}
+                  className="flex items-center gap-1.5 text-[11px] text-white/30 hover:text-teal border border-white/8 hover:border-teal/30 px-3 py-1.5 rounded-lg transition-all">
+                  <Upload size={10} /> Preencher do catálogo
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Campos de texto */}
           <div className="grid grid-cols-2 gap-x-4 gap-y-3">
@@ -306,10 +369,12 @@ function AmostraCard({ index, amostra, expanded, onToggle, onChange, tipoLote }:
 /* ─── página ──────────────────────────────────────────────────────────────── */
 export default function LotePage() {
   const router = useRouter()
-  const [lote,      setLote]      = useState<LoteConfig | null>(null)
-  const [expanded,  setExpanded]  = useState<number | null>(0)
-  const [emitindo,  setEmitindo]  = useState(false)
-  const [resultado, setResultado] = useState<{ reprovados: number[]; checked: boolean } | null>(null)
+  const [lote,        setLote]        = useState<LoteConfig | null>(null)
+  const [expanded,    setExpanded]    = useState<number | null>(0)
+  const [emitindo,    setEmitindo]    = useState(false)
+  const [resultado,   setResultado]   = useState<{ reprovados: number[]; checked: boolean } | null>(null)
+  const [emitidos,    setEmitidos]    = useState<Record<number, string>>({}) // index → numRelatorio
+  const [equipamentos,setEquipamentos] = useState<EquipamentoSalvo[]>([])
 
   useEffect(() => {
     try {
@@ -319,6 +384,21 @@ export default function LotePage() {
     } catch {
       router.push('/cispr15')
     }
+    // load equipment catalog
+    async function loadEquip() {
+      const api = (window as any).electronAPI
+      if (api) {
+        try {
+          const res = await api.getEquipamentos()
+          if (res.ok && Array.isArray(res.equipamentos)) { setEquipamentos(res.equipamentos); return }
+        } catch {}
+      }
+      try {
+        const raw = localStorage.getItem(EQUIPAMENTOS_KEY)
+        if (raw) setEquipamentos(JSON.parse(raw))
+      } catch {}
+    }
+    loadEquip()
   }, [])
 
   function saveLote(next: LoteConfig) {
@@ -363,35 +443,149 @@ export default function LotePage() {
     setResultado(null)
   }
 
+  async function salvarRelatorioSalvo(am: LoteAmostra, numRelatorio: string) {
+    if (!lote) return
+    const cfg: Cispr15Config = {
+      tipo: lote.tipo, tensaoConfig: '127_220',
+      cliente: lote.cliente, clienteRua: lote.clienteRua ?? '',
+      clienteCidade: lote.clienteCidade ?? '', clienteCep: lote.clienteCep ?? '',
+      produto: am.produto, fabricante: am.fabricante, modelo: am.modelo,
+      identificador: am.identificador, lacre: '',
+      tensaoAlim: am.tensaoAlim, potencia: am.potencia, frequencia: am.frequencia,
+      documentacao: 'embalagem com especificações',
+      numRelatorio, orcamento: am.orcamento, protocolo: am.protocolo,
+      periodoInicio: am.periodoInicio, periodoFim: am.periodoFim, dataEmissao: am.dataEmissao,
+      responsavel: lote.responsavel,
+      resultadoConduzida: 'pass', resultadoLoop: 'pass', resultadoAnexoB: 'pass',
+    }
+    const novo: RelatorioSalvo = {
+      id: crypto.randomUUID(),
+      numRelatorio,
+      dataEmissao: am.dataEmissao,
+      clienteNome: lote.cliente,
+      protocolo: am.protocolo,
+      produto: am.produto,
+      cfg,
+      photos: am.photos,
+      docxFilename: am.docxFilename,
+      emendas: [],
+    }
+    const api = (window as any).electronAPI
+    let lista: RelatorioSalvo[] = []
+    if (api) {
+      try { const r = await api.getRelatorios(); if (r.ok && Array.isArray(r.relatorios)) lista = r.relatorios } catch {}
+    }
+    if (!lista.length) {
+      try { const raw = localStorage.getItem(RELATORIOS_KEY); if (raw) lista = JSON.parse(raw) } catch {}
+    }
+    lista = [...lista, novo]
+    if (api) { try { await api.saveRelatorios(lista) } catch {} }
+    localStorage.setItem(RELATORIOS_KEY, JSON.stringify(lista))
+    if (am.docxHtml) {
+      try { localStorage.setItem(RELATORIO_DOCX_PFX + novo.id, am.docxHtml) } catch {}
+    }
+    return novo
+  }
+
+  async function sincronizarAgenda(protocolo: string, numRelatorio: string, dataEmissao: string) {
+    try {
+      const proto = protocolo.trim().toLowerCase()
+      const api = (window as any).electronAPI
+      let lista: any[] = []
+      if (api) {
+        const res = await api.getAgenda().catch(() => null)
+        if (res?.ok && Array.isArray(res.agenda)) lista = res.agenda
+      }
+      if (!lista.length) {
+        const raw = localStorage.getItem(AGENDA_KEY)
+        if (raw) lista = JSON.parse(raw)
+      }
+      if (!lista.length) return
+      const updated = lista.map((item: any) =>
+        item.protocolo?.trim().toLowerCase() === proto && !item.numRelatorio
+          ? { ...item, numRelatorio, dataEmissao }
+          : item
+      )
+      if (JSON.stringify(updated) === JSON.stringify(lista)) return
+      if (api) await api.saveAgenda(updated).catch(() => null)
+      localStorage.setItem(AGENDA_KEY, JSON.stringify(updated))
+    } catch {}
+  }
+
   async function emitirLote() {
     if (!lote) return
     const paraEmitir = lote.amostras.map((a, i) => ({ a, i })).filter(({ a }) => a.conformidade !== 'reprovado')
     if (paraEmitir.length === 0) { alert('Nenhuma amostra para emitir.'); return }
     setEmitindo(true)
-    const numeros: string[] = []
+    const novosEmitidos: Record<number, string> = {}
     try {
+      let loteCurr = lote
       for (const { a: am, i } of paraEmitir) {
         const res = await fetch('/api/registrar-excel', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            cliente: lote.cliente, produto: am.produto,
+            cliente: loteCurr.cliente, produto: am.produto,
             protocolo: am.protocolo, orcamento: am.orcamento,
-            responsavel: lote.responsavel,
+            responsavel: loteCurr.responsavel,
           }),
         })
         const data = await res.json()
         if (data.error) throw new Error(`Amostra ${i + 1}: ${data.error}`)
-        const updated = lote.amostras.map((a, j) => j === i ? { ...a, numRelatorio: data.numRelatorio } : a)
-        saveLote({ ...lote, amostras: updated })
-        numeros.push(data.numRelatorio)
+        const numRelatorio = data.numRelatorio as string
+        const amUpdated = { ...am, numRelatorio, dataEmissao: am.dataEmissao || new Date().toISOString().split('T')[0] }
+        const novas = loteCurr.amostras.map((a, j) => j === i ? amUpdated : a)
+        loteCurr = { ...loteCurr, amostras: novas }
+        saveLote(loteCurr)
+        await salvarRelatorioSalvo(amUpdated, numRelatorio)
+        await sincronizarAgenda(am.protocolo, numRelatorio, amUpdated.dataEmissao)
+        novosEmitidos[i] = numRelatorio
       }
-      alert(`Lote emitido com sucesso!\n${numeros.join('\n')}`)
+      setEmitidos(prev => ({ ...prev, ...novosEmitidos }))
     } catch (err: any) {
       alert(`Erro ao emitir lote: ${err.message}`)
     } finally {
       setEmitindo(false)
     }
+  }
+
+  function verPDFAmostra(i: number) {
+    if (!lote) return
+    const am = lote.amostras[i]
+    const cfg: Cispr15Config = {
+      tipo: lote.tipo, tensaoConfig: '127_220',
+      cliente: lote.cliente, clienteRua: lote.clienteRua ?? '',
+      clienteCidade: lote.clienteCidade ?? '', clienteCep: lote.clienteCep ?? '',
+      produto: am.produto, fabricante: am.fabricante, modelo: am.modelo,
+      identificador: am.identificador, lacre: '',
+      tensaoAlim: am.tensaoAlim, potencia: am.potencia, frequencia: am.frequencia,
+      documentacao: 'embalagem com especificações',
+      numRelatorio: am.numRelatorio, orcamento: am.orcamento, protocolo: am.protocolo,
+      periodoInicio: am.periodoInicio, periodoFim: am.periodoFim, dataEmissao: am.dataEmissao,
+      responsavel: lote.responsavel,
+      resultadoConduzida: 'pass', resultadoLoop: 'pass', resultadoAnexoB: 'pass',
+    }
+    localStorage.setItem(CFG_KEY, JSON.stringify(cfg))
+    localStorage.setItem(PHOTOS_KEY, JSON.stringify(am.photos))
+
+    // docxHtml: preferir da memória; fallback: buscar no localStorage pelo relatório salvo
+    let docxHtml = am.docxHtml
+    if (!docxHtml && am.numRelatorio) {
+      try {
+        const lista: RelatorioSalvo[] = JSON.parse(localStorage.getItem(RELATORIOS_KEY) ?? '[]')
+        const rel = lista.find(r => r.numRelatorio === am.numRelatorio && r.protocolo === am.protocolo)
+        if (rel) docxHtml = localStorage.getItem(RELATORIO_DOCX_PFX + rel.id)
+      } catch {}
+    }
+
+    if (docxHtml) {
+      sessionStorage.setItem(DOCX_HTML_KEY, docxHtml)
+      sessionStorage.setItem(DOCX_NAME_KEY, am.docxFilename ?? '')
+    } else {
+      sessionStorage.removeItem(DOCX_HTML_KEY)
+      sessionStorage.removeItem(DOCX_NAME_KEY)
+    }
+    router.push('/cispr15/relatorio?from=lote')
   }
 
   if (!lote) {
@@ -464,6 +658,8 @@ export default function LotePage() {
             expanded={expanded === i}
             onToggle={() => setExpanded(expanded === i ? null : i)}
             onChange={a => updateAmostra(i, a)}
+            onVerPDF={emitidos[i] || am.numRelatorio || am.docxHtml || am.photos.length > 0 ? () => verPDFAmostra(i) : undefined}
+            equipamentos={equipamentos}
           />
         ))}
       </div>

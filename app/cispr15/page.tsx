@@ -5,19 +5,20 @@ import { useRouter } from 'next/navigation'
 import {
   Lightbulb, Lamp, ArrowRight, Upload, X, Loader2,
   Trash2, CheckCircle2, FileText, FolderOpen, Users, Database, History,
-  BookOpen, AlertTriangle, Lock, Unlock, Settings, ScanText, RefreshCw, Plus, ChevronDown,
+  BookOpen, AlertTriangle, Lock, Unlock, Settings, ScanText, RefreshCw, Plus, ChevronDown, Search,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
-  type Cispr15Config, type LoteConfig, type ClienteDB, type RelatorioSalvo, DEFAULTS,
+  type Cispr15Config, type LoteConfig, type ClienteDB, type RelatorioSalvo,
+  DEFAULTS,
   CFG_KEY, PHOTOS_KEY, DOCX_HTML_KEY, DOCX_NAME_KEY, LOTE_KEY, CLIENTES_KEY,
   RELATORIOS_KEY, RELATORIO_DOCX_PFX, EMENDA_DRAFT_KEY, LOCKED_KEY,
-  SETTINGS_KEY, SESSION_KEY, AUTH_KEY,
+  AGENDA_KEY, SETTINGS_KEY, SESSION_KEY, AUTH_KEY,
   newAmostra,
 } from './types'
-import { ClientesTab }   from './ClientesTab'
-import { RelatoriosTab } from './RelatoriosTab'
-import { EmendasTab }    from './EmendasTab'
+import { ClientesTab }     from './ClientesTab'
+import { RelatoriosTab }   from './RelatoriosTab'
+import { EmendasTab }      from './EmendasTab'
 
 /* ─── helpers ─────────────────────────────────────────────────────────────── */
 async function resizeToBase64(file: File, maxW = 1024): Promise<{ base64: string; url: string }> {
@@ -39,20 +40,6 @@ async function resizeToBase64(file: File, maxW = 1024): Promise<{ base64: string
   })
 }
 
-function importJson(onData: (data: Record<string, string>) => void) {
-  const input = document.createElement('input')
-  input.type = 'file'; input.accept = '.json'
-  input.onchange = () => {
-    const f = input.files?.[0]; if (!f) return
-    const r = new FileReader()
-    r.onload = ev => {
-      try { onData(JSON.parse(ev.target?.result as string)) }
-      catch { alert('JSON inválido') }
-    }
-    r.readAsText(f)
-  }
-  input.click()
-}
 
 /* ─── sub-componentes ─────────────────────────────────────────────────────── */
 function Label({ children }: { children: React.ReactNode }) {
@@ -96,10 +83,13 @@ export default function Cispr15ConfigPage() {
   const [relatoriosList, setRelatoriosList] = useState<RelatorioSalvo[]>([])
   const [isElectron,   setIsElectron]  = useState(false)
   const [eutFolder,    setEutFolder]   = useState<string | null>(null)
-  const [analisando,   setAnalisando]  = useState(false)
-  const [aiSugestao,   setAiSugestao] = useState<AiSugestao | null>(null)
-  const [ocrTexto,     setOcrTexto]   = useState<string | null>(null)
-  const [ocrExpanded,  setOcrExpanded] = useState(false)
+  const [analisando,    setAnalisando]   = useState(false)
+  const [aiSugestao,    setAiSugestao]  = useState<AiSugestao | null>(null)
+  const [ocrTexto,      setOcrTexto]    = useState<string | null>(null)
+  const [ocrExpanded,   setOcrExpanded] = useState(false)
+  const [clientes,      setClientes]     = useState<ClienteDB[]>([])
+  const [clienteQ,      setClienteQ]     = useState('')
+  const [clienteOpen,   setClienteOpen]  = useState(false)
   const photoRef  = useRef<HTMLInputElement>(null)
   const pastaRef  = useRef<HTMLInputElement>(null)
   const cfgLoaded = useRef(false)
@@ -159,6 +149,7 @@ export default function Cispr15ConfigPage() {
     }
     initSettings()
     loadRelatorios()
+    loadClientesLocal()
   }, [])
 
   // Extrai protocolo e orçamento do nome da pasta: "26041953_0887" ou "O26041953_887"
@@ -182,6 +173,56 @@ export default function Cispr15ConfigPage() {
       const raw = localStorage.getItem(RELATORIOS_KEY)
       if (raw) setRelatoriosList(JSON.parse(raw))
     } catch {}
+  }
+
+  async function loadClientesLocal() {
+    const api = (window as any).electronAPI
+    if (api) {
+      try {
+        const res = await api.getClientes()
+        if (res.ok && res.fromNetwork && Array.isArray(res.clientes)) { setClientes(res.clientes); return }
+      } catch {}
+    }
+    try {
+      const raw = localStorage.getItem(CLIENTES_KEY)
+      if (raw) setClientes(JSON.parse(raw))
+    } catch {}
+  }
+
+  async function preencherDaAgenda(protocolo: string) {
+    const proto = protocolo.trim().toLowerCase()
+    if (!proto) return
+    let lista: any[] = []
+    const api = (window as any).electronAPI
+    if (api) {
+      try { const r = await api.getAgenda(); if (r.ok && Array.isArray(r.agenda)) lista = r.agenda } catch {}
+    }
+    if (!lista.length) {
+      try { const raw = localStorage.getItem(AGENDA_KEY); if (raw) lista = JSON.parse(raw) } catch {}
+    }
+    const item = lista.find((a: any) => a.protocolo?.trim().toLowerCase() === proto)
+    if (!item) return
+    const temDados = item.fabricante || item.modelo || item.potencia || item.tensaoAlim || item.produto
+    if (!temDados) return
+    setCfg(prev => ({
+      ...prev,
+      tipo: item.tipo ?? prev.tipo,
+      cliente: item.cliente || prev.cliente,
+      clienteRua: item.clienteRua || prev.clienteRua,
+      clienteCidade: item.clienteCidade || prev.clienteCidade,
+      clienteCep: item.clienteCep || prev.clienteCep,
+      produto: item.produto || prev.produto,
+      fabricante: item.fabricante || prev.fabricante,
+      modelo: item.modelo || prev.modelo,
+      identificador: item.identificador || prev.identificador,
+      potencia: item.potencia || prev.potencia,
+      tensaoAlim: item.tensaoAlim || prev.tensaoAlim,
+      frequencia: item.frequencia || prev.frequencia,
+      documentacao: item.documentacao || prev.documentacao,
+      orcamento: item.orcamento || prev.orcamento,
+      responsavel: item.responsavel || prev.responsavel,
+    }))
+    flash4(`Dados pré-carregados da agenda — protocolo ${item.protocolo}`)
   }
 
   useEffect(() => {
@@ -540,17 +581,6 @@ export default function Cispr15ConfigPage() {
     sessionStorage.removeItem(DOCX_NAME_KEY)
   }
 
-  /* ── importar JSON ── */
-  function handleImportAmostra() {
-    importJson(data => setCfg(prev => ({
-      ...prev,
-      produto: data.produto ?? prev.produto, fabricante: data.fabricante ?? prev.fabricante,
-      modelo: data.modelo ?? prev.modelo, identificador: data.identificador ?? prev.identificador,
-      tensaoAlim: data.tensaoAlim ?? prev.tensaoAlim, potencia: data.potencia ?? prev.potencia,
-      frequencia: data.frequencia ?? prev.frequencia,
-    })))
-  }
-
   const labelId = cfg.tipo === 'lampada' ? 'Número de Série' : 'Número de Série'
 
   /* ── validação ── */
@@ -623,10 +653,10 @@ export default function Cispr15ConfigPage() {
   function handleCarregarRelatorio(entry: RelatorioSalvo) {
     const docxHtml = localStorage.getItem(RELATORIO_DOCX_PFX + entry.id)
     setCfg(entry.cfg)
-    setPhotos(entry.photos.map(p => ({ ...p, url: `data:image/jpeg;base64,${p.base64}` })))
+    setPhotos((entry.photos ?? []).map(p => ({ ...p, url: `data:image/jpeg;base64,${p.base64}` })))
     setDocx({ loading: false, html: docxHtml, filename: entry.docxFilename })
     localStorage.setItem(CFG_KEY, JSON.stringify(entry.cfg))
-    localStorage.setItem(PHOTOS_KEY, JSON.stringify(entry.photos))
+    localStorage.setItem(PHOTOS_KEY, JSON.stringify(entry.photos ?? []))
     localStorage.removeItem(EMENDA_DRAFT_KEY)
     if (docxHtml) sessionStorage.setItem(DOCX_HTML_KEY, docxHtml)
     else sessionStorage.removeItem(DOCX_HTML_KEY)
@@ -643,10 +673,10 @@ export default function Cispr15ConfigPage() {
   function handleVerPDFRelatorio(entry: RelatorioSalvo) {
     const docxHtml = localStorage.getItem(RELATORIO_DOCX_PFX + entry.id)
     setCfg(entry.cfg)
-    setPhotos(entry.photos.map(p => ({ ...p, url: `data:image/jpeg;base64,${p.base64}` })))
+    setPhotos((entry.photos ?? []).map(p => ({ ...p, url: `data:image/jpeg;base64,${p.base64}` })))
     setDocx({ loading: false, html: docxHtml, filename: entry.docxFilename })
     localStorage.setItem(CFG_KEY, JSON.stringify(entry.cfg))
-    localStorage.setItem(PHOTOS_KEY, JSON.stringify(entry.photos))
+    localStorage.setItem(PHOTOS_KEY, JSON.stringify(entry.photos ?? []))
     localStorage.removeItem(EMENDA_DRAFT_KEY)
     if (docxHtml) sessionStorage.setItem(DOCX_HTML_KEY, docxHtml)
     else sessionStorage.removeItem(DOCX_HTML_KEY)
@@ -711,6 +741,7 @@ export default function Cispr15ConfigPage() {
       await salvarRelatorioLocal(finalCfg)
       localStorage.setItem(LOCKED_KEY, '1')
       setLocked(true)
+      sincronizarAgenda(finalCfg.protocolo, finalCfg.numRelatorio, finalCfg.dataEmissao)
 
       flash4(`Registrado: ${finalCfg.numRelatorio}`)
       router.push('/cispr15/relatorio')
@@ -758,6 +789,34 @@ export default function Cispr15ConfigPage() {
     } catch { alert('Erro ao salvar cliente') }
   }
 
+  /* ── sync agenda: quando emite relatório, atualiza item com mesmo protocolo ── */
+  async function sincronizarAgenda(protocolo: string, numRelatorio: string, dataEmissao: string) {
+    try {
+      const proto = protocolo.trim().toLowerCase()
+      const api = (window as any).electronAPI
+      let lista: any[] = []
+      if (api) {
+        const res = await api.getAgenda().catch(() => null)
+        if (res?.ok && Array.isArray(res.agenda)) lista = res.agenda
+      }
+      if (!lista.length) {
+        const raw = localStorage.getItem(AGENDA_KEY)
+        if (raw) lista = JSON.parse(raw)
+      }
+      if (!lista.length) return
+      const updated = lista.map((item: any) =>
+        item.protocolo?.trim().toLowerCase() === proto && !item.numRelatorio
+          ? { ...item, numRelatorio, dataEmissao }
+          : item
+      )
+      if (JSON.stringify(updated) === JSON.stringify(lista)) return
+      if (api) {
+        await api.saveAgenda(updated).catch(() => null)
+      }
+      localStorage.setItem(AGENDA_KEY, JSON.stringify(updated))
+    } catch {}
+  }
+
   /* ── abrir lote ── */
   function openLote() {
     const existing = localStorage.getItem(LOTE_KEY)
@@ -799,10 +858,10 @@ export default function Cispr15ConfigPage() {
       <div className="flex items-center gap-1 mb-5">
         <div className="flex gap-1 p-1 bg-navy rounded-xl border border-white/6 flex-1 flex-wrap">
           {([
-            { id: 'formulario', label: 'Formulário', icon: null },
-            { id: 'clientes',   label: 'Clientes',   icon: <Database size={13} /> },
-            { id: 'emendas',    label: 'Emendas',    icon: <History size={13} /> },
-            { id: 'relatorios', label: 'Relatórios', icon: <FileText size={13} /> },
+            { id: 'formulario',   label: 'Formulário',   icon: null },
+            { id: 'clientes',     label: 'Clientes',     icon: <Database size={13} /> },
+            { id: 'emendas',      label: 'Emendas',      icon: <History size={13} /> },
+            { id: 'relatorios',   label: 'Relatórios',   icon: <FileText size={13} /> },
           ] as const).map(t => (
             <button key={t.id} type="button" onClick={() => setTab(t.id)}
               className={cn(
@@ -825,9 +884,9 @@ export default function Cispr15ConfigPage() {
         </button>
       </div>
 
-      {tab === 'clientes'   && <ClientesTab   onUsar={handleUsarCliente} />}
-      {tab === 'emendas'    && <EmendasTab    relatorios={relatoriosList} onCarregarRelatorio={handleCarregarRelatorio} />}
-      {tab === 'relatorios' && <RelatoriosTab onCarregar={handleCarregarRelatorio} onVerPDF={handleVerPDFRelatorio} />}
+      {tab === 'clientes'     && <ClientesTab     onUsar={handleUsarCliente} />}
+      {tab === 'emendas'      && <EmendasTab    relatorios={relatoriosList} onCarregarRelatorio={handleCarregarRelatorio} />}
+      {tab === 'relatorios'   && <RelatoriosTab onCarregar={handleCarregarRelatorio} onVerPDF={handleVerPDFRelatorio} />}
 
       {tab === 'formulario' && <div className="space-y-5">
 
@@ -936,6 +995,45 @@ export default function Cispr15ConfigPage() {
               <Database size={11} /> Salvar no banco
             </button>
           </div>
+
+          {/* Buscador rápido de clientes cadastrados */}
+          {clientes.length > 0 && (
+            <div className="relative mb-4">
+              <div className="relative">
+                <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/25 pointer-events-none" />
+                <input
+                  className="input pl-7 text-xs"
+                  placeholder="Buscar cliente cadastrado…"
+                  value={clienteQ}
+                  onChange={e => { setClienteQ(e.target.value); setClienteOpen(true) }}
+                  onFocus={() => setClienteOpen(true)}
+                  onBlur={() => setTimeout(() => setClienteOpen(false), 150)}
+                />
+              </div>
+              {clienteOpen && (
+                <div className="absolute z-50 top-full mt-1 left-0 right-0 rounded-xl border border-white/10 bg-[#0d1017] shadow-xl max-h-[180px] overflow-y-auto">
+                  {clientes
+                    .filter(c => !clienteQ || c.nome?.toLowerCase().includes(clienteQ.toLowerCase()))
+                    .slice(0, 20)
+                    .map(c => (
+                      <button key={c.id} type="button"
+                        onMouseDown={() => {
+                          setCfg(p => ({ ...p, cliente: c.nome, clienteRua: c.rua, clienteCidade: c.cidade, clienteCep: c.cep }))
+                          setClienteQ(''); setClienteOpen(false)
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-white/5 transition-colors border-b border-white/4 last:border-0">
+                        <p className="text-xs text-white/80 font-semibold">{c.nome}</p>
+                        {(c.cidade || c.cep) && (
+                          <p className="text-[10px] text-white/35">{[c.cidade, c.cep].filter(Boolean).join(' · ')}</p>
+                        )}
+                      </button>
+                    ))
+                  }
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-x-4 gap-y-4">
             <Row label="Nome do Cliente" span2>
               <input className="input" value={cfg.cliente} onChange={set('cliente')}
@@ -967,10 +1065,6 @@ export default function Cispr15ConfigPage() {
                 className="flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] font-mono uppercase tracking-wider text-teal/70 hover:text-teal border border-teal/20 hover:border-teal/40 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed">
                 {analisando ? <Loader2 size={11} className="animate-spin" /> : <ScanText size={11} />}
                 {analisando ? 'Lendo fotos…' : 'Ler Fotos (OCR)'}
-              </button>
-              <button type="button" onClick={handleImportAmostra}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] font-mono uppercase tracking-wider text-white/50 hover:text-gold border border-white/10 hover:border-gold/30 rounded-lg transition-all">
-                Importar JSON
               </button>
             </div>
           </div>
@@ -1083,7 +1177,9 @@ export default function Cispr15ConfigPage() {
               <input className="input" value={cfg.orcamento} onChange={set('orcamento')} placeholder="Ex: 260921" />
             </Row>
             <Row label="Protocolo LABELO">
-              <input className="input" value={cfg.protocolo} onChange={set('protocolo')} placeholder="Ex: 26041895" />
+              <input className="input" value={cfg.protocolo} onChange={set('protocolo')}
+                placeholder="Ex: 26041895"
+                onBlur={e => preencherDaAgenda(e.target.value)} />
             </Row>
             <Row label="Período — Início">
               <input className="input" type="date" value={cfg.periodoInicio} onChange={set('periodoInicio')} />
@@ -1094,6 +1190,36 @@ export default function Cispr15ConfigPage() {
             <Row label="Data de Emissão" span2>
               <input className="input" type="date" value={cfg.dataEmissao} onChange={set('dataEmissao')} />
             </Row>
+          </div>
+
+          {/* Resultado dos ensaios */}
+          <p className="text-[10px] text-white/35 uppercase tracking-widest font-mono mt-5 mb-2">Resultado dos ensaios</p>
+          <div className="grid grid-cols-3 gap-3">
+            {([
+              ['resultadoConduzida', 'Conduzida'],
+              ['resultadoLoop',      'Loop'],
+              ['resultadoAnexoB',    'Anexo B'],
+            ] as const).map(([k, label]) => (
+              <div key={k} className="flex flex-col gap-1.5">
+                <p className="text-[10px] text-white/40 font-mono">{label}</p>
+                <div className="flex gap-1">
+                  {(['pass', 'fail'] as const).map(v => (
+                    <button key={v} type="button"
+                      onClick={() => setCfg(p => ({ ...p, [k]: v }))}
+                      className={cn(
+                        'flex-1 py-1.5 rounded-lg border text-[11px] font-bold uppercase tracking-wider transition-all',
+                        cfg[k] === v
+                          ? v === 'pass'
+                            ? 'border-green/40 bg-green/10 text-green-400'
+                            : 'border-red-500/40 bg-red-500/10 text-red-400'
+                          : 'border-white/8 text-white/25 hover:border-white/20',
+                      )}>
+                      {v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -1288,8 +1414,14 @@ export default function Cispr15ConfigPage() {
           </button>
 
           {locked ? (
-            <div className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-green/10 border border-green/20 text-green-400 text-sm font-semibold">
-              <CheckCircle2 size={15} /> Relatório Emitido
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-green/10 border border-green/20 text-green-400 text-sm font-semibold">
+                <CheckCircle2 size={15} /> Relatório Emitido
+              </div>
+              <button type="button" onClick={novoRelatorio}
+                className="btn-primary flex items-center gap-2 px-5 py-2.5 text-sm font-bold">
+                <Plus size={14} /> Novo Relatório
+              </button>
             </div>
           ) : (
             <button type="button" onClick={gerarRelatorio} disabled={gerandoRel}

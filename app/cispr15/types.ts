@@ -25,6 +25,10 @@ export interface Cispr15Config {
   periodoFim: string
   dataEmissao: string
   responsavel: string
+  // Resultados dos ensaios
+  resultadoConduzida: 'pass' | 'fail'
+  resultadoLoop: 'pass' | 'fail'
+  resultadoAnexoB: 'pass' | 'fail'
 }
 
 export interface LoteAmostra {
@@ -79,6 +83,7 @@ export const DEFAULTS: Cispr15Config = {
   numRelatorio: '', orcamento: '', protocolo: '',
   periodoInicio: today(), periodoFim: today(), dataEmissao: today(),
   responsavel: '',
+  resultadoConduzida: 'pass', resultadoLoop: 'pass', resultadoAnexoB: 'pass',
 }
 
 export interface ClienteDB {
@@ -125,6 +130,7 @@ export interface EmendaDraft {
   cfgOriginal: Cispr15Config
   photoNamesOriginal: string[]
   docxFilenameOriginal: string | null
+  eutFolderPath?: string
 }
 
 export interface RelatorioSalvo {
@@ -135,6 +141,7 @@ export interface RelatorioSalvo {
   protocolo: string
   produto: string
   cfg: Cispr15Config
+  currentCfg?: Cispr15Config
   photos: { name: string; base64: string }[]
   docxFilename: string | null
   emendas: { numero: number; dataEmenda: string; alteracoes: AmendmentChange[] }[]
@@ -146,6 +153,8 @@ export interface RelatorioSalvo {
 export interface AppSettings {
   excelPath: string
   dataFolder: string
+  agendaFolder: string
+  pdfCopyFolder: string
   pdfAutoSaveToEut: boolean
   senhaEmissao: string
 }
@@ -153,6 +162,8 @@ export interface AppSettings {
 export const SETTINGS_DEFAULTS: AppSettings = {
   excelPath: '',
   dataFolder: '',
+  agendaFolder: '',
+  pdfCopyFolder: '',
   pdfAutoSaveToEut: true,
   senhaEmissao: '',
 }
@@ -163,7 +174,17 @@ export interface AgendaItem {
   protocolo: string
   orcamento: string
   cliente: string
+  clienteRua?: string
+  clienteCidade?: string
+  clienteCep?: string
   produto: string
+  fabricante?: string
+  modelo?: string
+  identificador?: string
+  potencia?: string
+  tensaoAlim?: string
+  frequencia?: string
+  documentacao?: string
   dataEntrada: string
   previsaoSaida: string
   dataEmissao: string
@@ -177,8 +198,20 @@ export interface AgendaItem {
   tags?: string[]
 }
 
-export const AGENDA_KEY = 'cispr15_agenda_v1'
-export const SESSION_KEY = 'cispr15_session_v1'
-export const AUTH_KEY    = 'cispr15_authed_v1'
+export const AGENDA_KEY       = 'cispr15_agenda_v1'
+export const EQUIPAMENTOS_KEY = 'cispr15_equipamentos_v1'
+export const SESSION_KEY      = 'cispr15_session_v1'
+export const AUTH_KEY         = 'cispr15_authed_v1'
+export const SETTINGS_KEY     = 'cispr15_app_settings_v1'
 
-export const SETTINGS_KEY = 'cispr15_app_settings_v1'
+export interface EquipamentoSalvo {
+  id: string
+  tipo: 'lampada' | 'luminaria'
+  produto: string
+  fabricante: string
+  modelo: string
+  potencia: string
+  tensaoAlim: string
+  frequencia: string
+  observacoes?: string
+}

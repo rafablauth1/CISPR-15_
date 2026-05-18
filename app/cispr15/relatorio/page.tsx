@@ -9,10 +9,26 @@ import {
   getTensoes, CFG_KEY, PHOTOS_KEY, DOCX_HTML_KEY, DOCX_NAME_KEY,
   RELATORIOS_KEY, EMENDA_DRAFT_KEY, formatEmendaNumero,
 } from '../types'
+import { filterDocxForResult, type ResultKey } from '../docx-filter'
 
 /* ─── tipos ────────────────────────────────────────────────────────────────── */
 interface DocxState { loading: boolean; html: string | null; filename: string | null }
 interface Photo     { url: string; name: string }
+
+const RESULT_KEYS = ['conduzida', 'loop', 'anexoB'] as const
+const RESULT_LABEL: Record<ResultKey, string> = {
+  conduzida: 'Conduzida',
+  loop:      'Loop',
+  anexoB:    'Anexo B',
+}
+interface PerResultDocx { html: string | null; filename: string | null; loading: boolean }
+type PerResultState = Record<ResultKey, PerResultDocx>
+const emptyPerResult = (): PerResultState => ({
+  conduzida: { html: null, filename: null, loading: false },
+  loop:      { html: null, filename: null, loading: false },
+  anexoB:    { html: null, filename: null, loading: false },
+})
+
 
 const LABEL_ID: Record<string, string> = { lampada: 'Número de série', luminaria: 'N° de Série' }
 const BLUE = '#003366'
@@ -54,17 +70,13 @@ function PageFooter() {
         <div style={{ fontWeight: 700, color: '#000', whiteSpace: 'nowrap', flexShrink: 0 }}>
           LABELO<br />PUCRS
         </div>
-        {/* centro: endereço */}
+        {/* centro: endereço + contatos juntos */}
         <div style={{ flex: 1, textAlign: 'center', fontSize: '6.5pt', color: '#444' }}>
-          Av. Ipiranga n° 6681, Prédio 30 Bloco A, Sala 210 – Partenon<br />
-          CEP 90619-900 – Porto Alegre – RS – Brasil
+          Av. Ipiranga n° 6681, Prédio 30 Bloco A, Sala 210 – Partenon · CEP 90619-900 – Porto Alegre – RS – Brasil<br />
+          Tel.: (51) 3320 3551 · labelo@pucrs.br · www.labelo.com.br
         </div>
-        {/* direita: contatos + nº de página (print only) */}
-        <div style={{ textAlign: 'right', whiteSpace: 'nowrap', flexShrink: 0 }}>
-          Tel.: (51) 3320 3551<br />
-          labelo@pucrs.br · www.labelo.com.br<br />
-          <span className="page-num-label" />
-        </div>
+        {/* direita: nº de página (print only) */}
+        <span className="page-num-label" style={{ whiteSpace: 'nowrap', flexShrink: 0, fontSize: '6.5pt', color: '#444' }} />
       </div>
     </div>
   )
@@ -172,8 +184,11 @@ function LimitTable({ cols, rows, note }: { cols: string[]; rows: string[][]; no
 /* ─── página principal ─────────────────────────────────────────────────────── */
 export default function Cispr15RelatorioPage() {
   const router = useRouter()
+  const [fromLote,   setFromLote]   = useState(false)
+  const [eutFolder,  setEutFolder]  = useState<string | null>(null)
   const [cfg,          setCfg]         = useState<Cispr15Config | null>(null)
   const [docx,         setDocx]        = useState<DocxState>({ loading: false, html: null, filename: null })
+  const [perResult,    setPerResult]   = useState<PerResultState>(emptyPerResult())
   const [photos,       setPhotos]      = useState<Photo[]>([])
   const [photoWidth,   setPhotoWidth]  = useState(160)
   const [pastaLoading, setPastaLoading] = useState(false)
@@ -184,8 +199,16 @@ export default function Cispr15RelatorioPage() {
   const pastaRef    = useRef<HTMLInputElement>(null)
   const isPrintMode = useRef(false)
 
+  const effectiveDocxHtml = useMemo(() => {
+    const parts = RESULT_KEYS
+      .map(k => perResult[k].html ? filterDocxForResult(perResult[k].html!, k) : null)
+      .filter(Boolean) as string[]
+    return parts.length > 0 ? parts.join('\n') : docx.html
+  }, [perResult, docx.html])
+
   const docxPages = useMemo(() => {
-    if (!docx.html) return []
+    if (!effectiveDocxHtml) return []
+    const docxHtml = effectiveDocxHtml
 
     function sortPeakTables(html: string): string {
       try {
@@ -212,7 +235,7 @@ export default function Cispr15RelatorioPage() {
 
     try {
       const parser = new DOMParser()
-      const dom = parser.parseFromString(docx.html, 'text/html')
+      const dom = parser.parseFromString(docxHtml, 'text/html')
       const children = Array.from(dom.body.children)
       const pages: string[] = []
       let current = ''
@@ -227,13 +250,14 @@ export default function Cispr15RelatorioPage() {
         }
       }
       if (current.trim()) pages.push(sortPeakTables(current))
-      return pages.length > 0 ? pages : [sortPeakTables(docx.html)]
-    } catch { return [docx.html] }
-  }, [docx.html])
+      return pages.length > 0 ? pages : [sortPeakTables(docxHtml)]
+    } catch { return [docxHtml] }
+  }, [effectiveDocxHtml])
 
   useEffect(() => {
     photoRef.current?.setAttribute('webkitdirectory', '')
     pastaRef.current?.setAttribute('webkitdirectory', '')
+    setFromLote(new URLSearchParams(window.location.search).get('from') === 'lote')
   }, [])
 
   useEffect(() => {
@@ -292,7 +316,15 @@ export default function Cispr15RelatorioPage() {
     const signalReady = () => {
       const imgs = Array.from(document.querySelectorAll('img'))
       const pending = imgs.filter(img => !img.complete)
-      const done = () => { (window as any).__printReady = true }
+      const done = () => {
+        const pages = document.querySelectorAll('.doc-page')
+        const total = pages.length
+        pages.forEach((pg, i) => {
+          const lbl = pg.querySelector('.page-num-label')
+          if (lbl) lbl.textContent = `Página ${i + 1} de ${total}`
+        })
+        ;(window as any).__printReady = true
+      }
       if (pending.length === 0) { done(); return }
       // Safety timer: se alguma imagem não disparar onload/onerror em 10s, força ready
       const imgTimeout = setTimeout(done, 10000)
@@ -318,6 +350,47 @@ export default function Cispr15RelatorioPage() {
       alert(`Erro ao processar: ${err.message}`)
       setDocx({ loading: false, html: null, filename: null })
     }
+  }
+
+  async function handlePerResultDocx(file: File, key: ResultKey) {
+    setPerResult(prev => ({ ...prev, [key]: { ...prev[key], loading: true } }))
+    try {
+      const fd = new FormData(); fd.append('file', file)
+      const res  = await fetch('/api/parse-docx', { method: 'POST', body: fd })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setPerResult(prev => ({ ...prev, [key]: { html: data.html, filename: file.name, loading: false } }))
+    } catch (err: any) {
+      alert(`Erro ao processar: ${err.message}`)
+      setPerResult(prev => ({ ...prev, [key]: { ...prev[key], loading: false } }))
+    }
+  }
+
+  function clearPerResult(key: ResultKey) {
+    setPerResult(prev => ({ ...prev, [key]: { html: null, filename: null, loading: false } }))
+  }
+
+  async function commitEmenda(draft: EmendaDraft, currentCfg?: Cispr15Config) {
+    try {
+      const raw = localStorage.getItem(RELATORIOS_KEY)
+      if (!raw) return
+      const lista: RelatorioSalvo[] = JSON.parse(raw)
+      const idx = lista.findIndex(r => r.id === draft.relatorioId)
+      if (idx < 0) return
+      const emendas = [...lista[idx].emendas]
+      if (!emendas.find(e => e.numero === draft.emendaNum)) {
+        emendas.push({ numero: draft.emendaNum, dataEmenda: draft.dataEmenda, alteracoes: draft.alteracoes })
+      }
+      lista[idx] = { ...lista[idx], emendas, ...(currentCfg ? { currentCfg } : {}) }
+      localStorage.setItem(RELATORIOS_KEY, JSON.stringify(lista))
+      localStorage.removeItem(EMENDA_DRAFT_KEY)
+      // Sincronizar com pasta de rede
+      const api = (window as any).electronAPI
+      if (api) {
+        const netList = lista.map(r => ({ ...r, photos: [] }))
+        await api.saveRelatorios(netList)
+      }
+    } catch {}
   }
 
   function handlePhotosFromFiles(files: File[]) {
@@ -416,7 +489,7 @@ export default function Cispr15RelatorioPage() {
         @page { size: A4; margin: 0; }
 
         @media screen {
-          .page-num-label { display: none; }
+          .page-num-label { display: none !important; }
           .doc-wrapper { background: #525659; padding: 24px 16px; min-height: 100vh; }
           .doc-page {
             background: white; width: 210mm; min-height: 297mm;
@@ -447,7 +520,7 @@ export default function Cispr15RelatorioPage() {
           .doc-page-first { page-break-before: avoid; }
           /* footer fixo garante que aparece no fundo de TODA página física */
           .page-footer { position: fixed; bottom: 0; left: 0; right: 0; }
-          .page-num-label::after { content: "Página " counter(page) " de " counter(pages); }
+          .page-num-label { display: inline !important; }
           .upload-zone { display: none !important; }
           .doc-content th {
             background-color: ${GRAY1} !important; color: #000 !important;
@@ -467,14 +540,14 @@ export default function Cispr15RelatorioPage() {
         }
 
         /* estilos do conteúdo Radimation */
-        .doc-content table { width:100%; border-collapse:collapse; margin:8px 0; font-size:9pt; font-family:Arial,sans-serif; }
+        .doc-content table { width:100%; border-collapse:collapse; margin:8px 0; font-size:9pt; font-family:Arial,sans-serif; page-break-inside:avoid; }
         .doc-content td,.doc-content th { border:1px solid #999 !important; padding:2px 5px; text-align:center; }
         .doc-content th { background:${GRAY1}; color:#000; font-weight:700; }
         .doc-content tr:nth-child(even) td { background:#f5f8ff; }
         .doc-content img { max-width:165mm; width:auto; height:auto; border:1px solid #ddd; display:block; margin:12px auto; page-break-inside:avoid; }
         .doc-content p { margin-bottom:5px; font-size:11pt; font-family:Arial,sans-serif; }
-        .doc-content h1,.doc-content h2 { font-size:11pt; font-weight:700; color:#000; margin:12px 0 4px; font-family:Arial,sans-serif; }
-        .doc-content h3,.doc-content h4 { font-size:11pt; font-weight:700; color:#000; margin:8px 0 3px; font-family:Arial,sans-serif; }
+        .doc-content h1,.doc-content h2 { font-size:11pt; font-weight:700; color:#000; margin:12px 0 4px; font-family:Arial,sans-serif; page-break-after:avoid; }
+        .doc-content h3,.doc-content h4 { font-size:11pt; font-weight:700; color:#000; margin:8px 0 3px; font-family:Arial,sans-serif; page-break-after:avoid; }
       `}</style>
 
       {printMode && (
@@ -502,7 +575,7 @@ export default function Cispr15RelatorioPage() {
           .doc-page-inner { flex: 1 !important; padding-top: 10mm !important; padding-bottom: 12mm !important; }
           /* footer fixo garante rodapé no fundo de TODA página física, mesmo quando o conteúdo transborda */
           .page-footer { position: fixed !important; bottom: 0 !important; left: 0 !important; right: 0 !important; }
-          .page-num-label::after { content: "Página " counter(page) " de " counter(pages); }
+          .page-num-label { display: inline !important; }
           /* Células de tabela compactas */
           .doc-page table td, .doc-page table th { padding: 1px 4px !important; }
           .doc-content td, .doc-content th { padding: 1px 5px !important; }
@@ -511,9 +584,9 @@ export default function Cispr15RelatorioPage() {
 
       {/* ── barra de controles (não imprime) ── */}
       <div className="no-print flex flex-wrap items-center gap-2 mb-6">
-        <button onClick={() => router.back()}
+        <button onClick={() => fromLote ? router.push('/cispr15/lote') : router.back()}
           className="flex items-center gap-1.5 text-white/40 hover:text-white transition-colors text-sm mr-1">
-          <ArrowLeft size={14} /> Voltar
+          <ArrowLeft size={14} /> {fromLote ? 'Voltar ao Lote' : 'Voltar'}
         </button>
 
         {emendaDraft && (
@@ -558,18 +631,29 @@ export default function Cispr15RelatorioPage() {
 
         <span className="text-white/10">|</span>
 
-        {/* Controles individuais (fallback) */}
-        {docx.loading ? (
-          <div className="flex items-center gap-1 text-blue-400 text-xs">
-            <Loader2 size={11} className="animate-spin" /> .docx…
-          </div>
-        ) : (
-          <label className="flex items-center gap-1 px-2 py-1 rounded border border-white/8 text-[11px] text-white/30 hover:text-white/60 cursor-pointer transition-all">
-            <Upload size={10} /> .docx
-            <input type="file" accept=".docx" className="hidden"
-              onChange={e => { const f = e.target.files?.[0]; if (f) handleDocx(f) }} />
-          </label>
-        )}
+        {/* Upload por resultado */}
+        {RESULT_KEYS.map(key => {
+          const slot = perResult[key]
+          return slot.loading ? (
+            <div key={key} className="flex items-center gap-1 text-blue-400 text-[11px]">
+              <Loader2 size={10} className="animate-spin" /> {RESULT_LABEL[key]}…
+            </div>
+          ) : slot.html ? (
+            <div key={key} className="flex items-center gap-1 px-2 py-1 rounded border border-amber-500/30 bg-amber-500/8 text-[11px] text-amber-300">
+              ✓ {RESULT_LABEL[key]}
+              <button type="button" onClick={() => clearPerResult(key)}
+                className="text-white/25 hover:text-red-400 transition-colors ml-0.5">
+                <X size={10} />
+              </button>
+            </div>
+          ) : (
+            <label key={key} className="flex items-center gap-1 px-2 py-1 rounded border border-white/8 text-[11px] text-white/30 hover:text-white/60 cursor-pointer transition-all">
+              <Upload size={10} /> {RESULT_LABEL[key]}
+              <input type="file" accept=".docx" className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) handlePerResultDocx(f, key) }} />
+            </label>
+          )
+        })}
 
         <label className="flex items-center gap-1 px-2 py-1 rounded border border-white/8 text-[11px] text-white/30 hover:text-white/60 cursor-pointer transition-all">
           <Upload size={10} /> fotos
@@ -614,9 +698,11 @@ export default function Cispr15RelatorioPage() {
               const api = (window as any).electronAPI
               if (api) {
                 // Electron: printToPDF direto na pasta da EUT
-                const result = await api.salvarPDFNaEut(filename)
+                const folderPath = emendaDraft?.eutFolderPath ?? null
+                const result = await api.salvarPDFNaEut(filename, folderPath)
                 if (result.ok) {
                   setSavedFile(result.filePath ?? filename)
+                  if (emendaDraft) await commitEmenda(emendaDraft, cfg ?? undefined)
                 } else if (!result.canceled) {
                   alert('Erro ao gerar PDF: ' + (result.error ?? 'Erro desconhecido'))
                 }
@@ -648,21 +734,7 @@ export default function Cispr15RelatorioPage() {
               document.body.removeChild(a)
               setTimeout(() => URL.revokeObjectURL(url), 1000)
               setSavedFile(filename)
-              try {
-                const raw = localStorage.getItem(RELATORIOS_KEY)
-                if (raw && cfg.numRelatorio) {
-                  const lista: RelatorioSalvo[] = JSON.parse(raw)
-                  const existingIdx = lista.findIndex(r => r.numRelatorio === cfg.numRelatorio)
-                  if (existingIdx >= 0) {
-                    const emendas = [...lista[existingIdx].emendas]
-                    if (emendaDraft && !emendas.find(e => e.numero === emendaDraft.emendaNum)) {
-                      emendas.push({ numero: emendaDraft.emendaNum, dataEmenda: emendaDraft.dataEmenda, alteracoes: emendaDraft.alteracoes })
-                    }
-                    lista[existingIdx] = { ...lista[existingIdx], emendas }
-                    localStorage.setItem(RELATORIOS_KEY, JSON.stringify(lista))
-                  }
-                }
-              } catch {}
+              if (emendaDraft) await commitEmenda(emendaDraft, cfg ?? undefined)
             } catch (err: any) {
               const s = (v: string) => (v ?? '').replace(/[/\\:*?"<>|\s]/g, '_').replace(/_+/g, '_')
               const prev = document.title
@@ -754,7 +826,7 @@ export default function Cispr15RelatorioPage() {
                 ['Protocolo LABELO: ' + (cfg.protocolo || '—'),   '',                       ''],
               ]).map((row, i) => (
                 <tr key={i} style={{ background: i % 2 === 0 ? 'white' : '#f5f8ff' }}>
-                  <td style={{ border: '1px solid #999', padding: '2px 6px', width: '44%' }}>{row[0]}</td>
+                  <td style={{ border: '1px solid #999', padding: '2px 6px', width: '44%', fontWeight: 700 }}>{row[0]}</td>
                   <td style={{ border: '1px solid #999', padding: '2px 6px', fontWeight: 700, width: '30%', color: '#000', whiteSpace: 'nowrap' }}>{row[1]}</td>
                   <td style={{ border: '1px solid #999', padding: '2px 6px', width: '26%' }}>{row[2]}</td>
                 </tr>
@@ -766,10 +838,27 @@ export default function Cispr15RelatorioPage() {
           <p style={{ ...pJ, marginTop: 8 }}>{cfg.documentacao || '—'}</p>
 
           <p style={pTitle}>2.2 Observações:</p>
-          <p style={{ ...pJ, marginTop: 8 }}>
-            • Os resultados deste relatório de ensaios apresentam itens conformes. Informações adicionais podem ser
-            acessadas em Parte 2 – Resultados dos ensaios.
-          </p>
+          {(() => {
+            const falhas: string[] = []
+            if ((cfg.resultadoConduzida ?? 'pass') === 'fail') falhas.push('Perturbações Conduzidas')
+            if ((cfg.resultadoLoop      ?? 'pass') === 'fail') falhas.push('Perturbações Radiadas – Antena Loop')
+            if ((cfg.resultadoAnexoB    ?? 'pass') === 'fail') falhas.push('Perturbações Radiadas – Anexo B (30–300 MHz)')
+            if (falhas.length === 0) {
+              return (
+                <p style={{ ...pJ, marginTop: 8 }}>
+                  • Os resultados deste relatório de ensaios apresentam itens conformes. Informações adicionais podem ser
+                  acessadas em Parte 2 – Resultados dos ensaios.
+                </p>
+              )
+            }
+            return (
+              <p style={{ ...pJ, marginTop: 8 }}>
+                • Os resultados deste relatório de ensaios apresentam itens <strong>não conformes</strong>.
+                {' '}O(s) ensaio(s) de <strong>{falhas.join('; ')}</strong> apresentou(aram) resultados não conformes com
+                os limites estabelecidos pela norma. Informações adicionais podem ser acessadas em Parte 2 – Resultados dos ensaios.
+              </p>
+            )
+          })()}
 
           <p style={pTitle}>3. Documento(s) normativo(s) utilizado(s):</p>
           {cfg.tipo === 'luminaria' && (
@@ -782,6 +871,12 @@ export default function Cispr15RelatorioPage() {
             radioperturbações características dos equipamentos elétricos de iluminação e similares. Rio de Janeiro, RJ, Brasil, 2014.
           </p>
 
+        </Page>
+
+        {/* ══ PÁGINA 2 — SEÇÃO 3.1 + 4 + SEÇÃO 5 + INÍCIO PARTE 2 ══ */}
+        <Page flow>
+          <PageHeader cfg={cfg} numDisplay={displayNum} />
+
           <p style={pTitle}>3.1 Documento(s) complementar(es):</p>
           <p style={{ ...pJ, marginTop: 8 }}>Os documentos complementares abaixo indicados não fazem parte do escopo de acreditação deste laboratório.</p>
           <p style={{ ...pJ, marginLeft: 14 }}>
@@ -792,12 +887,6 @@ export default function Cispr15RelatorioPage() {
           <p style={pTitle}>4. Condições ambientais:</p>
           <p style={{ ...pJ, marginTop: 8 }}>Temperatura: 20 °C ± 5 °C</p>
           <p style={pJ}>Umidade Relativa: 55 % ± 15 %</p>
-
-        </Page>
-
-        {/* ══ PÁGINA 2 — SEÇÃO 5 + INÍCIO PARTE 2 ══ */}
-        <Page flow>
-          <PageHeader cfg={cfg} numDisplay={displayNum} />
 
           <p style={pTitle}>5. Observações:</p>
           <p style={{ ...pJ, marginTop: 8 }}>
@@ -829,6 +918,11 @@ export default function Cispr15RelatorioPage() {
             A distância entre os terminais de saída da LISN e os terminais do equipamento em ensaio foi ajustada para 0,8 m.
           </p>
           <p style={pJ}>As medições foram realizadas tanto no condutor fase como no condutor neutro, um de cada vez.</p>
+        </Page>
+
+        {/* ══ PÁGINA 3 — LIMITES CONDUZIDOS ══ */}
+        <Page flow>
+          <PageHeader cfg={cfg} numDisplay={displayNum} />
 
           <p style={pTitle}>1.1 Limites (Item 4 da Norma NBR IEC/CISPR 15/2014)</p>
           <p style={{ ...pSub, marginTop: 8 }}>1.1.1. Terminais de alimentação (Item 4.3.1 da Norma NBR IEC/CISPR 15/2014):</p>
@@ -839,7 +933,7 @@ export default function Cispr15RelatorioPage() {
           <LimitTable {...limCond3} />
         </Page>
 
-        {/* ══ PÁGINA 3 — RADIADAS 9 kHz–300 MHz ══ */}
+        {/* ══ PÁGINA 4 — RADIADAS 9 kHz–300 MHz ══ */}
         <Page flow>
           <PageHeader cfg={cfg} numDisplay={displayNum} />
 

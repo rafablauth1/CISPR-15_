@@ -88,9 +88,9 @@ export function ClientesTab({ onUsar }: { onUsar: (c: ClienteDB) => void }) {
 
   const filtrados = busca.trim()
     ? clientes.filter(c =>
-        c.nome.toLowerCase().includes(busca.toLowerCase()) ||
-        c.cnpj.includes(busca) ||
-        c.cidade.toLowerCase().includes(busca.toLowerCase())
+        c.nome?.toLowerCase().includes(busca.toLowerCase()) ||
+        c.cnpj?.includes(busca) ||
+        c.cidade?.toLowerCase().includes(busca.toLowerCase())
       )
     : clientes
 

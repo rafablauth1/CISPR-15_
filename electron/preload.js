@@ -3,7 +3,9 @@ const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('electronAPI', {
   // PDF
   salvarPDF:       (filename)  => ipcRenderer.invoke('pdf:save',              { filename }),
-  salvarPDFNaEut:  (filename)  => ipcRenderer.invoke('pdf:save-eut',          { filename }),
+  salvarPDFNaEut:  (filename, folderPath) => ipcRenderer.invoke('pdf:save-eut', { filename, folderPath }),
+  deletePdfCopy:   (pdfPath)   => ipcRenderer.invoke('pdf:delete-copy',       { pdfPath }),
+  findPdfCopy:     (query)     => ipcRenderer.invoke('pdf:find-in-copy-folder', { query }),
 
   // Excel
   checkProtocolo:  (protocolo) => ipcRenderer.invoke('excel:check-protocolo', { protocolo }),
@@ -31,13 +33,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveRelatorios:  (relatorios) => ipcRenderer.invoke('data:save-relatorios', { relatorios }),
   getAgenda:       ()          => ipcRenderer.invoke('data:get-agenda'),
   saveAgenda:      (agenda)    => ipcRenderer.invoke('data:save-agenda',      { agenda }),
-
   // OCR local (Windows.Media.Ocr)
   recognizeOcr:    (images)  => ipcRenderer.invoke('ocr:recognize', { images }),
 
   // Shell / arquivos
   openPath:        (path)  => ipcRenderer.invoke('shell:open-path',       { path }),
   browsePDF:       ()      => ipcRenderer.invoke('settings:browse-pdf'),
+  focusWindow:     ()      => ipcRenderer.invoke('window:focus'),
 
   // Eventos do menu
   onMenuSalvarPDF:    (cb) => ipcRenderer.on('menu:salvar-pdf',     () => cb()),

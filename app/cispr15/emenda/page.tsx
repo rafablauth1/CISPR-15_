@@ -9,13 +9,14 @@ import {
   DEFAULTS, CFG_KEY, PHOTOS_KEY, DOCX_HTML_KEY, DOCX_NAME_KEY,
   RELATORIOS_KEY, EMENDA_DRAFT_KEY, RELATORIO_DOCX_PFX, today, formatEmendaNumero,
 } from '../types'
+import { filterDocxForResult } from '../docx-filter'
 
 /* ─── diff engine ─────────────────────────────────────────────────────────── */
 function detectChanges(
   original: Cispr15Config,
   amended: Cispr15Config,
   photosAlteradas: boolean[],
-  docxAlterado: boolean,
+  resultadosAlterados: { conduzida: boolean; loop: boolean; anexoB: boolean },
 ): AmendmentChange[] {
   const changes: AmendmentChange[] = []
   let m = 1
@@ -34,8 +35,12 @@ function detectChanges(
     changes.push({ marker: m++, campo: 'documentacao', descricao: 'Alteração na documentação que acompanha a amostra' })
   if (diff(['protocolo', 'orcamento']))
     changes.push({ marker: m++, campo: 'protocolo', descricao: 'Alteração nos dados de protocolo' })
-  if (docxAlterado)
-    changes.push({ marker: m++, campo: 'resultados', descricao: 'Alteração nos resultados dos ensaios' })
+  if (resultadosAlterados.conduzida)
+    changes.push({ marker: m++, campo: 'resultados_conduzida', descricao: 'Alteração nos resultados — Perturbações Conduzidas' })
+  if (resultadosAlterados.loop)
+    changes.push({ marker: m++, campo: 'resultados_loop', descricao: 'Alteração nos resultados — Perturbações Radiadas (Loop 9 kHz–30 MHz)' })
+  if (resultadosAlterados.anexoB)
+    changes.push({ marker: m++, campo: 'resultados_anexoB', descricao: 'Alteração nos resultados — Perturbações Radiadas (Anexo B 30–300 MHz)' })
   photosAlteradas.forEach((changed, i) => {
     if (changed)
       changes.push({ marker: m++, campo: `foto_${i + 1}`, descricao: `Substituição da Figura ${i + 1} – Amostra ensaiada` })
@@ -87,10 +92,12 @@ export default function EmendaPage() {
   const [cfg,             setCfg]             = useState<Cispr15Config>(DEFAULTS)
   const [dataEmenda,      setDataEmenda]       = useState(today())
   const [photosAlteradas, setPhotosAlteradas] = useState<boolean[]>([false, false, false, false])
-  const [docxAlterado,    setDocxAlterado]    = useState(false)
-  const [novoDocxHtml,    setNovoDocxHtml]    = useState<string | null>(null)
-  const [novoDocxName,    setNovoDocxName]    = useState<string | null>(null)
-  const [docxLoading,     setDocxLoading]     = useState(false)
+
+  type ResultSlot = { checked: boolean; html: string | null; name: string | null; loading: boolean }
+  const emptySlot = (): ResultSlot => ({ checked: false, html: null, name: null, loading: false })
+  const [resultados, setResultados] = useState<{ conduzida: ResultSlot; loop: ResultSlot; anexoB: ResultSlot }>({
+    conduzida: emptySlot(), loop: emptySlot(), anexoB: emptySlot(),
+  })
 
   useEffect(() => {
     try {
@@ -99,8 +106,9 @@ export default function EmendaPage() {
         const lista: RelatorioSalvo[] = JSON.parse(raw)
         setRelatorios(lista)
         if (lista.length > 0) {
-          setSelectedId(lista[lista.length - 1].id)
-          setCfg({ ...lista[lista.length - 1].cfg })
+          const last = lista[lista.length - 1]
+          setSelectedId(last.id)
+          setCfg({ ...(last.currentCfg ?? last.cfg) })
         }
       }
     } catch {}
@@ -115,27 +123,23 @@ export default function EmendaPage() {
     setSelectedId(id)
     const r = relatorios.find(r => r.id === id)
     if (r) {
-      setCfg({ ...r.cfg })
+      setCfg({ ...(r.currentCfg ?? r.cfg) })
       setPhotosAlteradas(Array(Math.max(r.photos.length, 4)).fill(false))
-      setDocxAlterado(false)
-      setNovoDocxHtml(null)
-      setNovoDocxName(null)
+      setResultados({ conduzida: emptySlot(), loop: emptySlot(), anexoB: emptySlot() })
     }
   }
 
-  async function handleNovoDocx(file: File) {
-    setDocxLoading(true)
+  async function handleNovoDocx(file: File, key: keyof typeof resultados) {
+    setResultados(prev => ({ ...prev, [key]: { ...prev[key], loading: true } }))
     try {
       const fd = new FormData(); fd.append('file', file)
       const res  = await fetch('/api/parse-docx', { method: 'POST', body: fd })
       const data = await res.json()
       if (data.error) throw new Error(data.error)
-      setNovoDocxHtml(data.html)
-      setNovoDocxName(file.name)
+      setResultados(prev => ({ ...prev, [key]: { ...prev[key], html: data.html, name: file.name, loading: false } }))
     } catch (err: any) {
       alert(`Erro ao processar .docx: ${err.message}`)
-    } finally {
-      setDocxLoading(false)
+      setResultados(prev => ({ ...prev, [key]: { ...prev[key], loading: false } }))
     }
   }
 
@@ -143,8 +147,12 @@ export default function EmendaPage() {
     setCfg(prev => ({ ...prev, [k]: v }))
 
   const alteracoes = useMemo(
-    () => selected ? detectChanges(selected.cfg, cfg, photosAlteradas, docxAlterado) : [],
-    [selected, cfg, photosAlteradas, docxAlterado],
+    () => selected ? detectChanges(selected.cfg, cfg, photosAlteradas, {
+      conduzida: resultados.conduzida.checked,
+      loop:      resultados.loop.checked,
+      anexoB:    resultados.anexoB.checked,
+    }) : [],
+    [selected, cfg, photosAlteradas, resultados],
   )
 
   function gerarEmenda() {
@@ -163,16 +171,31 @@ export default function EmendaPage() {
       cfgOriginal: selected.cfg,
       photoNamesOriginal: selected.photos.map(p => p.name),
       docxFilenameOriginal: selected.docxFilename,
+      eutFolderPath: selected.eutFolderPath,
     }
     localStorage.setItem(EMENDA_DRAFT_KEY, JSON.stringify(draft))
     localStorage.setItem(CFG_KEY, JSON.stringify(cfg))
 
-    // Restaurar fotos e docx do relatório original para os storages de trabalho
     try { localStorage.setItem(PHOTOS_KEY, JSON.stringify(selected.photos)) } catch {}
-    // Se houve upload de novo docx para a emenda, usar ele; senão, restaurar o original
-    if (novoDocxHtml) {
-      sessionStorage.setItem(DOCX_HTML_KEY, novoDocxHtml)
-      sessionStorage.setItem(DOCX_NAME_KEY, novoDocxName ?? '')
+
+    // Combinar HTMLs dos resultados que tiverem upload; senão, restaurar o docx original
+    const htmlParts: string[] = []
+    const nameParts: string[] = []
+    if (resultados.conduzida.checked && resultados.conduzida.html) {
+      htmlParts.push(filterDocxForResult(resultados.conduzida.html, 'conduzida'))
+      if (resultados.conduzida.name) nameParts.push(resultados.conduzida.name)
+    }
+    if (resultados.loop.checked && resultados.loop.html) {
+      htmlParts.push(filterDocxForResult(resultados.loop.html, 'loop'))
+      if (resultados.loop.name) nameParts.push(resultados.loop.name)
+    }
+    if (resultados.anexoB.checked && resultados.anexoB.html) {
+      htmlParts.push(filterDocxForResult(resultados.anexoB.html, 'anexoB'))
+      if (resultados.anexoB.name) nameParts.push(resultados.anexoB.name)
+    }
+    if (htmlParts.length > 0) {
+      sessionStorage.setItem(DOCX_HTML_KEY, htmlParts.join('\n'))
+      sessionStorage.setItem(DOCX_NAME_KEY, nameParts.join(' + '))
     } else {
       const docxHtml = localStorage.getItem(RELATORIO_DOCX_PFX + selected.id)
       if (docxHtml) sessionStorage.setItem(DOCX_HTML_KEY, docxHtml)
@@ -328,50 +351,64 @@ export default function EmendaPage() {
             </label>
           ))}
         </div>
-        <div className="border-t border-white/5 pt-3 space-y-2">
-          <label className="flex items-center gap-3 cursor-pointer group">
-            <input
-              type="checkbox"
-              checked={docxAlterado}
-              onChange={e => { setDocxAlterado(e.target.checked); if (!e.target.checked) { setNovoDocxHtml(null); setNovoDocxName(null) } }}
-              className="w-4 h-4 rounded accent-amber-400 cursor-pointer"
-            />
-            <span className="text-sm text-white/60 group-hover:text-white/80">
-              Resultados dos ensaios (arquivo Radimation .docx)
-              {selected?.docxFilename && (
-                <span className="text-white/25 text-xs ml-2 font-mono">{selected.docxFilename}</span>
-              )}
-            </span>
-          </label>
-
-          {/* Upload do novo .docx */}
-          {docxAlterado && (
-            <div className="ml-7">
-              {novoDocxHtml ? (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/8 border border-amber-500/20">
-                  <CheckCircle2 size={12} className="text-amber-400 flex-shrink-0" />
-                  <span className="text-amber-300 text-[11px] font-mono truncate flex-1">{novoDocxName}</span>
-                  <button type="button" onClick={() => { setNovoDocxHtml(null); setNovoDocxName(null) }}
-                    className="text-white/25 hover:text-red-400 transition-colors flex-shrink-0">
-                    <X size={12} />
-                  </button>
-                </div>
-              ) : docxLoading ? (
-                <div className="flex items-center gap-2 px-3 py-2 text-[11px] text-blue-400">
-                  <Loader2 size={11} className="animate-spin" /> Processando…
-                </div>
-              ) : (
-                <label className="flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-amber-500/30 text-amber-400/70 hover:border-amber-400/50 hover:text-amber-400 cursor-pointer transition-all text-[11px]">
-                  <Upload size={11} /> Carregar novo .docx de substituição
-                  <input type="file" accept=".docx" className="hidden"
-                    onChange={e => { const f = e.target.files?.[0]; if (f) handleNovoDocx(f) }} />
+        <div className="border-t border-white/5 pt-3 space-y-3">
+          <p className="text-[10px] text-white/30 font-mono">Resultados dos ensaios</p>
+          {(
+            [
+              { key: 'conduzida' as const, label: 'Perturbações Conduzidas' },
+              { key: 'loop'      as const, label: 'Perturbações Radiadas – Loop (9 kHz–30 MHz)' },
+              { key: 'anexoB'    as const, label: 'Perturbações Radiadas – Anexo B (30–300 MHz)' },
+            ] as const
+          ).map(({ key, label }) => {
+            const slot = resultados[key]
+            return (
+              <div key={key}>
+                <label className="flex items-center gap-3 cursor-pointer group">
+                  <input
+                    type="checkbox"
+                    checked={slot.checked}
+                    onChange={e => {
+                      const checked = e.target.checked
+                      setResultados(prev => ({
+                        ...prev,
+                        [key]: { ...prev[key], checked, ...(checked ? {} : { html: null, name: null }) },
+                      }))
+                    }}
+                    className="w-4 h-4 rounded accent-amber-400 cursor-pointer"
+                  />
+                  <span className="text-sm text-white/60 group-hover:text-white/80">{label}</span>
                 </label>
-              )}
-              <p className="text-[9px] text-white/20 font-mono mt-1">
-                Se não carregar um novo arquivo, o .docx original será mantido no relatório.
-              </p>
-            </div>
-          )}
+                {slot.checked && (
+                  <div className="ml-7 mt-1.5">
+                    {slot.html ? (
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/8 border border-amber-500/20">
+                        <CheckCircle2 size={12} className="text-amber-400 flex-shrink-0" />
+                        <span className="text-amber-300 text-[11px] font-mono truncate flex-1">{slot.name}</span>
+                        <button type="button"
+                          onClick={() => setResultados(prev => ({ ...prev, [key]: { ...prev[key], html: null, name: null } }))}
+                          className="text-white/25 hover:text-red-400 transition-colors flex-shrink-0">
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ) : slot.loading ? (
+                      <div className="flex items-center gap-2 px-3 py-2 text-[11px] text-blue-400">
+                        <Loader2 size={11} className="animate-spin" /> Processando…
+                      </div>
+                    ) : (
+                      <label className="flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-amber-500/30 text-amber-400/70 hover:border-amber-400/50 hover:text-amber-400 cursor-pointer transition-all text-[11px]">
+                        <Upload size={11} /> Carregar .docx de substituição (opcional)
+                        <input type="file" accept=".docx" className="hidden"
+                          onChange={e => { const f = e.target.files?.[0]; if (f) handleNovoDocx(f, key) }} />
+                      </label>
+                    )}
+                    <p className="text-[9px] text-white/20 font-mono mt-1">
+                      Se não carregar um arquivo, o .docx original será mantido para este ensaio.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       </div>
 

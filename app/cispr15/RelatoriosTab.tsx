@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { FileText, Trash2, FolderOpen, AlertTriangle, ChevronDown, ChevronUp, Wifi, WifiOff } from 'lucide-react'
+import { FileText, Trash2, FolderOpen, AlertTriangle, ChevronDown, ChevronUp, Wifi, WifiOff, Lock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { type RelatorioSalvo, RELATORIOS_KEY, RELATORIO_DOCX_PFX } from './types'
 
@@ -82,10 +82,10 @@ export function RelatoriosTab({ onCarregar, onVerPDF }: Props) {
       if (!busca.trim()) return true
       const q = busca.toLowerCase()
       return (
-        r.numRelatorio.toLowerCase().includes(q) ||
-        r.clienteNome.toLowerCase().includes(q)  ||
-        r.protocolo.toLowerCase().includes(q)    ||
-        r.produto.toLowerCase().includes(q)
+        r.numRelatorio?.toLowerCase().includes(q) ||
+        r.clienteNome?.toLowerCase().includes(q)  ||
+        r.protocolo?.toLowerCase().includes(q)    ||
+        r.produto?.toLowerCase().includes(q)
       )
     })
   }, [lista, filtroAno, filtroCliente, filtroTipo, busca])
@@ -170,9 +170,10 @@ export function RelatoriosTab({ onCarregar, onVerPDF }: Props) {
       ) : (
         <div className="space-y-2">
           {filtrados.map(r => {
-            const isOpen  = expanded === r.id
-            const hasDocx = !!localStorage.getItem(RELATORIO_DOCX_PFX + r.id)
-            const semFotos = r.photos.length === 0
+            const isOpen     = expanded === r.id
+            const hasDocx    = !!localStorage.getItem(RELATORIO_DOCX_PFX + r.id)
+            const semFotos   = (r.photos ?? []).length === 0
+            const hasEmendas = (r.emendas ?? []).length > 0
             return (
               <div key={r.id} className="card overflow-hidden">
                 {/* linha principal */}
@@ -190,9 +191,9 @@ export function RelatoriosTab({ onCarregar, onVerPDF }: Props) {
                       )}>
                         {r.cfg.tipo === 'lampada' ? 'Lâmpada' : 'Luminária'}
                       </span>
-                      {r.emendas.length > 0 && (
+                      {(r.emendas ?? []).length > 0 && (
                         <span className="text-[9px] font-mono text-amber-400/60 border border-amber-400/20 bg-amber-400/5 px-1.5 py-0.5 rounded">
-                          {r.emendas.length} emenda{r.emendas.length > 1 ? 's' : ''}
+                          {(r.emendas ?? []).length} emenda{(r.emendas ?? []).length > 1 ? 's' : ''}
                         </span>
                       )}
                       {semFotos && fromNetwork && (
@@ -213,12 +214,20 @@ export function RelatoriosTab({ onCarregar, onVerPDF }: Props) {
                       className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-gold/8 border border-gold/20 text-gold text-[11px] font-semibold hover:bg-gold/18 transition-all">
                       <FileText size={11} /> PDF
                     </button>
-                    <button
-                      onClick={() => onCarregar(r)}
-                      title="Carregar no formulário"
-                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-teal/8 border border-teal/20 text-teal text-[11px] font-semibold hover:bg-teal/15 transition-all">
-                      <FolderOpen size={11} /> Carregar
-                    </button>
+                    {hasEmendas ? (
+                      <div
+                        title="Relatório com emenda — edite pela aba Emendas"
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-white/8 text-white/20 text-[11px] font-semibold cursor-not-allowed select-none">
+                        <Lock size={11} /> Bloqueado
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => onCarregar(r)}
+                        title="Carregar no formulário"
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-teal/8 border border-teal/20 text-teal text-[11px] font-semibold hover:bg-teal/15 transition-all">
+                        <FolderOpen size={11} /> Carregar
+                      </button>
+                    )}
                     <button
                       onClick={() => setExpanded(isOpen ? null : r.id)}
                       className="w-7 h-7 rounded-lg border border-white/10 text-white/30 hover:text-white/60 flex items-center justify-center transition-all">
@@ -245,7 +254,7 @@ export function RelatoriosTab({ onCarregar, onVerPDF }: Props) {
                         ['Modelo',        r.cfg.modelo],
                         ['Fabricante',    r.cfg.fabricante],
                         ['Responsável',   r.cfg.responsavel],
-                        ['Fotos',         r.photos.length ? `${r.photos.length} arquivo(s)` : '— (carregar pasta EUT)'],
+                        ['Fotos',         (r.photos ?? []).length ? `${(r.photos ?? []).length} arquivo(s)` : '— (carregar pasta EUT)'],
                         ['DOCX',          r.docxFilename || '—'],
                       ].map(([label, value]) => (
                         <div key={label}>
@@ -270,11 +279,11 @@ export function RelatoriosTab({ onCarregar, onVerPDF }: Props) {
                           : 'Fotos não disponíveis — carregue a pasta da EUT.'}
                       </div>
                     )}
-                    {r.emendas.length > 0 && (
+                    {(r.emendas ?? []).length > 0 && (
                       <div className="text-[10px] text-white/30 font-mono">
-                        {r.emendas.map(e => (
+                        {(r.emendas ?? []).map(e => (
                           <span key={e.numero} className="mr-3">
-                            Emenda {e.numero}: {fmtDate(e.dataEmenda)} ({e.alteracoes.length} alteração{e.alteracoes.length !== 1 ? 'ões' : ''})
+                            Emenda {e.numero}: {fmtDate(e.dataEmenda)} ({(e.alteracoes ?? []).length} alteração{(e.alteracoes ?? []).length !== 1 ? 'ões' : ''})
                           </span>
                         ))}
                       </div>

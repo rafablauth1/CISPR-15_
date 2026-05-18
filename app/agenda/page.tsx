@@ -3,15 +3,16 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  ArrowLeft, Plus, Search, X, CheckCircle2, Clock, Edit2,
-  Trash2, ChevronDown, ChevronUp, FileText, Calendar,
-  Lightbulb, Lamp, Settings, Layers, RotateCcw, Link2, FolderOpen,
+  ArrowLeft, ArrowRight, Plus, Search, X, CheckCircle2, Clock, Edit2,
+  Trash2, ChevronDown, ChevronUp, FileText,
+  Lightbulb, Lamp, Settings, Layers, RotateCcw, Link2, FileSearch,
   AlertTriangle, Wifi, BarChart2, Tag,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
-  type AgendaItem, type RelatorioSalvo,
-  AGENDA_KEY, RELATORIOS_KEY, today,
+  type AgendaItem, type RelatorioSalvo, type ClienteDB,
+  type LoteAmostra, type LoteConfig, type Cispr15Config,
+  AGENDA_KEY, RELATORIOS_KEY, CLIENTES_KEY, CFG_KEY, LOTE_KEY, today,
 } from '@/app/cispr15/types'
 
 /* ─── tags predefinidas ───────────────────────────────────────────────────── */
@@ -99,11 +100,66 @@ function Label({ children }: { children: React.ReactNode }) {
   return <label className="text-[10px] text-white/35 uppercase tracking-widest font-mono">{children}</label>
 }
 
-/* ─── modal item único ────────────────────────────────────────────────────── */
-function ItemModal({ item, onSave, onClose, isElectron }: {
-  item: AgendaItem; onSave: (i: AgendaItem) => void; onClose: () => void; isElectron: boolean
+/* ─── seletor de cliente ──────────────────────────────────────────────────── */
+function ClientePicker({ clientes, onSelect }: {
+  clientes: ClienteDB[]
+  onSelect: (c: ClienteDB) => void
 }) {
-  const [form, setForm] = useState<AgendaItem>({ tags: [], ...item })
+  const [q, setQ] = useState('')
+  const [open, setOpen] = useState(false)
+  const filtrados = clientes.filter(c =>
+    !q || c.nome?.toLowerCase().includes(q.toLowerCase()) || c.cnpj?.includes(q)
+  )
+  if (clientes.length === 0) return null
+  return (
+    <div className="relative">
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/25 pointer-events-none" />
+          <input
+            className="input pl-7 text-xs"
+            placeholder="Buscar cliente cadastrado…"
+            value={q}
+            onChange={e => { setQ(e.target.value); setOpen(true) }}
+            onFocus={() => setOpen(true)}
+            onBlur={() => setTimeout(() => setOpen(false), 150)}
+          />
+        </div>
+      </div>
+      {open && (
+        <div className="absolute z-50 top-full mt-1 left-0 right-0 rounded-xl border border-white/10 bg-[#0d1017] shadow-xl max-h-[180px] overflow-y-auto">
+          {filtrados.length === 0
+            ? <p className="text-[11px] text-white/25 px-3 py-2">Nenhum cliente encontrado.</p>
+            : filtrados.slice(0, 20).map(c => (
+                <button key={c.id} type="button" onMouseDown={() => { onSelect(c); setQ(''); setOpen(false) }}
+                  className="w-full text-left px-3 py-2 hover:bg-white/5 transition-colors border-b border-white/4 last:border-0">
+                  <p className="text-xs text-white/80 font-semibold">{c.nome}</p>
+                  {(c.cidade || c.cep) && (
+                    <p className="text-[10px] text-white/35">{[c.cidade, c.cep].filter(Boolean).join(' · ')}</p>
+                  )}
+                </button>
+              ))
+          }
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ─── modal item único ────────────────────────────────────────────────────── */
+function ItemModal({ item, onSave, onClose, clientes }: {
+  item: AgendaItem; onSave: (i: AgendaItem) => void; onClose: () => void
+  clientes: ClienteDB[]
+}) {
+  const [form, setForm] = useState<AgendaItem>({
+    fabricante: '', modelo: '', identificador: '', potencia: '', tensaoAlim: '', frequencia: '50/60Hz',
+    clienteRua: '', clienteCidade: '', clienteCep: '', documentacao: '', tags: [],
+    ...item,
+  })
+  const [showDUT, setShowDUT] = useState(
+    !!(item.fabricante || item.modelo || item.potencia || item.tensaoAlim)
+  )
+
   const s = (k: keyof AgendaItem) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
       setForm(prev => ({ ...prev, [k]: e.target.value }))
@@ -124,13 +180,6 @@ function ItemModal({ item, onSave, onClose, isElectron }: {
       const tags = p.tags ?? []
       return { ...p, tags: tags.includes(id) ? tags.filter(t => t !== id) : [...tags, id] }
     })
-  }
-
-  async function browsePDF() {
-    const api = (window as any).electronAPI
-    if (!api) return
-    const res = await api.browsePDF()
-    if (!res.canceled) setForm(p => ({ ...p, pdfPath: res.filePath }))
   }
 
   const tags = form.tags ?? []
@@ -160,6 +209,7 @@ function ItemModal({ item, onSave, onClose, isElectron }: {
           ))}
         </div>
 
+        {/* Protocolo / Orçamento / Datas */}
         <div className="grid grid-cols-2 gap-4">
           <div className="flex flex-col gap-1.5">
             <Label>Protocolo LABELO</Label>
@@ -168,14 +218,6 @@ function ItemModal({ item, onSave, onClose, isElectron }: {
           <div className="flex flex-col gap-1.5">
             <Label>Orçamento LABELO</Label>
             <input className="input" value={form.orcamento} onChange={s('orcamento')} placeholder="Ex: 0887" />
-          </div>
-          <div className="flex flex-col gap-1.5 col-span-2">
-            <Label>Cliente</Label>
-            <input className="input" value={form.cliente} onChange={s('cliente')} placeholder="Nome do cliente" />
-          </div>
-          <div className="flex flex-col gap-1.5 col-span-2">
-            <Label>Produto / DUT <span className="normal-case text-white/20">(opcional)</span></Label>
-            <input className="input" value={form.produto} onChange={s('produto')} placeholder="Ex: Luminária LED Pública 100W" />
           </div>
           <div className="flex flex-col gap-1.5">
             <Label>Data de Entrada</Label>
@@ -191,37 +233,90 @@ function ItemModal({ item, onSave, onClose, isElectron }: {
                 <RotateCcw size={12} />
               </button>
             </div>
-            <p className="text-[10px] text-white/20 font-mono">↺ recalcula +10 dias úteis a partir da entrada</p>
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label>Responsável pelo Preenchimento</Label>
+            <Label>Responsável</Label>
             <input className="input" value={form.responsavel} onChange={s('responsavel')} placeholder="Ex: João Silva" />
           </div>
           <div className="flex flex-col gap-1.5">
             <Label>N° Relatório <span className="normal-case text-white/20">(quando emitido)</span></Label>
             <input className="input" value={form.numRelatorio} onChange={s('numRelatorio')} placeholder="Ex: EMC 1244/2026" />
           </div>
-          <div className="flex flex-col gap-1.5">
-            <Label>Data de Emissão</Label>
-            <input type="date" className="input" value={form.dataEmissao} onChange={s('dataEmissao')} />
-          </div>
-          <div className="flex flex-col gap-1.5 col-span-2">
-            <Label>PDF do Relatório <span className="normal-case text-white/20">(opcional — vincular arquivo)</span></Label>
-            <div className="flex gap-2">
-              <input
-                className="input flex-1 text-xs font-mono"
-                value={form.pdfPath ?? ''}
-                onChange={e => setForm(p => ({ ...p, pdfPath: e.target.value }))}
-                placeholder="Caminho do arquivo PDF gerado"
-              />
-              {isElectron && (
-                <button type="button" onClick={browsePDF}
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-white/10 text-white/50 hover:text-teal hover:border-teal/30 transition-all text-xs shrink-0">
-                  <FolderOpen size={12} /> Procurar
-                </button>
-              )}
+        </div>
+
+        {/* Cliente */}
+        <div className="space-y-2">
+          <p className="text-[10px] text-white/30 font-mono uppercase tracking-widest">Dados do Cliente</p>
+          <ClientePicker clientes={clientes} onSelect={c => setForm(p => ({
+            ...p, cliente: c.nome, clienteRua: c.rua, clienteCidade: c.cidade, clienteCep: c.cep,
+          }))} />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1.5 col-span-2">
+              <Label>Nome</Label>
+              <input className="input" value={form.cliente} onChange={s('cliente')} placeholder="Nome do cliente" />
+            </div>
+            <div className="flex flex-col gap-1.5 col-span-2">
+              <Label>Endereço <span className="normal-case text-white/20">(opcional)</span></Label>
+              <input className="input" value={form.clienteRua ?? ''} onChange={s('clienteRua')} placeholder="Rua, número" />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>Cidade <span className="normal-case text-white/20">(opcional)</span></Label>
+              <input className="input" value={form.clienteCidade ?? ''} onChange={s('clienteCidade')} placeholder="Porto Alegre" />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label>CEP <span className="normal-case text-white/20">(opcional)</span></Label>
+              <input className="input" value={form.clienteCep ?? ''} onChange={s('clienteCep')} placeholder="00000-000" />
             </div>
           </div>
+        </div>
+
+        {/* DUT / Amostra (expansível) */}
+        <div className="space-y-2">
+          <button type="button" onClick={() => setShowDUT(p => !p)}
+            className="flex items-center gap-2 text-[10px] text-white/40 font-mono uppercase tracking-widest hover:text-white/60 transition-colors w-full text-left">
+            <ChevronDown size={11} className={cn('transition-transform', showDUT && 'rotate-180')} />
+            Dados da Amostra / DUT
+            <span className="text-white/20 normal-case font-normal tracking-normal">(opcional — preencha para pré-carregar o relatório)</span>
+          </button>
+          {showDUT && (
+            <div className="grid grid-cols-2 gap-3 p-3 rounded-xl border border-white/6 bg-white/[0.015]">
+              <div className="flex flex-col gap-1.5 col-span-2">
+                <Label>Produto / Descrição</Label>
+                <input className="input" value={form.produto} onChange={s('produto')} placeholder="Ex: Luminária LED Pública 100W" />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>Fabricante</Label>
+                <input className="input" value={form.fabricante ?? ''} onChange={s('fabricante')} placeholder="Ex: Philips" />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>Modelo</Label>
+                <input className="input" value={form.modelo ?? ''} onChange={s('modelo')} placeholder="Ex: LD-LED-100W" />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>{form.tipo === 'lampada' ? 'Código de Barras' : 'N° de Série'}</Label>
+                <input className="input" value={form.identificador ?? ''} onChange={s('identificador')} placeholder="Identificador" />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>Potência</Label>
+                <input className="input" value={form.potencia ?? ''} onChange={s('potencia')} placeholder="Ex: 100W" />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>Tensão de Alimentação</Label>
+                <input className="input" value={form.tensaoAlim ?? ''} onChange={s('tensaoAlim')} placeholder="Ex: 90 a 305 VAC" />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>Frequência</Label>
+                <input className="input" value={form.frequencia ?? ''} onChange={s('frequencia')} placeholder="50/60Hz" />
+              </div>
+              <div className="flex flex-col gap-1.5 col-span-2">
+                <Label>Documentação</Label>
+                <input className="input" value={form.documentacao ?? ''} onChange={s('documentacao')} placeholder="embalagem com especificações" />
+              </div>
+            </div>
+          )}
+          {!showDUT && (
+            <input className="input" value={form.produto} onChange={s('produto')} placeholder="Produto / DUT (opcional)" />
+          )}
         </div>
 
         {/* Tags */}
@@ -232,12 +327,9 @@ function ItemModal({ item, onSave, onClose, isElectron }: {
               <button key={t.id} type="button" onClick={() => toggleTag(t.id)}
                 className={cn(
                   'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all',
-                  tags.includes(t.id)
-                    ? t.cls + ' opacity-100'
-                    : 'border-white/8 text-white/30 hover:border-white/20',
+                  tags.includes(t.id) ? t.cls + ' opacity-100' : 'border-white/8 text-white/30 hover:border-white/20',
                 )}>
-                <Tag size={10} />
-                {t.label}
+                <Tag size={10} /> {t.label}
               </button>
             ))}
           </div>
@@ -247,22 +339,19 @@ function ItemModal({ item, onSave, onClose, isElectron }: {
         <div className="space-y-2">
           <Label>Status dos Ensaios</Label>
           <div className="grid grid-cols-3 gap-3">
-            {(['statusConduzida', 'statusLoop', 'statusAnexoB'] as const).map((k, i) => {
-              const labels = ['Conduzida', 'Loop', 'Anexo B']
-              return (
-                <button key={k} type="button"
-                  onClick={() => setForm(p => ({ ...p, [k]: p[k] === 'pendente' ? 'realizado' : 'pendente' }))}
-                  className={cn(
-                    'flex items-center justify-center gap-2 py-2.5 rounded-xl border text-xs font-semibold transition-all',
-                    form[k] === 'realizado'
-                      ? 'border-green/30 bg-green/8 text-green-400'
-                      : 'border-white/10 text-white/35 hover:border-white/20',
-                  )}>
-                  {form[k] === 'realizado' ? <CheckCircle2 size={12} /> : <Clock size={12} />}
-                  {labels[i]}
-                </button>
-              )
-            })}
+            {(['statusConduzida', 'statusLoop', 'statusAnexoB'] as const).map((k, i) => (
+              <button key={k} type="button"
+                onClick={() => setForm(p => ({ ...p, [k]: p[k] === 'pendente' ? 'realizado' : 'pendente' }))}
+                className={cn(
+                  'flex items-center justify-center gap-2 py-2.5 rounded-xl border text-xs font-semibold transition-all',
+                  form[k] === 'realizado'
+                    ? 'border-green/30 bg-green/8 text-green-400'
+                    : 'border-white/10 text-white/35 hover:border-white/20',
+                )}>
+                {form[k] === 'realizado' ? <CheckCircle2 size={12} /> : <Clock size={12} />}
+                {['Conduzida', 'Loop', 'Anexo B'][i]}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -293,20 +382,24 @@ interface LoteForm {
   tipo: 'lampada' | 'luminaria'
   orcamento: string
   cliente: string
+  clienteRua: string
+  clienteCidade: string
+  clienteCep: string
   produto: string
   responsavel: string
   dataEntrada: string
   previsaoSaida: string
 }
 
-function LoteModal({ onSave, onClose }: {
-  onSave: (items: AgendaItem[]) => void; onClose: () => void
+function LoteModal({ onSave, onClose, clientes }: {
+  onSave: (items: AgendaItem[]) => void; onClose: () => void; clientes: ClienteDB[]
 }) {
   const entrada = today()
   const [form, setForm] = useState<LoteForm>({
     protocolos: '',
     tipo: 'lampada',
-    orcamento: '', cliente: '', produto: '', responsavel: '',
+    orcamento: '', cliente: '', clienteRua: '', clienteCidade: '', clienteCep: '',
+    produto: '', responsavel: '',
     dataEntrada: entrada,
     previsaoSaida: addBusinessDays(entrada, 10),
   })
@@ -338,6 +431,9 @@ function LoteModal({ onSave, onClose }: {
       protocolo: proto,
       orcamento: form.orcamento,
       cliente: form.cliente,
+      clienteRua: form.clienteRua,
+      clienteCidade: form.clienteCidade,
+      clienteCep: form.clienteCep,
       produto: form.produto,
       dataEntrada: form.dataEntrada,
       previsaoSaida: form.previsaoSaida,
@@ -402,7 +498,10 @@ function LoteModal({ onSave, onClose }: {
           </div>
           <div className="flex flex-col gap-1.5 col-span-2">
             <Label>Cliente <span className="normal-case text-white/20">(opcional)</span></Label>
-            <input className="input" value={form.cliente} onChange={s('cliente')} placeholder="Nome do cliente" />
+            <ClientePicker clientes={clientes} onSelect={c => setForm(p => ({
+              ...p, cliente: c.nome, clienteRua: c.rua, clienteCidade: c.cidade, clienteCep: c.cep,
+            }))} />
+            <input className="input mt-1" value={form.cliente} onChange={s('cliente')} placeholder="Nome do cliente" />
           </div>
           <div className="flex flex-col gap-1.5 col-span-2">
             <Label>Produto / DUT <span className="normal-case text-white/20">(opcional)</span></Label>
@@ -440,6 +539,149 @@ function LoteModal({ onSave, onClose }: {
   )
 }
 
+/* ─── modal gerar lote ────────────────────────────────────────────────────── */
+function GerarLoteModal({ agenda, onConfirm, onClose }: {
+  agenda: AgendaItem[]
+  onConfirm: (itens: AgendaItem[]) => void
+  onClose: () => void
+}) {
+  const [numLote, setNumLote] = useState('')
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
+
+  const itensAndamento = useMemo(() => {
+    const q = numLote.trim().toLowerCase()
+    if (!q) return []
+    return agenda.filter(a => a.orcamento?.trim().toLowerCase() === q && !a.numRelatorio)
+  }, [numLote, agenda])
+
+  // Ao encontrar itens, selecionar todos por padrão
+  const prevLen = useMemo(() => itensAndamento.length, [itensAndamento])
+  useEffect(() => {
+    setSelecionados(new Set(itensAndamento.map(a => a.id)))
+  }, [prevLen])
+
+  function toggleItem(id: string) {
+    setSelecionados(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  function toggleTodos() {
+    if (selecionados.size === itensAndamento.length)
+      setSelecionados(new Set())
+    else
+      setSelecionados(new Set(itensAndamento.map(a => a.id)))
+  }
+
+  const itensSelecionados = itensAndamento.filter(a => selecionados.has(a.id))
+
+  function handleConfirm() {
+    if (itensSelecionados.length === 0) return
+    onConfirm(itensSelecionados)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+      <div className="card w-full max-w-lg max-h-[90vh] flex flex-col p-6 gap-5 animate-fade-in">
+        <div className="flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2">
+            <ArrowRight size={15} className="text-gold" />
+            <p className="text-white font-bold text-sm">Gerar Lote</p>
+          </div>
+          <button onClick={onClose} className="text-white/30 hover:text-white/70 transition-colors">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-1.5 shrink-0">
+          <label className="text-[10px] text-white/35 uppercase tracking-widest font-mono">
+            Número do Lote (Orçamento LABELO)
+          </label>
+          <input
+            className="input text-sm font-mono"
+            placeholder="Ex: 0887"
+            value={numLote}
+            onChange={e => setNumLote(e.target.value)}
+            autoFocus
+          />
+        </div>
+
+        {numLote.trim() && itensAndamento.length === 0 && (
+          <div className="rounded-xl border border-red-400/20 bg-red-400/6 px-4 py-3 text-xs text-red-400/70 shrink-0">
+            Nenhum item em andamento encontrado para o lote <span className="font-mono font-bold">"{numLote.trim()}"</span>.
+          </div>
+        )}
+
+        {itensAndamento.length > 0 && (
+          <>
+            {/* cabeçalho da lista */}
+            <div className="flex items-center justify-between shrink-0">
+              <p className="text-[10px] text-white/35 uppercase tracking-widest font-mono">
+                {itensAndamento.length} em andamento
+                {' · '}
+                <span className="text-teal">{selecionados.size} selecionado(s)</span>
+              </p>
+              <button type="button" onClick={toggleTodos}
+                className="text-[10px] text-white/40 hover:text-white/70 underline transition-colors">
+                {selecionados.size === itensAndamento.length ? 'Desmarcar todos' : 'Selecionar todos'}
+              </button>
+            </div>
+
+            {/* lista com scroll */}
+            <div className="overflow-y-auto flex-1 space-y-1 min-h-0">
+              {itensAndamento.map(a => {
+                const sel = selecionados.has(a.id)
+                return (
+                  <button key={a.id} type="button" onClick={() => toggleItem(a.id)}
+                    className={cn(
+                      'w-full flex items-center gap-3 px-3 py-2 rounded-lg border text-left transition-all',
+                      sel
+                        ? 'border-teal/25 bg-teal/6'
+                        : 'border-white/6 bg-white/[0.015] opacity-50 hover:opacity-75',
+                    )}>
+                    <div className={cn(
+                      'w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-all',
+                      sel ? 'border-teal bg-teal/20' : 'border-white/20',
+                    )}>
+                      {sel && <CheckCircle2 size={10} className="text-teal" />}
+                    </div>
+                    <div className={cn('shrink-0', a.tipo === 'lampada' ? 'text-yellow-400/60' : 'text-blue-400/60')}>
+                      {a.tipo === 'lampada' ? <Lightbulb size={11} /> : <Lamp size={11} />}
+                    </div>
+                    <span className="font-mono text-xs text-white/80 w-24 shrink-0 truncate">{a.protocolo || '—'}</span>
+                    <span className="flex-1 text-xs text-white/45 truncate min-w-0">
+                      {a.produto || a.cliente || '—'}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+
+            <p className="text-[10px] text-white/25 shrink-0">
+              Tipo: {itensAndamento[0].tipo === 'lampada' ? 'Lâmpada' : 'Luminária'}
+              {' · '}Cliente: {itensAndamento[0].cliente || '—'}
+            </p>
+          </>
+        )}
+
+        <div className="flex gap-2 justify-end shrink-0 pt-1 border-t border-white/6">
+          <button type="button" onClick={onClose}
+            className="px-4 py-2 rounded-lg border border-white/10 text-white/40 hover:text-white/70 text-sm transition-all">
+            Cancelar
+          </button>
+          <button type="button" onClick={handleConfirm}
+            disabled={itensSelecionados.length === 0}
+            className="btn-primary px-6 py-2 text-sm font-bold flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed">
+            <ArrowRight size={13} /> Abrir Lote ({itensSelecionados.length})
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ─── página principal ─────────────────────────────────────────────────────── */
 export default function AgendaPage() {
   const router = useRouter()
@@ -448,6 +690,7 @@ export default function AgendaPage() {
   const [busca,         setBusca]         = useState('')
   const [editItem,      setEditItem]      = useState<AgendaItem | null>(null)
   const [showLote,      setShowLote]      = useState(false)
+  const [showGerarLote, setShowGerarLote] = useState(false)
   const [filter,        setFilter]        = useState<'andamento' | 'concluidos' | 'todos'>('andamento')
   const [relatorios,    setRelatorios]    = useState<RelatorioSalvo[]>([])
   const [sortKey,       setSortKey]       = useState<'dataEntrada' | 'previsaoSaida' | 'protocolo'>('dataEntrada')
@@ -456,11 +699,13 @@ export default function AgendaPage() {
   const [filterCliente, setFilterCliente] = useState('')
   const [isElectron,    setIsElectron]    = useState(false)
   const [fromNetwork,   setFromNetwork]   = useState<boolean | null>(null)
+  const [clientes,      setClientes]      = useState<ClienteDB[]>([])
 
   useEffect(() => {
     setIsElectron(!!(window as any).electronAPI)
     loadAgenda()
     loadRelatorios()
+    loadClientes()
   }, [])
 
   async function loadAgenda() {
@@ -506,6 +751,20 @@ export default function AgendaPage() {
     } catch {}
   }
 
+  async function loadClientes() {
+    const api = (window as any).electronAPI
+    if (api) {
+      try {
+        const res = await api.getClientes()
+        if (res.ok && res.fromNetwork && Array.isArray(res.clientes)) { setClientes(res.clientes); return }
+      } catch {}
+    }
+    try {
+      const raw = localStorage.getItem(CLIENTES_KEY)
+      if (raw) setClientes(JSON.parse(raw))
+    } catch {}
+  }
+
   function handleSave(item: AgendaItem) {
     const exists = agenda.some(a => a.id === item.id)
     saveAgenda(exists ? agenda.map(a => a.id === item.id ? item : a) : [...agenda, item])
@@ -517,9 +776,18 @@ export default function AgendaPage() {
     setShowLote(false)
   }
 
-  function handleDelete(id: string) {
+  async function handleDelete(id: string) {
     if (!confirm('Remover este item da agenda?')) return
+    const item = agenda.find(a => a.id === id)
     saveAgenda(agenda.filter(a => a.id !== id))
+    if (item?.pdfPath) {
+      const api = (window as any).electronAPI
+      if (api?.deletePdfCopy) await api.deletePdfCopy(item.pdfPath)
+    }
+  }
+
+  function retornarParaAndamento(id: string) {
+    saveAgenda(agenda.map(a => a.id !== id ? a : { ...a, numRelatorio: '', dataEmissao: '' }))
   }
 
   function toggleStatus(id: string, field: 'statusConduzida' | 'statusLoop' | 'statusAnexoB') {
@@ -531,6 +799,88 @@ export default function AgendaPage() {
   function openPDF(pdfPath: string) {
     const api = (window as any).electronAPI
     if (api) api.openPath(pdfPath)
+  }
+
+  async function openPdfCopy(item: AgendaItem) {
+    const api = (window as any).electronAPI
+    if (!api) return
+    const query = item.protocolo || item.numRelatorio
+    if (!query) return
+    const res = await api.findPdfCopy(query)
+    if (res?.ok && res.filePath) {
+      api.openPath(res.filePath)
+    } else if (res?.folder) {
+      api.openPath(res.folder)
+    } else {
+      alert('PDF não encontrado na pasta de cópias. Configure a pasta em Configurações.')
+    }
+  }
+
+  function irParaProtocolo(item: AgendaItem) {
+    const cfg: Cispr15Config = {
+      tipo: item.tipo,
+      tensaoConfig: '127_220',
+      cliente: item.cliente,
+      clienteRua: item.clienteRua ?? '',
+      clienteCidade: item.clienteCidade ?? '',
+      clienteCep: item.clienteCep ?? '',
+      produto: item.produto,
+      fabricante: item.fabricante ?? '',
+      modelo: item.modelo ?? '',
+      identificador: item.identificador ?? '',
+      lacre: '',
+      tensaoAlim: item.tensaoAlim ?? '',
+      potencia: item.potencia ?? '',
+      frequencia: item.frequencia ?? '50/60Hz',
+      documentacao: item.documentacao ?? 'embalagem com especificações',
+      numRelatorio: '',
+      orcamento: item.orcamento,
+      protocolo: item.protocolo,
+      periodoInicio: today(),
+      periodoFim: today(),
+      dataEmissao: today(),
+      responsavel: item.responsavel,
+      resultadoConduzida: 'pass',
+      resultadoLoop: 'pass',
+      resultadoAnexoB: 'pass',
+    }
+    localStorage.setItem(CFG_KEY, JSON.stringify(cfg))
+    router.push('/cispr15')
+  }
+
+  function confirmarGerarLote(itens: AgendaItem[]) {
+    const primeiro = itens[0]
+    const amostras: LoteAmostra[] = itens.map(item => ({
+      produto: item.produto,
+      fabricante: item.fabricante ?? '',
+      modelo: item.modelo ?? '',
+      identificador: item.identificador ?? '',
+      tensaoAlim: item.tensaoAlim ?? '',
+      potencia: item.potencia ?? '',
+      frequencia: item.frequencia ?? '50/60Hz',
+      protocolo: item.protocolo,
+      orcamento: item.orcamento,
+      periodoInicio: today(),
+      periodoFim: today(),
+      dataEmissao: today(),
+      conformidade: 'pendente',
+      numRelatorio: '',
+      photos: [],
+      docxHtml: null,
+      docxFilename: null,
+    }))
+    const lote: LoteConfig = {
+      tipo: primeiro.tipo,
+      qtd: amostras.length,
+      cliente: primeiro.cliente,
+      clienteRua: primeiro.clienteRua ?? '',
+      clienteCidade: primeiro.clienteCidade ?? '',
+      clienteCep: primeiro.clienteCep ?? '',
+      responsavel: primeiro.responsavel,
+      amostras,
+    }
+    localStorage.setItem(LOTE_KEY, JSON.stringify(lote))
+    router.push('/cispr15/lote')
   }
 
   const clienteOptions = useMemo(
@@ -763,6 +1113,10 @@ export default function AgendaPage() {
 
             <div className="flex-1" />
             <span className="text-[10px] text-white/25 font-mono">{filteredItems.length} item(s)</span>
+            <button type="button" onClick={() => setShowGerarLote(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gold/30 bg-gold/8 text-gold hover:bg-gold/14 text-xs font-semibold transition-all">
+              <ArrowRight size={11} /> Gerar Lote
+            </button>
             <button type="button" onClick={() => setShowLote(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-teal/30 bg-teal/8 text-teal hover:bg-teal/14 text-xs font-semibold transition-all">
               <Layers size={11} /> Lote
@@ -867,6 +1221,25 @@ export default function AgendaPage() {
 
                       {/* ações hover */}
                       <div className="flex gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {isConcluido && (
+                          <button type="button" onClick={() => openPdfCopy(item)}
+                            title="Abrir PDF do relatório"
+                            className="w-6 h-6 rounded border border-white/8 text-white/28 hover:text-teal hover:border-teal/30 flex items-center justify-center transition-all">
+                            <FileSearch size={10} />
+                          </button>
+                        )}
+                        {isConcluido && (
+                          <button type="button" onClick={() => retornarParaAndamento(item.id)}
+                            title="Retornar para andamento"
+                            className="w-6 h-6 rounded border border-white/8 text-white/28 hover:text-amber-400 hover:border-amber-400/30 flex items-center justify-center transition-all">
+                            <RotateCcw size={10} />
+                          </button>
+                        )}
+                        <button type="button" onClick={() => irParaProtocolo(item)}
+                          title="Gerar protocolo"
+                          className="w-6 h-6 rounded border border-white/8 text-white/28 hover:text-teal hover:border-teal/30 flex items-center justify-center transition-all">
+                          <FileText size={10} />
+                        </button>
                         <button type="button" onClick={() => setEditItem(item)}
                           className="w-6 h-6 rounded border border-white/8 text-white/28 hover:text-white/70 hover:border-white/20 flex items-center justify-center transition-all">
                           <Edit2 size={10} />
@@ -1117,8 +1490,15 @@ export default function AgendaPage() {
         </div>
       )}
 
-      {editItem && <ItemModal item={editItem} onSave={handleSave} onClose={() => setEditItem(null)} isElectron={isElectron} />}
-      {showLote && <LoteModal onSave={handleSaveLote} onClose={() => setShowLote(false)} />}
+      {editItem && <ItemModal item={editItem} onSave={handleSave} onClose={() => setEditItem(null)} clientes={clientes} />}
+      {showLote && <LoteModal onSave={handleSaveLote} onClose={() => setShowLote(false)} clientes={clientes} />}
+      {showGerarLote && (
+        <GerarLoteModal
+          agenda={agenda}
+          onConfirm={itens => { setShowGerarLote(false); confirmarGerarLote(itens) }}
+          onClose={() => setShowGerarLote(false)}
+        />
+      )}
     </div>
   )
 }
