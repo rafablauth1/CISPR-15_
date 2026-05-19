@@ -94,47 +94,16 @@ function Page({ children, first, flow }: { children: React.ReactNode; first?: bo
   )
 }
 
-/* ─── cabeçalho repetido (páginas 2+) ──────────────────────────────────────── */
+/* ─── cabeçalho repetido (páginas 2+) — idêntico à faixa cinza da capa ─────── */
 function PageHeader({ cfg, numDisplay }: { cfg: Cispr15Config; numDisplay?: string }) {
   return (
-    <div style={{ border: '1px solid #999', marginBottom: 10, overflow: 'hidden' }}>
-      {/* Faixa escura: logo | nome | N° relatório */}
-      <div style={{ display: 'flex', alignItems: 'stretch', background: '#3C3C3C', minHeight: 36 }}>
-        <div style={{
-          width: 46, flexShrink: 0, padding: '3px 5px',
-          borderRight: '1px solid #555',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
-          <img src={PUCRS_LOGO} alt="PUCRS" style={{ height: 26, width: 'auto', display: 'block' }} />
-        </div>
-        <div style={{ flex: 1, padding: '3px 8px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-          <span style={{ fontSize: '7.5pt', fontWeight: 700, color: '#fff', lineHeight: 1.3 }}>
-            LABELO – Laboratórios Especializados em Eletroeletrônica | Calibração e Ensaios
-          </span>
-          <span style={{ fontSize: '5.5pt', color: '#bbb', lineHeight: 1.3 }}>
-            Pontifícia Universidade Católica do Rio Grande do Sul
-          </span>
-        </div>
-        <div style={{
-          width: 130, flexShrink: 0, padding: '3px 8px',
-          borderLeft: '1px solid #555',
-          display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center',
-        }}>
-          <span style={{ fontSize: '5.5pt', color: '#bbb' }}>Relatório de Ensaio</span>
-          <span style={{ fontSize: '9pt', fontWeight: 700, color: '#fff' }}>{(numDisplay ?? cfg.numRelatorio) || '—'}</span>
-        </div>
-      </div>
-      {/* Faixa clara: acreditação | produto | datas */}
-      <div style={{ display: 'flex', alignItems: 'center', background: GRAY2, padding: '2px 8px', gap: 8 }}>
-        <span style={{ fontSize: '6pt', color: '#555', flexShrink: 0, lineHeight: 1.3 }}>
-          Acreditado Cgcre · ABNT NBR ISO/IEC 17025 · CRL 0075
-        </span>
-        <span style={{ flex: 1, fontSize: '7pt', fontWeight: 700, color: BLUE, textAlign: 'center' }}>
-          {cfg.produto} – {cfg.modelo} – {cfg.fabricante}
-        </span>
-        <span style={{ fontSize: '6pt', color: '#444', flexShrink: 0, lineHeight: 1.3 }}>
-          Per.: {fmtDate(cfg.periodoInicio)} a {fmtDate(cfg.periodoFim)} · Emiss.: {fmtDate(cfg.dataEmissao)}
-        </span>
+    <div style={{ border: '1px solid #999', marginBottom: 10, background: GRAY2, padding: '5px 14px 8px', overflow: 'hidden' }}>
+      <p style={{ textAlign: 'center', fontSize: '6.5pt', fontStyle: 'italic', color: '#000', margin: '0 0 5px' }}>
+        Laboratório de Ensaio acreditado pela Cgcre de acordo com a ABNT NBR ISO/IEC 17025 sob o número CRL 0075
+      </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span style={{ fontSize: '13pt', fontWeight: 700, color: '#000' }}>Relatório de Ensaio</span>
+        <span style={{ fontSize: '13pt', fontWeight: 700, color: '#000' }}>N° {(numDisplay ?? cfg.numRelatorio) || '—'}</span>
       </div>
     </div>
   )
@@ -336,6 +305,19 @@ export default function Cispr15RelatorioPage() {
     requestAnimationFrame(() => requestAnimationFrame(signalReady))
   }, [cfg])
 
+  // Atualiza marcadores de página na tela (modo normal, não print)
+  useEffect(() => {
+    if (isPrintMode.current || !cfg) return
+    requestAnimationFrame(() => {
+      const pages = document.querySelectorAll('.doc-page')
+      const total = pages.length
+      pages.forEach((pg, i) => {
+        const lbl = pg.querySelector('.page-num-label')
+        if (lbl) lbl.textContent = `Página ${i + 1} de ${total}`
+      })
+    })
+  })
+
   async function handleDocx(file: File) {
     setDocx({ loading: true, html: null, filename: null })
     try {
@@ -349,6 +331,35 @@ export default function Cispr15RelatorioPage() {
     } catch (err: any) {
       alert(`Erro ao processar: ${err.message}`)
       setDocx({ loading: false, html: null, filename: null })
+    }
+  }
+
+  async function handleDocxTodos(file: File) {
+    setDocx({ loading: true, html: null, filename: null })
+    setPerResult({
+      conduzida: { html: null, filename: null, loading: true },
+      loop:      { html: null, filename: null, loading: true },
+      anexoB:    { html: null, filename: null, loading: true },
+    })
+    try {
+      const fd = new FormData(); fd.append('file', file)
+      const res  = await fetch('/api/parse-docx', { method: 'POST', body: fd })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      const html = data.html as string
+      setDocx({ loading: false, html, filename: file.name })
+      sessionStorage.setItem(DOCX_HTML_KEY, html)
+      sessionStorage.setItem(DOCX_NAME_KEY, file.name)
+      // Mark all three result slots with the same docx — each filters its own section on render
+      setPerResult({
+        conduzida: { html, filename: file.name, loading: false },
+        loop:      { html, filename: file.name, loading: false },
+        anexoB:    { html, filename: file.name, loading: false },
+      })
+    } catch (err: any) {
+      alert(`Erro ao processar: ${err.message}`)
+      setDocx({ loading: false, html: null, filename: null })
+      setPerResult(emptyPerResult())
     }
   }
 
@@ -381,6 +392,7 @@ export default function Cispr15RelatorioPage() {
       if (!emendas.find(e => e.numero === draft.emendaNum)) {
         emendas.push({ numero: draft.emendaNum, dataEmenda: draft.dataEmenda, alteracoes: draft.alteracoes })
       }
+      emendas[emendas.length - 1] = { ...emendas[emendas.length - 1], ...(currentCfg ? { cfgSnapshot: currentCfg } : {}) }
       lista[idx] = { ...lista[idx], emendas, ...(currentCfg ? { currentCfg } : {}) }
       localStorage.setItem(RELATORIOS_KEY, JSON.stringify(lista))
       localStorage.removeItem(EMENDA_DRAFT_KEY)
@@ -489,7 +501,7 @@ export default function Cispr15RelatorioPage() {
         @page { size: A4; margin: 0; }
 
         @media screen {
-          .page-num-label { display: none !important; }
+          .page-num-label { display: inline !important; }
           .doc-wrapper { background: #525659; padding: 24px 16px; min-height: 100vh; }
           .doc-page {
             background: white; width: 210mm; min-height: 297mm;
@@ -518,8 +530,7 @@ export default function Cispr15RelatorioPage() {
           }
           .doc-page-inner { flex: 1; }
           .doc-page-first { page-break-before: avoid; }
-          /* footer fixo garante que aparece no fundo de TODA página física */
-          .page-footer { position: fixed; bottom: 0; left: 0; right: 0; }
+          /* footer posicionado via flexbox — cada página tem o seu próprio */
           .page-num-label { display: inline !important; }
           .upload-zone { display: none !important; }
           .doc-content th {
@@ -573,8 +584,7 @@ export default function Cispr15RelatorioPage() {
             break-before: avoid !important;
           }
           .doc-page-inner { flex: 1 !important; padding-top: 10mm !important; padding-bottom: 12mm !important; }
-          /* footer fixo garante rodapé no fundo de TODA página física, mesmo quando o conteúdo transborda */
-          .page-footer { position: fixed !important; bottom: 0 !important; left: 0 !important; right: 0 !important; }
+          /* footer posicionado via flexbox — cada página tem o seu próprio */
           .page-num-label { display: inline !important; }
           /* Células de tabela compactas */
           .doc-page table td, .doc-page table th { padding: 1px 4px !important; }
@@ -627,6 +637,33 @@ export default function Cispr15RelatorioPage() {
         )}
         {photos.length > 0 && (
           <span className="text-[10px] text-white/30 font-mono">✓ {photos.length} foto(s)</span>
+        )}
+
+        <span className="text-white/10">|</span>
+
+        {/* ── Upload docx único que preenche todos os resultados ── */}
+        {docx.loading ? (
+          <div className="flex items-center gap-1 text-blue-400 text-[11px]">
+            <Loader2 size={10} className="animate-spin" /> Processando…
+          </div>
+        ) : docx.html ? (
+          <div className="flex items-center gap-1 px-2 py-1 rounded border border-green/30 bg-green/8 text-[11px] text-green-400">
+            <Upload size={10} /> ✓ docx (todos)
+            <button type="button" onClick={() => {
+              setDocx({ loading: false, html: null, filename: null })
+              setPerResult(emptyPerResult())
+              sessionStorage.removeItem(DOCX_HTML_KEY)
+              sessionStorage.removeItem(DOCX_NAME_KEY)
+            }} className="text-white/25 hover:text-red-400 transition-colors ml-0.5">
+              <X size={10} />
+            </button>
+          </div>
+        ) : (
+          <label className="flex items-center gap-1 px-2 py-1 rounded border border-gold/30 bg-gold/6 text-[11px] text-gold hover:bg-gold/12 cursor-pointer transition-all font-semibold">
+            <Upload size={10} /> Docx (todos)
+            <input type="file" accept=".docx" className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) handleDocxTodos(f) }} />
+          </label>
         )}
 
         <span className="text-white/10">|</span>
@@ -693,7 +730,7 @@ export default function Cispr15RelatorioPage() {
             setSavedFile(null)
             setGerando(true)
             const san = (v: string) => (v ?? '').replace(/[/\\:*?"<>|\s]/g, '_').replace(/_+/g, '_')
-            const filename = `${san(cfg.numRelatorio || cfg.protocolo)}_${cfg.tipo}_${san(cfg.fabricante)}.pdf`
+            const filename = `${san(displayNum || cfg.protocolo)}_${cfg.tipo}_${san(cfg.fabricante)}.pdf`
             try {
               const api = (window as any).electronAPI
               if (api) {
@@ -764,16 +801,16 @@ export default function Cispr15RelatorioPage() {
         <Page first flow>
           {/* Cabeçalho da capa — layout Word */}
           <div style={{ border: '1px solid #999', marginBottom: 10, overflow: 'hidden' }}>
-            {/* Topo escuro: logo PUCRS + texto universidade + CRL */}
-            <div style={{ display: 'flex', alignItems: 'center', background: '#3C3C3C', minHeight: 80 }}>
+            {/* Topo branco: logo PUCRS + texto universidade + CRL */}
+            <div style={{ display: 'flex', alignItems: 'center', background: '#fff', minHeight: 80, borderBottom: '1px solid #bbb' }}>
               <div style={{ width: 82, flexShrink: 0, padding: 7, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <img src={PUCRS_LOGO} alt="PUCRS" style={{ width: 66, height: 'auto', display: 'block' }} />
               </div>
               <div style={{ flex: 1, textAlign: 'center', padding: '6px 8px' }}>
-                <p style={{ fontSize: '10pt', fontWeight: 700, color: '#fff', margin: '0 0 3px' }}>Pontifícia Universidade Católica do Rio Grande do Sul</p>
-                <p style={{ fontSize: '8.5pt', fontWeight: 700, color: '#fff', margin: '0 0 2px' }}>LABELO - Laboratórios Especializados em Eletroeletrônica</p>
-                <p style={{ fontSize: '8.5pt', fontWeight: 700, color: '#fff', margin: '0 0 2px' }}>Calibração e Ensaios</p>
-                <p style={{ fontSize: '8.5pt', fontWeight: 700, color: '#fff', margin: 0 }}>Rede Brasileira de Laboratórios de Ensaios</p>
+                <p style={{ fontSize: '10pt', fontWeight: 700, color: '#000', margin: '0 0 3px' }}>Pontifícia Universidade Católica do Rio Grande do Sul</p>
+                <p style={{ fontSize: '8.5pt', fontWeight: 700, color: '#000', margin: '0 0 2px' }}>LABELO - Laboratórios Especializados em Eletroeletrônica</p>
+                <p style={{ fontSize: '8.5pt', fontWeight: 700, color: '#000', margin: '0 0 2px' }}>Calibração e Ensaios</p>
+                <p style={{ fontSize: '8.5pt', fontWeight: 700, color: '#000', margin: 0 }}>Rede Brasileira de Laboratórios de Ensaios</p>
               </div>
               <div style={{ width: 90, flexShrink: 0, padding: 7, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <img src={CRL_BADGE} alt="CRL 0075" style={{ height: 74, width: 'auto', display: 'block' }} />
@@ -781,7 +818,7 @@ export default function Cispr15RelatorioPage() {
             </div>
             {/* Parte cinza: texto acred + Relatório de Ensaio / Nº */}
             <div style={{ background: GRAY2, borderTop: '1px solid #bbb', padding: '5px 14px 8px' }}>
-              <p style={{ textAlign: 'center', fontSize: '6.5pt', fontStyle: 'italic', color: '#000', margin: '0 0 5px' }}>
+              <p style={{ textAlign: 'center', fontSize: '6.5pt', fontStyle: 'italic', color: 'rgb(0, 0, 0)', margin: '0 0 5px' }}>
                 Laboratório de Ensaio acreditado pela Cgcre de acordo com a ABNT NBR ISO/IEC 17025 sob o número CRL 0075
               </p>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -810,29 +847,38 @@ export default function Cispr15RelatorioPage() {
           {cfg.clienteCep    && <p style={pJ}>CEP: {cfg.clienteCep}</p>}
 
           <p style={pTitle}>2. Objeto ensaiado (amostra):<Sup n={markerFor('amostra')} /><Sup n={markerFor('tecnico')} /><Sup n={markerFor('protocolo')} /></p>
-          <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8, marginBottom: 6, fontSize: FS.sm }}>
-            <tbody>
-              {(cfg.tipo === 'lampada' ? [
-                [cfg.produto || '—',                              'Tensão de alimentação:', cfg.tensaoAlim  || '—'],
-                ['Fabricante: ' + (cfg.fabricante || '—'),        'Potência nominal:',      cfg.potencia    || '—'],
-                ['Modelo: '     + (cfg.modelo     || '—'),        'Frequência de rede:',    cfg.frequencia  || '—'],
-                ['Número de série: ' + (cfg.identificador || '—'),'Orçamento LABELO:',      cfg.orcamento   || '—'],
-                ['Lacre: ' + (cfg.lacre || '—'),                  'Protocolo LABELO:',      cfg.protocolo   || '—'],
-              ] : [
-                [cfg.produto || '—',                              'Tensão de alimentação:', cfg.tensaoAlim  || '—'],
-                ['Fabricante: ' + (cfg.fabricante || '—'),        'Potência nominal:',      cfg.potencia    || '—'],
-                ['Modelo: '     + (cfg.modelo     || '—'),        'Frequência de rede:',    cfg.frequencia  || '—'],
-                [labelId + ': ' + (cfg.identificador || '—'),     'Orçamento LABELO:',      cfg.orcamento   || '—'],
-                ['Protocolo LABELO: ' + (cfg.protocolo || '—'),   '',                       ''],
-              ]).map((row, i) => (
-                <tr key={i} style={{ background: i % 2 === 0 ? 'white' : '#f5f8ff' }}>
-                  <td style={{ border: '1px solid #999', padding: '2px 6px', width: '44%', fontWeight: 700 }}>{row[0]}</td>
-                  <td style={{ border: '1px solid #999', padding: '2px 6px', fontWeight: 700, width: '30%', color: '#000', whiteSpace: 'nowrap' }}>{row[1]}</td>
-                  <td style={{ border: '1px solid #999', padding: '2px 6px', width: '26%' }}>{row[2]}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {(() => {
+            const td1: React.CSSProperties = { border: '1px solid #999', padding: '2px 6px', width: '44%' }
+            const td2: React.CSSProperties = { border: '1px solid #999', padding: '2px 6px', fontWeight: 700, width: '30%', whiteSpace: 'nowrap' }
+            const td3: React.CSSProperties = { border: '1px solid #999', padding: '2px 6px', width: '26%' }
+            const lv = (lbl: string, val: string) => <><b>{lbl}:</b> {val}</>
+            const rows: [React.ReactNode, string, string][] = cfg.tipo === 'lampada' ? [
+              [<b>{cfg.produto || '—'}</b>,                      'Tensão de alimentação:', cfg.tensaoAlim  || '—'],
+              [lv('Fabricante', cfg.fabricante || '—'),          'Potência nominal:',      cfg.potencia    || '—'],
+              [lv('Modelo',     cfg.modelo     || '—'),          'Frequência de rede:',    cfg.frequencia  || '—'],
+              [lv('Número de série', cfg.identificador || '—'),  'Orçamento LABELO:',      cfg.orcamento   || '—'],
+              [lv('Lacre', cfg.lacre || '—'),                    'Protocolo LABELO:',      cfg.protocolo   || '—'],
+            ] : [
+              [<b>{cfg.produto || '—'}</b>,                      'Tensão de alimentação:', cfg.tensaoAlim  || '—'],
+              [lv('Fabricante', cfg.fabricante || '—'),          'Potência nominal:',      cfg.potencia    || '—'],
+              [lv('Modelo',     cfg.modelo     || '—'),          'Frequência de rede:',    cfg.frequencia  || '—'],
+              [lv(labelId,      cfg.identificador || '—'),       'Orçamento LABELO:',      cfg.orcamento   || '—'],
+              [lv('Protocolo LABELO', cfg.protocolo || '—'),     '',                       ''],
+            ]
+            return (
+              <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8, marginBottom: 6, fontSize: FS.sm }}>
+                <tbody>
+                  {rows.map((row, i) => (
+                    <tr key={i} style={{ background: i % 2 === 0 ? 'white' : '#f5f8ff' }}>
+                      <td style={td1}>{row[0]}</td>
+                      <td style={td2}>{row[1]}</td>
+                      <td style={td3}>{row[2]}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )
+          })()}
 
           <p style={pTitle}>2.1 Documentação que acompanha a amostra:<Sup n={markerFor('documentacao')} /></p>
           <p style={{ ...pJ, marginTop: 8 }}>{cfg.documentacao || '—'}</p>
