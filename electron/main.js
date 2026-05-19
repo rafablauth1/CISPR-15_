@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeImage } = require('electron')
 const path    = require('path')
 const http    = require('http')
 const fs      = require('fs')
@@ -40,6 +40,8 @@ const APP_PATH  = '/cispr15'
 const ICON_PATH = app.isPackaged
   ? path.join(process.resourcesPath, 'assets', 'icon.ico')
   : path.join(__dirname, '../assets/icon.ico')
+
+app.setAppUserModelId('br.pucrs.labelo.cispr15')
 
 /* pasta da EUT ativa */
 let eutFolderPath = null
@@ -182,7 +184,7 @@ async function createWindow() {
     width: 1440, height: 900, minWidth: 900, minHeight: 600,
     title: 'CISPR 15 — LABELO/PUCRS',
     backgroundColor: '#0B0E14',
-    icon: ICON_PATH,
+    icon: nativeImage.createFromPath(ICON_PATH),
     show: false,
     webPreferences: {
       nodeIntegration: false,
@@ -334,7 +336,6 @@ function buildMenu(port) {
 /* ─── ciclo de vida ───────────────────────────────────────────────────────── */
 
 app.whenReady().then(() => {
-  app.setAppUserModelId('br.pucrs.labelo.cispr15')
   Menu.setApplicationMenu(buildMenu())
   createWindow()
 })
@@ -470,15 +471,19 @@ ipcMain.handle('pdf:save-eut', async (_, { filename, folderPath }) => {
 
 ipcMain.handle('pdf:find-in-copy-folder', (_, { query }) => {
   const { pdfCopyFolder } = readSettings()
-  if (!pdfCopyFolder || !query) return { ok: false, filePath: null }
+  if (!pdfCopyFolder || !query) return { ok: false, filePaths: [], folder: pdfCopyFolder }
   try {
-    if (!fs.existsSync(pdfCopyFolder)) return { ok: false, filePath: null }
-    const needle = String(query).trim().toLowerCase()
+    if (!fs.existsSync(pdfCopyFolder)) return { ok: false, filePaths: [], folder: pdfCopyFolder }
+    const san = s => String(s).replace(/[/\\:*?"<>|\s]/g, '_').replace(/_+/g, '_').toLowerCase()
+    const needle = san(query)
     const files = fs.readdirSync(pdfCopyFolder)
-    const match = files.find(f => f.toLowerCase().endsWith('.pdf') && f.toLowerCase().includes(needle))
-    if (match) return { ok: true, filePath: path.join(pdfCopyFolder, match) }
-    return { ok: false, filePath: null, folder: pdfCopyFolder }
-  } catch (err) { return { ok: false, filePath: null, error: String(err) } }
+    const matches = files.filter(f => f.toLowerCase().endsWith('.pdf') && san(f).includes(needle))
+    if (matches.length > 0) {
+      const filePaths = matches.map(f => path.join(pdfCopyFolder, f))
+      return { ok: true, filePaths, filePath: filePaths[0], folder: pdfCopyFolder }
+    }
+    return { ok: false, filePaths: [], folder: pdfCopyFolder }
+  } catch (err) { return { ok: false, filePaths: [], error: String(err) } }
 })
 
 ipcMain.handle('pdf:delete-copy', (_, { pdfPath }) => {
