@@ -37,6 +37,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // OCR local (Windows.Media.Ocr)
   recognizeOcr:    (images)  => ipcRenderer.invoke('ocr:recognize', { images }),
 
+  // Follow-up PDF direto
+  saveFollowupPdf: (html, filename, landscape) => ipcRenderer.invoke('pdf:followup', { html, filename, landscape }),
+
   // Shell / arquivos
   openPath:        (path)  => ipcRenderer.invoke('shell:open-path',       { path }),
   browsePDF:       ()      => ipcRenderer.invoke('settings:browse-pdf'),

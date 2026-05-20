@@ -1638,7 +1638,7 @@ export default function AgendaPage() {
 
         const dateLabel = new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })
 
-        function buildReportHtml(): string {
+        function buildReportHtml(landscape: boolean): string {
           const pct = (done: number, total: number) =>
             total > 0 ? Math.round((done / total) * 100) : 0
 
@@ -1731,7 +1731,7 @@ td.tipo{font-size:10px;color:#555;white-space:nowrap}
 .prazo-warn{color:#d97706;font-weight:bold}
 .prazo-late{color:#dc2626;font-weight:bold}
 .footer{margin-top:28px;padding-top:10px;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;font-size:9px;color:#aaa}
-@media print{body{padding:0}@page{margin:12mm 14mm}}
+@media print{body{padding:0}@page{size:A4 ${landscape ? 'landscape' : 'portrait'};margin:10mm 12mm}}
 </style></head>
 <body>
 <div class="hdr">
@@ -1754,9 +1754,25 @@ ${allEm.length > 0 ? `
         }
 
         function handlePrint() {
+          const landscape = allEm.length > 0
+          const isoDate = new Date().toISOString().split('T')[0]
+          const tipoLabel = fuTipo === 'lampada' ? 'Lâmpadas' : fuTipo === 'luminaria' ? 'Luminárias' : ''
+          const clienteLabel = fuCliente ? fuCliente.slice(0, 30).replace(/[/\\:"*?<>|]/g, '') : ''
+          const filename = ['Follow-up', tipoLabel, clienteLabel || 'Geral', isoDate]
+            .filter(Boolean).join(' ') + '.pdf'
+          const html = buildReportHtml(landscape)
+
+          const api = (window as any).electronAPI
+          if (api?.saveFollowupPdf) {
+            api.saveFollowupPdf(html, filename, landscape)
+              .then((res: any) => { if (!res.ok) alert('Erro ao gerar PDF: ' + res.error) })
+            return
+          }
+
+          // fallback: nova janela + window.print()
           const win = window.open('', '_blank')
           if (!win) return
-          win.document.write(buildReportHtml())
+          win.document.write(html)
           win.document.close()
           setTimeout(() => {
             win.print()

@@ -472,6 +472,32 @@ ipcMain.handle('pdf:save-eut', async (_, { filename, folderPath }) => {
   } catch (err) { return { ok: false, error: String(err) } }
 })
 
+ipcMain.handle('pdf:followup', async (_, { html, filename, landscape }) => {
+  const tmpPath = path.join(app.getPath('temp'), `fu_print_${Date.now()}.html`)
+  let win = null
+  try {
+    fs.writeFileSync(tmpPath, html, 'utf-8')
+    const docsDir = path.join(app.getPath('documents'), 'CISPR 15 LABELO', 'followup')
+    fs.mkdirSync(docsDir, { recursive: true })
+    const safe = (filename || 'followup.pdf').replace(/[\\/:"*?<>|]/g, '_')
+    const outPath = path.join(docsDir, safe)
+    win = new BrowserWindow({ show: false, width: 1280, height: 900, webPreferences: { javascript: false } })
+    await win.loadFile(tmpPath)
+    const data = await win.webContents.printToPDF({
+      printBackground: true, pageSize: 'A4', landscape: !!landscape,
+      margins: { marginType: 'minimum' }, displayHeaderFooter: false,
+    })
+    fs.writeFileSync(outPath, data)
+    shell.showItemInFolder(outPath)
+    return { ok: true, filePath: outPath }
+  } catch (err) {
+    return { ok: false, error: String(err) }
+  } finally {
+    try { if (win) win.destroy() } catch {}
+    try { fs.unlinkSync(tmpPath) } catch {}
+  }
+})
+
 ipcMain.handle('pdf:find-in-copy-folder', (_, { query }) => {
   const { pdfCopyFolder } = readSettings()
   if (!pdfCopyFolder || !query) return { ok: false, filePaths: [], folder: pdfCopyFolder }
