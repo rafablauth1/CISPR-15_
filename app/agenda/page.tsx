@@ -6,7 +6,7 @@ import {
   ArrowLeft, ArrowRight, Plus, Search, X, CheckCircle2, Clock, Edit2,
   Trash2, ChevronDown, ChevronUp, FileText,
   Lightbulb, Lamp, Settings, Layers, RotateCcw, Link2, FileSearch,
-  AlertTriangle, Wifi, BarChart2, Tag,
+  AlertTriangle, Wifi, BarChart2, Tag, TrendingUp,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
@@ -685,7 +685,7 @@ function GerarLoteModal({ agenda, onConfirm, onClose }: {
 /* ─── página principal ─────────────────────────────────────────────────────── */
 export default function AgendaPage() {
   const router = useRouter()
-  const [tab,           setTab]           = useState<'agenda' | 'busca' | 'analise'>('agenda')
+  const [tab,           setTab]           = useState<'agenda' | 'busca' | 'analise' | 'followup'>('agenda')
   const [agenda,        setAgenda]        = useState<AgendaItem[]>([])
   const [busca,         setBusca]         = useState('')
   const [editItem,      setEditItem]      = useState<AgendaItem | null>(null)
@@ -975,6 +975,26 @@ export default function AgendaPage() {
     }
   }, [agenda])
 
+  /* ── follow-up comercial ── */
+  const followup = useMemo(() => {
+    function stats(items: AgendaItem[]) {
+      const em = items.filter(a => !a.numRelatorio)
+      return {
+        total: items.length,
+        concluidos: items.filter(a => !!a.numRelatorio).length,
+        andamento: em.length,
+        conduzida: em.filter(a => a.statusConduzida === 'realizado').length,
+        loop:      em.filter(a => a.statusLoop      === 'realizado').length,
+        anexoB:    em.filter(a => a.statusAnexoB    === 'realizado').length,
+        list: em,
+      }
+    }
+    return {
+      lampadas:   stats(agenda.filter(a => a.tipo === 'lampada')),
+      luminarias: stats(agenda.filter(a => a.tipo === 'luminaria')),
+    }
+  }, [agenda])
+
   function SortBtn({ k, label }: { k: typeof sortKey; label: string }) {
     const active = sortKey === k
     return (
@@ -1061,16 +1081,17 @@ export default function AgendaPage() {
       {/* Tabs */}
       <div className="flex gap-0.5 p-0.5 rounded-lg bg-white/4 border border-white/8 mb-4 w-fit">
         {([
-          ['agenda',  'Agenda'],
-          ['busca',   'Busca'],
-          ['analise', 'Análise'],
-        ] as const).map(([t, label]) => (
+          ['agenda',   'Agenda',    null],
+          ['busca',    'Busca',     null],
+          ['analise',  'Análise',   <BarChart2 size={11} />],
+          ['followup', 'Follow-up', <TrendingUp size={11} />],
+        ] as const).map(([t, label, icon]) => (
           <button key={t} type="button" onClick={() => setTab(t)}
             className={cn(
               'flex items-center gap-1.5 px-4 py-1.5 rounded text-xs font-semibold transition-all',
               tab === t ? 'bg-gold/15 border border-gold/25 text-gold' : 'text-white/40 hover:text-white/70',
             )}>
-            {t === 'analise' && <BarChart2 size={11} />}
+            {icon}
             {label}
           </button>
         ))}
@@ -1507,6 +1528,151 @@ export default function AgendaPage() {
           )}
         </div>
       )}
+
+      {/* ── ABA FOLLOW-UP ── */}
+      {tab === 'followup' && (() => {
+        const allEm = [...followup.lampadas.list, ...followup.luminarias.list]
+          .sort((a, b) => (a.previsaoSaida || '').localeCompare(b.previsaoSaida || ''))
+
+        function EnsaioBar({ done, total, label }: { done: number; total: number; label: string }) {
+          const pct = total > 0 ? (done / total) * 100 : 0
+          const all = done === total && total > 0
+          return (
+            <div className="flex items-center gap-3">
+              <span className="text-[10px] text-white/40 font-mono w-20 text-right shrink-0">{label}</span>
+              <div className="flex-1 h-2.5 bg-white/5 rounded-full overflow-hidden">
+                <div className="h-full rounded-full transition-all duration-500"
+                  style={{ width: `${pct}%`, background: all ? 'rgba(74,222,128,0.7)' : 'rgba(74,222,128,0.45)' }} />
+              </div>
+              <span className={cn('text-[11px] font-mono w-10 text-right shrink-0', all ? 'text-green-400' : 'text-white/40')}>
+                {done}/{total}
+              </span>
+            </div>
+          )
+        }
+
+        function TypeCard({ label, icon, stats }: { label: string; icon: React.ReactNode; stats: typeof followup.lampadas }) {
+          return (
+            <div className="card p-4 space-y-4">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-2">
+                  {icon}
+                  <span className="text-sm font-bold text-white">{label}</span>
+                </div>
+                <div className="flex gap-3 text-[11px] font-mono">
+                  <span className="text-white/35">{stats.total} total</span>
+                  <span className="text-gold/80">{stats.andamento} andamento</span>
+                  <span className="text-green-400">{stats.concluidos} concluídos</span>
+                </div>
+              </div>
+              {stats.andamento > 0 ? (
+                <div className="space-y-2">
+                  <EnsaioBar label="Conduzida" done={stats.conduzida} total={stats.andamento} />
+                  <EnsaioBar label="Loop"      done={stats.loop}      total={stats.andamento} />
+                  <EnsaioBar label="Anexo B"   done={stats.anexoB}    total={stats.andamento} />
+                </div>
+              ) : (
+                <p className="text-[11px] text-white/25 text-center py-3">Nenhum em andamento</p>
+              )}
+            </div>
+          )
+        }
+
+        return (
+          <div className="space-y-5">
+            {/* Cabeçalho */}
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold text-white/70 flex items-center gap-1.5">
+                  <TrendingUp size={13} className="text-gold" /> Situação dos Ensaios — Follow-up Comercial
+                </p>
+                <p className="text-[10px] text-white/30 font-mono mt-0.5">{new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}</p>
+              </div>
+            </div>
+
+            {/* Cards por tipo */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <TypeCard
+                label="Lâmpadas"
+                icon={<Lightbulb size={15} className="text-amber-400" />}
+                stats={followup.lampadas}
+              />
+              <TypeCard
+                label="Luminárias"
+                icon={<Lamp size={15} className="text-teal-400" />}
+                stats={followup.luminarias}
+              />
+            </div>
+
+            {/* Tabela detalhada */}
+            {allEm.length > 0 ? (
+              <div className="card overflow-hidden">
+                <div className="px-4 py-2.5 border-b border-white/6 flex items-center justify-between">
+                  <p className="text-[10px] text-white/30 font-mono uppercase tracking-widest">
+                    Em andamento — {allEm.length} {allEm.length === 1 ? 'item' : 'itens'}
+                  </p>
+                  <div className="flex items-center gap-3 text-[9px] text-white/25 font-mono uppercase">
+                    <span className="flex items-center gap-1"><CheckCircle2 size={9} className="text-green-400" /> Realizado</span>
+                    <span>○ Pendente</span>
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-white/5">
+                        {['', 'Protocolo', 'Cliente', 'Produto', 'C', 'L', 'B', 'Previsão'].map(h => (
+                          <th key={h} className={cn(
+                            'py-2 px-3 text-[10px] text-white/25 font-mono font-normal',
+                            ['C','L','B'].includes(h) ? 'text-center' : h === 'Previsão' ? 'text-right' : 'text-left',
+                          )}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {allEm.map((item, i) => {
+                        const d = daysUntil(item.previsaoSaida)
+                        const prazoColor = d < 0 ? 'text-red-400' : d <= 3 ? 'text-amber-400' : 'text-white/35'
+                        return (
+                          <tr key={item.id}
+                            className={cn('border-b border-white/4 hover:bg-white/3 cursor-pointer transition-colors', i % 2 === 1 && 'bg-white/1')}
+                            onClick={() => { setEditItem(item); setTab('agenda') }}>
+                            <td className="px-3 py-2">
+                              {item.tipo === 'lampada'
+                                ? <Lightbulb size={11} className="text-amber-400/70" />
+                                : <Lamp      size={11} className="text-teal-400/70" />}
+                            </td>
+                            <td className="px-3 py-2 font-mono text-white/70 whitespace-nowrap">{item.protocolo || '—'}</td>
+                            <td className="px-3 py-2 text-white/50 max-w-[130px] truncate">{item.cliente || '—'}</td>
+                            <td className="px-3 py-2 text-white/40 max-w-[130px] truncate">{item.produto || '—'}</td>
+                            {([
+                              item.statusConduzida,
+                              item.statusLoop,
+                              item.statusAnexoB,
+                            ] as const).map((s, j) => (
+                              <td key={j} className="px-3 py-2 text-center">
+                                {s === 'realizado'
+                                  ? <CheckCircle2 size={12} className="text-green-400 mx-auto" />
+                                  : <span className="text-white/20 font-mono leading-none">○</span>}
+                              </td>
+                            ))}
+                            <td className={cn('px-3 py-2 text-right font-mono text-[11px] whitespace-nowrap', prazoColor)}>
+                              {fmtDate(item.previsaoSaida)}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              <div className="card p-8 text-center text-white/25 text-sm">
+                Nenhum item em andamento no momento.
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {editItem && <ItemModal item={editItem} onSave={handleSave} onClose={() => setEditItem(null)} clientes={clientes} />}
       {showLote && <LoteModal onSave={handleSaveLote} onClose={() => setShowLote(false)} clientes={clientes} />}

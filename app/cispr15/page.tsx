@@ -75,10 +75,14 @@ export default function Cispr15ConfigPage() {
   const [locked,       setLocked]      = useState(false)
   const [showPwdModal, setShowPwdModal] = useState(false)
   const [pwdInput,     setPwdInput]    = useState('')
+  const [pwdError,     setPwdError]    = useState(false)
+  const pwdInputRef = useRef<HTMLInputElement>(null)
   const [gateOpen,     setGateOpen]    = useState(false)
+  const [capsLock,     setCapsLock]    = useState(false)
   const [gateInput,    setGateInput]   = useState('')
   const [gateError,    setGateError]   = useState(false)
   const [appPassword,  setAppPassword] = useState('')
+  const gateInputRef = useRef<HTMLInputElement>(null)
   const [tab, setTab] = useState<'formulario' | 'clientes' | 'emendas' | 'relatorios'>('formulario')
   const [relatoriosList, setRelatoriosList] = useState<RelatorioSalvo[]>([])
   const [isElectron,   setIsElectron]  = useState(false)
@@ -98,6 +102,13 @@ export default function Cispr15ConfigPage() {
   useEffect(() => {
     photoRef.current?.setAttribute('webkitdirectory', '')
     pastaRef.current?.setAttribute('webkitdirectory', '')
+  }, [])
+
+  useEffect(() => {
+    const check = (e: KeyboardEvent) => setCapsLock(e.getModifierState('CapsLock'))
+    window.addEventListener('keydown', check)
+    window.addEventListener('keyup', check)
+    return () => { window.removeEventListener('keydown', check); window.removeEventListener('keyup', check) }
   }, [])
 
   useEffect(() => {
@@ -1522,6 +1533,7 @@ export default function Cispr15ConfigPage() {
             <div className="flex flex-col gap-1.5">
               <label className="text-[10px] text-white/35 uppercase tracking-widest font-mono">Senha</label>
               <input
+                ref={gateInputRef}
                 type="password"
                 className={cn('input', gateError && 'border-red-500/50')}
                 placeholder="••••••"
@@ -1533,11 +1545,15 @@ export default function Cispr15ConfigPage() {
                     if (gateInput === appPassword) {
                       sessionStorage.setItem(AUTH_KEY, '1')
                       setGateOpen(false); setGateInput('')
-                    } else { setGateError(true); setGateInput('') }
+                    } else {
+                      setGateError(true); setGateInput('')
+                      setTimeout(() => gateInputRef.current?.focus(), 0)
+                    }
                   }
                 }}
               />
               {gateError && <p className="text-[11px] text-red-400">Senha incorreta.</p>}
+              {capsLock && <p className="text-[10px] text-amber-400/80 flex items-center gap-1">⇪ Caps Lock ativo</p>}
             </div>
             <button
               type="button"
@@ -1545,7 +1561,10 @@ export default function Cispr15ConfigPage() {
                 if (gateInput === appPassword) {
                   sessionStorage.setItem(AUTH_KEY, '1')
                   setGateOpen(false); setGateInput('')
-                } else { setGateError(true); setGateInput('') }
+                } else {
+                  setGateError(true); setGateInput('')
+                  setTimeout(() => gateInputRef.current?.focus(), 0)
+                }
               }}
               className="btn-primary w-full py-2.5 text-sm font-bold flex items-center justify-center gap-2">
               <ArrowRight size={14} /> Entrar
@@ -1570,31 +1589,33 @@ export default function Cispr15ConfigPage() {
             <div className="flex flex-col gap-1.5">
               <label className="text-[10px] text-white/35 uppercase tracking-widest font-mono">Senha</label>
               <input
+                ref={pwdInputRef}
                 type="password"
-                className="input"
+                className={cn('input', pwdError && 'border-red-500/50')}
                 placeholder="••••••"
                 value={pwdInput}
-                onChange={e => setPwdInput(e.target.value)}
+                onChange={e => { setPwdInput(e.target.value); setPwdError(false) }}
                 onKeyDown={e => {
                   const correta = appPassword || '123'
                   if (e.key === 'Enter') {
                     if (pwdInput === correta) {
-                      setShowPwdModal(false)
-                      setPwdInput('')
+                      setShowPwdModal(false); setPwdInput(''); setPwdError(false)
                       router.push('/cispr15/emenda')
                     } else {
-                      alert('Senha incorreta.')
-                      setPwdInput('')
+                      setPwdError(true); setPwdInput('')
+                      setTimeout(() => pwdInputRef.current?.focus(), 0)
                     }
                   }
-                  if (e.key === 'Escape') { setShowPwdModal(false); setPwdInput('') }
+                  if (e.key === 'Escape') { setShowPwdModal(false); setPwdInput(''); setPwdError(false) }
                 }}
                 autoFocus
               />
+              {pwdError && <p className="text-[11px] text-red-400">Senha incorreta.</p>}
+              {capsLock && <p className="text-[10px] text-amber-400/80 flex items-center gap-1">⇪ Caps Lock ativo</p>}
             </div>
             <div className="flex gap-2 justify-end">
               <button type="button"
-                onClick={() => { setShowPwdModal(false); setPwdInput('') }}
+                onClick={() => { setShowPwdModal(false); setPwdInput(''); setPwdError(false) }}
                 className="px-4 py-2 rounded-lg border border-white/10 text-white/40 hover:text-white/70 text-sm transition-all">
                 Cancelar
               </button>
@@ -1602,12 +1623,11 @@ export default function Cispr15ConfigPage() {
                 onClick={() => {
                   const correta = appPassword || '123'
                   if (pwdInput === correta) {
-                    setShowPwdModal(false)
-                    setPwdInput('')
+                    setShowPwdModal(false); setPwdInput(''); setPwdError(false)
                     router.push('/cispr15/emenda')
                   } else {
-                    alert('Senha incorreta.')
-                    setPwdInput('')
+                    setPwdError(true); setPwdInput('')
+                    setTimeout(() => pwdInputRef.current?.focus(), 0)
                   }
                 }}
                 className="btn-primary px-5 py-2 text-sm font-bold flex items-center gap-2">
