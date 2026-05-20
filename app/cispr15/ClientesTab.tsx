@@ -1,12 +1,34 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Plus, Pencil, Trash2, Check, X, UserCheck, Wifi, WifiOff } from 'lucide-react'
+import { Plus, Pencil, Trash2, Check, X, UserCheck, Wifi, WifiOff, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { type ClienteDB, CLIENTES_KEY } from './types'
 
 function emptyCliente(): ClienteDB {
   return { id: Date.now().toString(), nome: '', rua: '', cidade: '', cep: '', cnpj: '' }
+}
+
+function formatCNPJ(raw: string): string {
+  const d = raw.replace(/\D/g, '').slice(0, 14)
+  if (d.length <=  2) return d
+  if (d.length <=  5) return `${d.slice(0,2)}.${d.slice(2)}`
+  if (d.length <=  8) return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5)}`
+  if (d.length <= 12) return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8)}`
+  return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8,12)}-${d.slice(12)}`
+}
+
+function isValidCNPJ(cnpj: string): boolean {
+  const d = cnpj.replace(/\D/g, '')
+  if (d.length !== 14 || /^(\d)\1+$/.test(d)) return false
+  const calc = (s: string, w: number[]) => {
+    const r = s.split('').reduce((a, n, i) => a + parseInt(n) * w[i], 0) % 11
+    return r < 2 ? 0 : 11 - r
+  }
+  return (
+    calc(d.slice(0,12), [5,4,3,2,9,8,7,6,5,4,3,2]) === parseInt(d[12]) &&
+    calc(d.slice(0,13), [6,5,4,3,2,9,8,7,6,5,4,3,2]) === parseInt(d[13])
+  )
 }
 
 function Field({ label, value, onChange, placeholder, span2 }: {
@@ -131,8 +153,28 @@ export function ClientesTab({ onUsar }: { onUsar: (c: ClienteDB) => void }) {
           <div className="grid grid-cols-2 gap-x-4 gap-y-3">
             <Field label="Nome / Razão Social" value={draft.nome} onChange={sd('nome')}
               placeholder="Ex: CEB Iluminação Pública" span2 />
-            <Field label="CNPJ" value={draft.cnpj} onChange={sd('cnpj')}
-              placeholder="Ex: 00.000.000/0001-00" span2 />
+            <div className="col-span-2 flex flex-col gap-1.5">
+              <label className="text-[10px] text-white/35 uppercase tracking-widest font-mono">CNPJ</label>
+              <div className="relative">
+                <input className={cn('input text-sm pr-7',
+                    draft.cnpj.replace(/\D/g,'').length === 14 && (isValidCNPJ(draft.cnpj) ? 'border-green-500/40' : 'border-red-500/50')
+                  )}
+                  value={draft.cnpj}
+                  onChange={e => setDraft(p => ({ ...p, cnpj: formatCNPJ(e.target.value) }))}
+                  placeholder="00.000.000/0001-00"
+                  inputMode="numeric" maxLength={18} />
+                {draft.cnpj.replace(/\D/g,'').length === 14 && (
+                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2">
+                    {isValidCNPJ(draft.cnpj)
+                      ? <CheckCircle2 size={13} className="text-green-400" />
+                      : <AlertTriangle size={13} className="text-red-400" />}
+                  </span>
+                )}
+              </div>
+              {draft.cnpj.replace(/\D/g,'').length === 14 && !isValidCNPJ(draft.cnpj) && (
+                <p className="text-[10px] text-red-400">CNPJ inválido — verifique os dígitos</p>
+              )}
+            </div>
             <Field label="Rua – Número – Bairro" value={draft.rua} onChange={sd('rua')}
               placeholder="Ex: SGAN Quadra 601, Bloco H, Asa Norte" span2 />
             <Field label="Cidade – Estado" value={draft.cidade} onChange={sd('cidade')}

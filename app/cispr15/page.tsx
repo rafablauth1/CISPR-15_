@@ -79,6 +79,7 @@ export default function Cispr15ConfigPage() {
   const pwdInputRef = useRef<HTMLInputElement>(null)
   const [gateOpen,     setGateOpen]    = useState(false)
   const [capsLock,     setCapsLock]    = useState(false)
+  const [cepStatus,    setCepStatus]   = useState<'idle' | 'loading' | 'ok' | 'error'>('idle')
   const [gateInput,    setGateInput]   = useState('')
   const [gateError,    setGateError]   = useState(false)
   const [appPassword,  setAppPassword] = useState('')
@@ -288,12 +289,19 @@ export default function Cispr15ConfigPage() {
     const digits = raw.replace(/\D/g, '').slice(0, 8)
     const formatted = digits.length > 5 ? `${digits.slice(0, 5)}-${digits.slice(5)}` : digits
     setCfg(prev => ({ ...prev, clienteCep: formatted }))
-    if (digits.length === 8) {
-      try {
-        const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`)
-        const data = await res.json()
-        if (!data.erro) setCfg(prev => ({ ...prev, clienteCep: formatted, clienteCidade: `${data.localidade} - ${data.uf}` }))
-      } catch {}
+    if (digits.length < 8) { setCepStatus('idle'); return }
+    setCepStatus('loading')
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`)
+      const data = await res.json()
+      if (!data.erro) {
+        setCfg(prev => ({ ...prev, clienteCep: formatted, clienteCidade: `${data.localidade} - ${data.uf}` }))
+        setCepStatus('ok')
+      } else {
+        setCepStatus('error')
+      }
+    } catch {
+      setCepStatus('error')
     }
   }
 
@@ -1122,10 +1130,16 @@ export default function Cispr15ConfigPage() {
                 placeholder="Preenchido automaticamente pelo CEP" />
             </Row>
             <Row label="CEP">
-              <input className="input" value={cfg.clienteCep}
-                onChange={e => handleCep(e.target.value)}
-                placeholder="Ex: 70830-010"
-                maxLength={9} inputMode="numeric" />
+              <div className="flex flex-col gap-1">
+                <input className={cn('input', cepStatus === 'error' && 'border-red-500/50', cepStatus === 'ok' && 'border-green-500/40')}
+                  value={cfg.clienteCep}
+                  onChange={e => handleCep(e.target.value)}
+                  placeholder="Ex: 70830-010"
+                  maxLength={9} inputMode="numeric" />
+                {cepStatus === 'loading' && <span className="text-[10px] text-white/40 flex items-center gap-1"><Loader2 size={9} className="animate-spin" /> Buscando...</span>}
+                {cepStatus === 'ok'      && <span className="text-[10px] text-green-400 flex items-center gap-1"><CheckCircle2 size={9} /> Cidade preenchida automaticamente</span>}
+                {cepStatus === 'error'   && <span className="text-[10px] text-red-400 flex items-center gap-1"><AlertTriangle size={9} /> CEP não localizado</span>}
+              </div>
             </Row>
           </div>
         </div>

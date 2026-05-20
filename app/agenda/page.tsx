@@ -6,7 +6,7 @@ import {
   ArrowLeft, ArrowRight, Plus, Search, X, CheckCircle2, Clock, Edit2,
   Trash2, ChevronDown, ChevronUp, FileText,
   Lightbulb, Lamp, Settings, Layers, RotateCcw, Link2, FileSearch,
-  AlertTriangle, Wifi, BarChart2, Tag, TrendingUp,
+  AlertTriangle, Wifi, BarChart2, Tag, TrendingUp, Printer,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
@@ -226,13 +226,20 @@ function ItemModal({ item, onSave, onClose, clientes }: {
           <div className="flex flex-col gap-1.5">
             <Label>Previsão de Saída</Label>
             <div className="flex gap-2">
-              <input type="date" className="input flex-1" value={form.previsaoSaida} onChange={s('previsaoSaida')} />
+              <input type="date"
+                className={cn('input flex-1', form.previsaoSaida && form.dataEntrada && form.previsaoSaida < form.dataEntrada && 'border-red-500/50')}
+                value={form.previsaoSaida} onChange={s('previsaoSaida')} />
               <button type="button" title="Recalcular: +10 dias úteis"
                 onClick={() => setForm(p => ({ ...p, previsaoSaida: addBusinessDays(p.dataEntrada, 10) }))}
                 className="w-9 shrink-0 rounded-lg border border-white/10 text-white/30 hover:text-teal hover:border-teal/30 flex items-center justify-center transition-all">
                 <RotateCcw size={12} />
               </button>
             </div>
+            {form.previsaoSaida && form.dataEntrada && form.previsaoSaida < form.dataEntrada && (
+              <p className="text-[10px] text-red-400 flex items-center gap-1">
+                <AlertTriangle size={9} /> Previsão anterior à data de entrada
+              </p>
+            )}
           </div>
           <div className="flex flex-col gap-1.5">
             <Label>Responsável</Label>
@@ -700,6 +707,9 @@ export default function AgendaPage() {
   const [isElectron,    setIsElectron]    = useState(false)
   const [fromNetwork,   setFromNetwork]   = useState<boolean | null>(null)
   const [clientes,      setClientes]      = useState<ClienteDB[]>([])
+  const [fuCliente,     setFuCliente]     = useState('')
+  const [fuTipo,        setFuTipo]        = useState<'todos' | 'lampada' | 'luminaria'>('todos')
+  const [fuEnsaio,      setFuEnsaio]      = useState<'todos' | 'c_pend' | 'l_pend' | 'b_pend' | 'algum_pend' | 'todos_ok'>('todos')
 
   useEffect(() => {
     setIsElectron(!!(window as any).electronAPI)
@@ -1531,8 +1541,45 @@ export default function AgendaPage() {
 
       {/* ── ABA FOLLOW-UP ── */}
       {tab === 'followup' && (() => {
-        const allEm = [...followup.lampadas.list, ...followup.luminarias.list]
+        const allEmBase = [...followup.lampadas.list, ...followup.luminarias.list]
           .sort((a, b) => (a.previsaoSaida || '').localeCompare(b.previsaoSaida || ''))
+
+        const clientesEm = Array.from(new Set(allEmBase.map(a => a.cliente).filter(Boolean))).sort()
+
+        const allEm = allEmBase
+          .filter(a => fuTipo === 'todos' || a.tipo === fuTipo)
+          .filter(a => !fuCliente || a.cliente === fuCliente)
+          .filter(a => {
+            if (fuEnsaio === 'c_pend')    return a.statusConduzida === 'pendente'
+            if (fuEnsaio === 'l_pend')    return a.statusLoop      === 'pendente'
+            if (fuEnsaio === 'b_pend')    return a.statusAnexoB    === 'pendente'
+            if (fuEnsaio === 'algum_pend') return a.statusConduzida === 'pendente' || a.statusLoop === 'pendente' || a.statusAnexoB === 'pendente'
+            if (fuEnsaio === 'todos_ok')  return a.statusConduzida === 'realizado' && a.statusLoop === 'realizado' && a.statusAnexoB === 'realizado'
+            return true
+          })
+
+        const dateLabel = new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })
+
+        function handlePrint() {
+          const style = document.createElement('style')
+          style.id = '__fu_print'
+          style.textContent = `
+            @media print {
+              body { background: #fff !important; color: #111 !important; font-family: Arial, sans-serif; }
+              nav, header, [data-noprint], .no-print { display: none !important; }
+              #fu-print-area { display: block !important; color: #111 !important; }
+              #fu-print-area * { color: inherit !important; border-color: #ccc !important; background: transparent !important; }
+              #fu-print-area table { border-collapse: collapse; width: 100%; }
+              #fu-print-area th, #fu-print-area td { border: 1px solid #ccc; padding: 4px 8px; font-size: 11px; }
+              #fu-print-area th { background: #eee !important; font-weight: bold; }
+              #fu-print-area .bar-bg { background: #e5e7eb !important; }
+              #fu-print-area .bar-fill { background: #16a34a !important; }
+            }
+          `
+          document.head.appendChild(style)
+          window.print()
+          window.addEventListener('afterprint', () => document.getElementById('__fu_print')?.remove(), { once: true })
+        }
 
         function EnsaioBar({ done, total, label }: { done: number; total: number; label: string }) {
           const pct = total > 0 ? (done / total) * 100 : 0
@@ -1540,8 +1587,8 @@ export default function AgendaPage() {
           return (
             <div className="flex items-center gap-3">
               <span className="text-[10px] text-white/40 font-mono w-20 text-right shrink-0">{label}</span>
-              <div className="flex-1 h-2.5 bg-white/5 rounded-full overflow-hidden">
-                <div className="h-full rounded-full transition-all duration-500"
+              <div className="bar-bg flex-1 h-2.5 bg-white/5 rounded-full overflow-hidden">
+                <div className="bar-fill h-full rounded-full transition-all duration-500"
                   style={{ width: `${pct}%`, background: all ? 'rgba(74,222,128,0.7)' : 'rgba(74,222,128,0.45)' }} />
               </div>
               <span className={cn('text-[11px] font-mono w-10 text-right shrink-0', all ? 'text-green-400' : 'text-white/40')}>
@@ -1555,10 +1602,7 @@ export default function AgendaPage() {
           return (
             <div className="card p-4 space-y-4">
               <div className="flex items-center justify-between gap-2 flex-wrap">
-                <div className="flex items-center gap-2">
-                  {icon}
-                  <span className="text-sm font-bold text-white">{label}</span>
-                </div>
+                <div className="flex items-center gap-2">{icon}<span className="text-sm font-bold text-white">{label}</span></div>
                 <div className="flex gap-3 text-[11px] font-mono">
                   <span className="text-white/35">{stats.total} total</span>
                   <span className="text-gold/80">{stats.andamento} andamento</span>
@@ -1579,30 +1623,73 @@ export default function AgendaPage() {
         }
 
         return (
-          <div className="space-y-5">
-            {/* Cabeçalho */}
-            <div className="flex items-center justify-between">
+          <div id="fu-print-area" className="space-y-5">
+            {/* Cabeçalho + ações */}
+            <div className="flex items-start justify-between gap-3 flex-wrap">
               <div>
                 <p className="text-xs font-semibold text-white/70 flex items-center gap-1.5">
                   <TrendingUp size={13} className="text-gold" /> Situação dos Ensaios — Follow-up Comercial
                 </p>
-                <p className="text-[10px] text-white/30 font-mono mt-0.5">{new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}</p>
+                <p className="text-[10px] text-white/30 font-mono mt-0.5">{dateLabel}</p>
               </div>
+              <button data-noprint type="button" onClick={handlePrint}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-white/80 hover:bg-white/8 text-xs font-semibold transition-all">
+                <Printer size={12} /> Imprimir
+              </button>
             </div>
 
-            {/* Cards por tipo */}
+            {/* Cards por tipo — sempre mostram totais globais */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <TypeCard
-                label="Lâmpadas"
-                icon={<Lightbulb size={15} className="text-amber-400" />}
-                stats={followup.lampadas}
-              />
-              <TypeCard
-                label="Luminárias"
-                icon={<Lamp size={15} className="text-teal-400" />}
-                stats={followup.luminarias}
-              />
+              <TypeCard label="Lâmpadas"  icon={<Lightbulb size={15} className="text-amber-400" />} stats={followup.lampadas} />
+              <TypeCard label="Luminárias" icon={<Lamp size={15} className="text-teal-400" />}      stats={followup.luminarias} />
             </div>
+
+            {/* Filtros */}
+            {allEmBase.length > 0 && (
+              <div data-noprint className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] text-white/30 font-mono uppercase tracking-widest shrink-0">Filtrar:</span>
+
+                {/* Filtro tipo */}
+                <div className="flex gap-0.5 p-0.5 rounded-lg bg-white/4 border border-white/8">
+                  {([['todos','Todos'],['lampada','Lâmpadas'],['luminaria','Luminárias']] as const).map(([v, lbl]) => (
+                    <button key={v} type="button" onClick={() => setFuTipo(v)}
+                      className={cn('px-2.5 py-1 rounded text-[10px] font-semibold transition-all',
+                        fuTipo === v ? 'bg-gold/15 border border-gold/25 text-gold' : 'text-white/35 hover:text-white/60')}>
+                      {lbl}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Filtro cliente */}
+                <select value={fuCliente} onChange={e => setFuCliente(e.target.value)}
+                  className="input text-xs py-1 pr-6 h-7 min-w-0 w-auto max-w-[180px]">
+                  <option value="">Todos os clientes</option>
+                  {clientesEm.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+
+                {/* Filtro ensaio */}
+                <select value={fuEnsaio} onChange={e => setFuEnsaio(e.target.value as typeof fuEnsaio)}
+                  className="input text-xs py-1 pr-6 h-7 min-w-0 w-auto max-w-[200px]">
+                  <option value="todos">Todos os ensaios</option>
+                  <option value="c_pend">Conduzida pendente</option>
+                  <option value="l_pend">Loop pendente</option>
+                  <option value="b_pend">Anexo B pendente</option>
+                  <option value="algum_pend">Algum ensaio pendente</option>
+                  <option value="todos_ok">Todos realizados</option>
+                </select>
+
+                {(fuCliente || fuTipo !== 'todos' || fuEnsaio !== 'todos') && (
+                  <button type="button" onClick={() => { setFuCliente(''); setFuTipo('todos'); setFuEnsaio('todos') }}
+                    className="flex items-center gap-1 text-[10px] text-white/30 hover:text-white/60 transition-colors">
+                    <X size={10} /> Limpar filtros
+                  </button>
+                )}
+
+                <span className="text-[10px] text-white/25 font-mono ml-auto">
+                  {allEm.length} de {allEmBase.length} itens
+                </span>
+              </div>
+            )}
 
             {/* Tabela detalhada */}
             {allEm.length > 0 ? (
@@ -1620,10 +1707,10 @@ export default function AgendaPage() {
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="border-b border-white/5">
-                        {['', 'Protocolo', 'Cliente', 'Produto', 'C', 'L', 'B', 'Previsão'].map(h => (
+                        {['', 'Protocolo', 'Cliente', 'Produto', 'Conduzida', 'Loop', 'Anexo B', 'Previsão'].map(h => (
                           <th key={h} className={cn(
                             'py-2 px-3 text-[10px] text-white/25 font-mono font-normal',
-                            ['C','L','B'].includes(h) ? 'text-center' : h === 'Previsão' ? 'text-right' : 'text-left',
+                            ['Conduzida','Loop','Anexo B'].includes(h) ? 'text-center' : h === 'Previsão' ? 'text-right' : 'text-left',
                           )}>{h}</th>
                         ))}
                       </tr>
@@ -1667,7 +1754,7 @@ export default function AgendaPage() {
               </div>
             ) : (
               <div className="card p-8 text-center text-white/25 text-sm">
-                Nenhum item em andamento no momento.
+                {allEmBase.length === 0 ? 'Nenhum item em andamento no momento.' : 'Nenhum item corresponde aos filtros aplicados.'}
               </div>
             )}
           </div>
