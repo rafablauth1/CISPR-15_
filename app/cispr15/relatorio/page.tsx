@@ -96,6 +96,7 @@ function Page({ children, first, flow }: { children: React.ReactNode; first?: bo
 
 /* ─── cabeçalho repetido (páginas 2+) — idêntico à faixa cinza da capa ─────── */
 function PageHeader({ cfg, numDisplay }: { cfg: Cispr15Config; numDisplay?: string }) {
+  const amostraParts = [cfg.produto, cfg.modelo, cfg.fabricante].filter(Boolean)
   return (
     <div style={{ border: '1px solid #999', marginBottom: 10, background: GRAY2, padding: '5px 14px 8px', overflow: 'hidden' }}>
       <p style={{ textAlign: 'center', fontSize: '6.5pt', fontStyle: 'italic', color: '#000', margin: '0 0 5px' }}>
@@ -105,6 +106,14 @@ function PageHeader({ cfg, numDisplay }: { cfg: Cispr15Config; numDisplay?: stri
         <span style={{ fontSize: '13pt', fontWeight: 700, color: '#000' }}>Relatório de Ensaio</span>
         <span style={{ fontSize: '13pt', fontWeight: 700, color: '#000' }}>N° {(numDisplay ?? cfg.numRelatorio) || '—'}</span>
       </div>
+      {amostraParts.length > 0 && (
+        <p style={{ textAlign: 'center', fontSize: '8pt', color: '#000', margin: '3px 0 0' }}>
+          {amostraParts.join(' · ')}
+        </p>
+      )}
+      <p style={{ textAlign: 'right', fontSize: '7.5pt', color: '#000', margin: '2px 0 0' }}>
+        Período: {fmtDate(cfg.periodoInicio)} a {fmtDate(cfg.periodoFim)} · Emissão: {fmtDate(cfg.dataEmissao)}
+      </p>
     </div>
   )
 }
