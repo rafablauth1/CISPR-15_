@@ -169,7 +169,7 @@ export default function ConfiguracoesPage() {
                 className="input flex-1 text-sm font-mono"
                 value={settings.dataFolder}
                 onChange={e => setSettings(s => ({ ...s, dataFolder: e.target.value }))}
-                placeholder="Ex: \\servidor\projetos\CISPR15\dados"
+                placeholder={localDataDir ? `Padrão local: ${localDataDir}` : 'Ex: \\\\servidor\\projetos\\CISPR15\\dados'}
               />
               {isElectron && (
                 <button type="button" onClick={browseDataFolder}
@@ -179,10 +179,10 @@ export default function ConfiguracoesPage() {
               )}
             </div>
             <p className="text-[10px] text-white/25 font-mono">
-              Pasta compartilhada onde <span className="text-white/40">cispr15_clientes.json</span> e{' '}
+              Pasta onde <span className="text-white/40">cispr15_clientes.json</span> e{' '}
               <span className="text-white/40">cispr15_relatorios.json</span> são armazenados.
-              Qualquer PC na rede com acesso a esta pasta verá os mesmos dados.
-              Se vazio, os dados ficam somente neste computador (localStorage).
+              Se vazio, usa a pasta local padrão indicada acima.
+              Para compartilhar entre PCs, aponte para uma pasta de rede.
             </p>
           </div>
 
@@ -212,7 +212,7 @@ export default function ConfiguracoesPage() {
                 className="input flex-1 text-sm font-mono"
                 value={settings.agendaFolder ?? ''}
                 onChange={e => setSettings(s => ({ ...s, agendaFolder: e.target.value }))}
-                placeholder="Ex: \\servidor\projetos\CISPR15\agenda"
+                placeholder={localDataDir ? `Padrão local: ${localDataDir}` : 'Ex: \\\\servidor\\projetos\\CISPR15\\agenda'}
               />
               {isElectron && (
                 <button type="button" onClick={browseAgendaFolder}

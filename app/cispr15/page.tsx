@@ -122,7 +122,14 @@ export default function Cispr15ConfigPage() {
       const dHtml = sessionStorage.getItem(DOCX_HTML_KEY)
       const dName = sessionStorage.getItem(DOCX_NAME_KEY)
       if (dHtml) setDocx({ loading: false, html: dHtml, filename: dName })
-      if (localStorage.getItem(LOCKED_KEY)) setLocked(true)
+      if (localStorage.getItem(LOCKED_KEY)) {
+        try {
+          const rawCfg = localStorage.getItem(CFG_KEY)
+          const cfgParsed = rawCfg ? JSON.parse(rawCfg) : null
+          if (cfgParsed?.numRelatorio) setLocked(true)
+          else localStorage.removeItem(LOCKED_KEY)
+        } catch { localStorage.removeItem(LOCKED_KEY) }
+      }
     }
 
     // Carregar configurações e verificar senha
