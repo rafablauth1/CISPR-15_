@@ -5,3 +5,4 @@ standalone/
 *.log
 .env.local
 out/
+dados/*.json
