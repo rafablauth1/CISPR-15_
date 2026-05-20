@@ -1638,25 +1638,130 @@ export default function AgendaPage() {
 
         const dateLabel = new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })
 
+        function buildReportHtml(): string {
+          const pct = (done: number, total: number) =>
+            total > 0 ? Math.round((done / total) * 100) : 0
+
+          const filterLabel = [
+            fuTipo !== 'todos' ? (fuTipo === 'lampada' ? 'Lâmpadas' : 'Luminárias') : '',
+            fuCliente || '',
+            fuEnsaio !== 'todos' ? ({
+              c_pend: 'Conduzida pendente', l_pend: 'Loop pendente', b_pend: 'Anexo B pendente',
+              algum_pend: 'Algum ensaio pendente', todos_ok: 'Todos realizados',
+            } as Record<string, string>)[fuEnsaio] ?? '' : '',
+          ].filter(Boolean).join(' · ')
+
+          function summaryCard(label: string, stats: typeof followup.lampadas): string {
+            const cp = pct(stats.conduzida, stats.andamento)
+            const lp = pct(stats.loop,      stats.andamento)
+            const bp = pct(stats.anexoB,    stats.andamento)
+            const bar = (name: string, p: number, done: number) =>
+              `<div class="prog-row">
+                <div class="prog-label"><span>${name}</span><span>${done}/${stats.andamento} — ${p}%</span></div>
+                <div class="prog-bg"><div class="prog-fill" style="width:${p}%;background:${p === 100 ? '#16a34a' : '#4ade80'}"></div></div>
+              </div>`
+            return `<div class="sum-card">
+              <div class="sum-title">${label}</div>
+              <div class="sum-row"><span>Total</span><span class="val">${stats.total}</span></div>
+              <div class="sum-row"><span>Em andamento</span><span class="val" style="color:#b45309">${stats.andamento}</span></div>
+              <div class="sum-row"><span>Concluídos</span><span class="val" style="color:#16a34a">${stats.concluidos}</span></div>
+              ${stats.andamento > 0 ? `<div class="prog-wrap">${bar('Conduzida', cp, stats.conduzida)}${bar('Loop', lp, stats.loop)}${bar('Anexo B', bp, stats.anexoB)}</div>` : ''}
+            </div>`
+          }
+
+          const s = (v: string) =>
+            v === 'realizado'
+              ? '<span class="ok">&#10003;</span>'
+              : '<span class="pend">&#9675;</span>'
+
+          const rows = allEm.map((item, i) => {
+            const d = daysUntil(item.previsaoSaida)
+            const pc = d < 0 ? 'prazo-late' : d <= 3 ? 'prazo-warn' : ''
+            return `<tr class="${i % 2 === 1 ? 'alt' : ''}">
+              <td class="tipo">${item.tipo === 'lampada' ? 'Lâmpada' : 'Luminária'}</td>
+              <td class="mono">${item.protocolo || '—'}</td>
+              <td>${item.cliente || '—'}</td>
+              <td>${item.produto || '—'}</td>
+              <td class="c">${s(item.statusConduzida)}</td>
+              <td class="c">${s(item.statusLoop)}</td>
+              <td class="c">${s(item.statusAnexoB)}</td>
+              <td class="r ${pc}">${fmtDate(item.previsaoSaida)}</td>
+            </tr>`
+          }).join('')
+
+          const now = new Date().toLocaleString('pt-BR')
+          const NAVY = '#1F3864'
+
+          return `<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<title>Follow-up CISPR 15 — LABELO PUCRS</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#1a1a1a;background:#fff;padding:28px 32px}
+.hdr{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2.5px solid ${NAVY};padding-bottom:14px;margin-bottom:20px}
+.hdr h1{font-size:15px;font-weight:bold;color:${NAVY}}
+.hdr .sub{font-size:10px;color:#666;margin-top:3px}
+.hdr-right{text-align:right}
+.hdr-right .lab{font-size:11px;font-weight:bold;color:${NAVY}}
+.hdr-right .dt{font-size:10px;color:#888;margin-top:3px}
+.filter-badge{display:inline-block;margin-bottom:16px;background:#f0f4ff;border:1px solid #bdd7ee;border-radius:4px;padding:4px 10px;font-size:10px;color:${NAVY}}
+.summary{display:flex;gap:14px;margin-bottom:22px}
+.sum-card{flex:1;border:1px solid #ddd;border-radius:6px;padding:14px}
+.sum-title{font-size:10px;font-weight:bold;color:${NAVY};text-transform:uppercase;letter-spacing:.06em;margin-bottom:9px}
+.sum-row{display:flex;justify-content:space-between;padding:2px 0;font-size:11px}
+.val{font-weight:bold;font-family:monospace}
+.prog-wrap{margin-top:10px;border-top:1px solid #eee;padding-top:8px}
+.prog-row{margin-bottom:5px}
+.prog-label{display:flex;justify-content:space-between;font-size:10px;color:#666;margin-bottom:3px}
+.prog-bg{background:#e5e7eb;border-radius:3px;height:7px;overflow:hidden}
+.prog-fill{height:100%;border-radius:3px}
+.sec-title{font-size:10px;font-weight:bold;color:${NAVY};text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+table{width:100%;border-collapse:collapse;font-size:11px}
+thead tr{background:${NAVY}}
+thead th{color:#fff;text-align:left;padding:7px 10px;font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap}
+tbody tr{border-bottom:1px solid #e9ecef}
+tbody tr.alt{background:#f8f9fa}
+tbody td{padding:6px 10px;vertical-align:middle}
+td.mono{font-family:monospace;font-size:10px;color:#555}
+td.tipo{font-size:10px;color:#555;white-space:nowrap}
+.c{text-align:center}
+.r{text-align:right;font-family:monospace;font-size:10px}
+.ok{color:#16a34a;font-weight:bold;font-size:13px}
+.pend{color:#ccc}
+.prazo-warn{color:#d97706;font-weight:bold}
+.prazo-late{color:#dc2626;font-weight:bold}
+.footer{margin-top:28px;padding-top:10px;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;font-size:9px;color:#aaa}
+@media print{body{padding:0}@page{margin:12mm 14mm}}
+</style></head>
+<body>
+<div class="hdr">
+  <div><h1>Situação dos Ensaios — Follow-up</h1><div class="sub">CISPR 15 · EMC · Equipamentos de Iluminação</div></div>
+  <div class="hdr-right"><div class="lab">LABELO · PUCRS</div><div class="dt">${dateLabel}</div></div>
+</div>
+${filterLabel ? `<div class="filter-badge">Filtro: ${filterLabel}</div>` : ''}
+<div class="summary">${summaryCard('Lâmpadas', followup.lampadas)}${summaryCard('Luminárias', followup.luminarias)}</div>
+${allEm.length > 0 ? `
+<div class="sec-title">Em andamento — ${allEm.length} ${allEm.length === 1 ? 'item' : 'itens'}</div>
+<table>
+  <thead><tr>
+    <th>Tipo</th><th>Protocolo</th><th>Cliente</th><th>Produto</th>
+    <th class="c">Conduzida</th><th class="c">Loop</th><th class="c">Anexo B</th><th class="r">Previsão</th>
+  </tr></thead>
+  <tbody>${rows}</tbody>
+</table>` : '<p style="color:#999;padding:24px 0;text-align:center">Nenhum item em andamento.</p>'}
+<div class="footer"><span>Gerado em ${now}</span><span>Documento interno · LABELO PUCRS · Confidencial</span></div>
+</body></html>`
+        }
+
         function handlePrint() {
-          const style = document.createElement('style')
-          style.id = '__fu_print'
-          style.textContent = `
-            @media print {
-              body { background: #fff !important; color: #111 !important; font-family: Arial, sans-serif; }
-              nav, header, [data-noprint], .no-print { display: none !important; }
-              #fu-print-area { display: block !important; color: #111 !important; }
-              #fu-print-area * { color: inherit !important; border-color: #ccc !important; background: transparent !important; }
-              #fu-print-area table { border-collapse: collapse; width: 100%; }
-              #fu-print-area th, #fu-print-area td { border: 1px solid #ccc; padding: 4px 8px; font-size: 11px; }
-              #fu-print-area th { background: #eee !important; font-weight: bold; }
-              #fu-print-area .bar-bg { background: #e5e7eb !important; }
-              #fu-print-area .bar-fill { background: #16a34a !important; }
-            }
-          `
-          document.head.appendChild(style)
-          window.print()
-          window.addEventListener('afterprint', () => document.getElementById('__fu_print')?.remove(), { once: true })
+          const win = window.open('', '_blank')
+          if (!win) return
+          win.document.write(buildReportHtml())
+          win.document.close()
+          setTimeout(() => {
+            win.print()
+            win.addEventListener('afterprint', () => win.close(), { once: true })
+          }, 400)
         }
 
         function EnsaioBar({ done, total, label }: { done: number; total: number; label: string }) {
