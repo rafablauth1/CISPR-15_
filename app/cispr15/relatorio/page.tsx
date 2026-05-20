@@ -98,22 +98,26 @@ function Page({ children, first, flow }: { children: React.ReactNode; first?: bo
 function PageHeader({ cfg, numDisplay }: { cfg: Cispr15Config; numDisplay?: string }) {
   const amostraParts = [cfg.produto, cfg.modelo, cfg.fabricante].filter(Boolean)
   return (
-    <div style={{ border: '1px solid #999', marginBottom: 10, background: GRAY2, padding: '5px 14px 8px', overflow: 'hidden' }}>
-      <p style={{ textAlign: 'center', fontSize: '6.5pt', fontStyle: 'italic', color: '#000', margin: '0 0 5px' }}>
-        Laboratório de Ensaio acreditado pela Cgcre de acordo com a ABNT NBR ISO/IEC 17025 sob o número CRL 0075
-      </p>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span style={{ fontSize: '13pt', fontWeight: 700, color: '#000' }}>Relatório de Ensaio</span>
-        <span style={{ fontSize: '13pt', fontWeight: 700, color: '#000' }}>N° {(numDisplay ?? cfg.numRelatorio) || '—'}</span>
-      </div>
-      {amostraParts.length > 0 && (
-        <p style={{ textAlign: 'center', fontSize: '8pt', color: '#000', margin: '3px 0 0' }}>
-          {amostraParts.join(' · ')}
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ background: GRAY2, border: '1px solid #999', padding: '5px 14px 8px' }}>
+        <p style={{ textAlign: 'center', fontSize: '6.5pt', fontStyle: 'italic', color: '#000', margin: '0 0 5px' }}>
+          Laboratório de Ensaio acreditado pela Cgcre de acordo com a ABNT NBR ISO/IEC 17025 sob o número CRL 0075
         </p>
-      )}
-      <p style={{ textAlign: 'right', fontSize: '7.5pt', color: '#000', margin: '2px 0 0' }}>
-        Período: {fmtDate(cfg.periodoInicio)} a {fmtDate(cfg.periodoFim)} · Emissão: {fmtDate(cfg.dataEmissao)}
-      </p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: '13pt', fontWeight: 700, color: '#000' }}>Relatório de Ensaio</span>
+          <span style={{ fontSize: '13pt', fontWeight: 700, color: '#000' }}>N° {(numDisplay ?? cfg.numRelatorio) || '—'}</span>
+        </div>
+      </div>
+      <div style={{ background: '#fff', padding: '3px 14px 4px' }}>
+        {amostraParts.length > 0 && (
+          <p style={{ textAlign: 'center', fontSize: '8pt', color: '#000', margin: '0 0 1px' }}>
+            {amostraParts.join(' · ')}
+          </p>
+        )}
+        <p style={{ textAlign: 'right', fontSize: '7.5pt', color: '#000', margin: 0 }}>
+          Período: {fmtDate(cfg.periodoInicio)} a {fmtDate(cfg.periodoFim)} · Emissão: {fmtDate(cfg.dataEmissao)}
+        </p>
+      </div>
     </div>
   )
 }
@@ -850,7 +854,7 @@ export default function Cispr15RelatorioPage() {
           <SecHeader>Parte 1 - Identificação e condições gerais</SecHeader>
              
           <p style={pTitle}>1. Cliente:<Sup n={markerFor('cliente')} /></p>
-          <p style={{ ...pJ, marginTop: 8 }}>{cfg.cliente || '—'}</p>
+          <p style={{ ...pJ, marginTop: 8 }}><b>{cfg.cliente || '—'}</b></p>
           {cfg.clienteRua    && <p style={pJ}>{cfg.clienteRua}</p>}
           {cfg.clienteCidade && <p style={pJ}>{cfg.clienteCidade}</p>}
           {cfg.clienteCep    && <p style={pJ}>CEP: {cfg.clienteCep}</p>}
@@ -1205,7 +1209,7 @@ export default function Cispr15RelatorioPage() {
 
           {/* Signatário — absolutamente posicionado no fundo da página, acima do rodapé */}
           <div style={{
-            position: 'absolute', bottom: '10mm', left: 0, right: 0,
+            position: 'absolute', bottom: '35mm', left: 0, right: 0,
             display: 'flex', justifyContent: 'center',
           }}>
             <div style={{ textAlign: 'center', minWidth: 260 }}>

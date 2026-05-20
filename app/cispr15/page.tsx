@@ -163,10 +163,20 @@ export default function Cispr15ConfigPage() {
     if (api) {
       try {
         const res = await api.getRelatorios()
-        if (res.ok && Array.isArray(res.relatorios)) {
-          setRelatoriosList(res.relatorios)
-          return
+        if (res.ok && Array.isArray(res.relatorios) && res.relatorios.length > 0) {
+          setRelatoriosList(res.relatorios); return
         }
+        try {
+          const raw = localStorage.getItem(RELATORIOS_KEY)
+          if (raw) {
+            const migrated = JSON.parse(raw)
+            if (Array.isArray(migrated) && migrated.length > 0) {
+              await api.saveRelatorios(migrated)
+              setRelatoriosList(migrated); return
+            }
+          }
+        } catch {}
+        if (res.ok) { setRelatoriosList([]); return }
       } catch {}
     }
     try {
@@ -180,7 +190,18 @@ export default function Cispr15ConfigPage() {
     if (api) {
       try {
         const res = await api.getClientes()
-        if (res.ok && Array.isArray(res.clientes)) { setClientes(res.clientes); return }
+        if (res.ok && Array.isArray(res.clientes) && res.clientes.length > 0) { setClientes(res.clientes); return }
+        try {
+          const raw = localStorage.getItem(CLIENTES_KEY)
+          if (raw) {
+            const migrated = JSON.parse(raw)
+            if (Array.isArray(migrated) && migrated.length > 0) {
+              await api.saveClientes(migrated)
+              setClientes(migrated); return
+            }
+          }
+        } catch {}
+        if (res.ok) { setClientes([]); return }
       } catch {}
     }
     try {

@@ -714,9 +714,21 @@ export default function AgendaPage() {
       try {
         const res = await api.getAgenda()
         setFromNetwork(!!res.fromNetwork)
-        if (res.ok && Array.isArray(res.agenda)) {
+        if (res.ok && Array.isArray(res.agenda) && res.agenda.length > 0) {
           setAgenda(res.agenda); return
         }
+        // Arquivo vazio — migra localStorage para disco
+        try {
+          const raw = localStorage.getItem(AGENDA_KEY)
+          if (raw) {
+            const migrated = JSON.parse(raw)
+            if (Array.isArray(migrated) && migrated.length > 0) {
+              await api.saveAgenda(migrated)
+              setAgenda(migrated); return
+            }
+          }
+        } catch {}
+        if (res.ok) { setAgenda([]); return }
       } catch {}
     }
     try {
