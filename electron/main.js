@@ -79,10 +79,8 @@ function writeSettings(partial) {
 /* ─── dados (rede ou local) ───────────────────────────────────────────────── */
 
 function getDefaultDataDir() {
-  // Dev: dentro da pasta do projeto (cispr15-standalone/dados)
-  // Instalado: ao lado do .exe (onde quer que o usuário tenha instalado)
-  if (app.isPackaged) return path.join(path.dirname(process.execPath), 'dados')
-  return path.join(__dirname, '..', 'dados')
+  // Mesmo caminho em dev e instalado: Documentos/CISPR 15 LABELO/dados
+  return path.join(app.getPath('documents'), 'CISPR 15 LABELO', 'dados')
 }
 
 function dataFilePath(filename) {
