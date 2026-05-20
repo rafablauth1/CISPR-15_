@@ -79,7 +79,10 @@ function writeSettings(partial) {
 /* ─── dados (rede ou local) ───────────────────────────────────────────────── */
 
 function getDefaultDataDir() {
-  return path.join(getUserDataDir(), 'dados')
+  // Dev: dentro da pasta do projeto (cispr15-standalone/dados)
+  // Instalado: ao lado do .exe (onde quer que o usuário tenha instalado)
+  if (app.isPackaged) return path.join(path.dirname(process.execPath), 'dados')
+  return path.join(__dirname, '..', 'dados')
 }
 
 function dataFilePath(filename) {
