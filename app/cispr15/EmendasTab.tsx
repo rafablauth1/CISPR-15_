@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { History, ChevronDown, ChevronUp } from 'lucide-react'
+import { History, ChevronDown, ChevronUp, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { type RelatorioSalvo, formatEmendaNumero } from './types'
 
@@ -13,6 +13,7 @@ function fmtDate(iso: string) {
 interface Props {
   relatorios: RelatorioSalvo[]
   onCarregarRelatorio: (r: RelatorioSalvo) => void
+  onDeleteEmenda: (relatorioId: string, emendaNum: number) => void
 }
 
 interface EmendaFlat {
@@ -23,7 +24,7 @@ interface EmendaFlat {
   alteracoes: { marker: number; campo: string; descricao: string }[]
 }
 
-export function EmendasTab({ relatorios, onCarregarRelatorio }: Props) {
+export function EmendasTab({ relatorios, onCarregarRelatorio, onDeleteEmenda }: Props) {
   const [busca,    setBusca]    = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
 
@@ -117,6 +118,15 @@ export function EmendasTab({ relatorios, onCarregarRelatorio }: Props) {
                       onClick={() => setExpanded(isOpen ? null : key)}
                       className="w-7 h-7 rounded-lg border border-white/10 text-white/30 hover:text-white/60 flex items-center justify-center transition-all">
                       {isOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (!confirm(`Excluir ${e.numFormatado}? Esta ação não pode ser desfeita.`)) return
+                        onDeleteEmenda(e.relatorio.id, e.numero)
+                      }}
+                      title="Excluir esta emenda"
+                      className="w-7 h-7 rounded-lg border border-white/10 text-white/30 hover:text-red-400 hover:border-red-400/30 flex items-center justify-center transition-all">
+                      <Trash2 size={11} />
                     </button>
                   </div>
                 </div>

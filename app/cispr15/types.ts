@@ -144,7 +144,7 @@ export interface RelatorioSalvo {
   currentCfg?: Cispr15Config
   photos: { name: string; base64: string }[]
   docxFilename: string | null
-  emendas: { numero: number; dataEmenda: string; alteracoes: AmendmentChange[] }[]
+  emendas: { numero: number; dataEmenda: string; alteracoes: AmendmentChange[]; cfgSnapshot?: Cispr15Config }[]
   eutFolderPath?: string
 }
 

@@ -5,14 +5,14 @@ import { useRouter } from 'next/navigation'
 import {
   Lightbulb, Lamp, ArrowRight, Upload, X, Loader2,
   Trash2, CheckCircle2, FileText, FolderOpen, Users, Database, History,
-  BookOpen, AlertTriangle, Lock, Unlock, Settings, ScanText, RefreshCw, Plus, ChevronDown, Search,
+  BookOpen, AlertTriangle, Lock, Settings, ScanText, RefreshCw, Plus, ChevronDown, Search,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   type Cispr15Config, type LoteConfig, type ClienteDB, type RelatorioSalvo,
   DEFAULTS,
   CFG_KEY, PHOTOS_KEY, DOCX_HTML_KEY, DOCX_NAME_KEY, LOTE_KEY, CLIENTES_KEY,
-  RELATORIOS_KEY, RELATORIO_DOCX_PFX, EMENDA_DRAFT_KEY, LOCKED_KEY,
+  RELATORIOS_KEY, RELATORIO_DOCX_PFX, EMENDA_DRAFT_KEY, LOCKED_KEY, formatEmendaNumero,
   AGENDA_KEY, SETTINGS_KEY, SESSION_KEY, AUTH_KEY,
   newAmostra,
 } from './types'
@@ -163,7 +163,7 @@ export default function Cispr15ConfigPage() {
     if (api) {
       try {
         const res = await api.getRelatorios()
-        if (res.ok && res.fromNetwork && Array.isArray(res.relatorios)) {
+        if (res.ok && Array.isArray(res.relatorios)) {
           setRelatoriosList(res.relatorios)
           return
         }
@@ -180,7 +180,7 @@ export default function Cispr15ConfigPage() {
     if (api) {
       try {
         const res = await api.getClientes()
-        if (res.ok && res.fromNetwork && Array.isArray(res.clientes)) { setClientes(res.clientes); return }
+        if (res.ok && Array.isArray(res.clientes)) { setClientes(res.clientes); return }
       } catch {}
     }
     try {
@@ -657,6 +657,7 @@ export default function Cispr15ConfigPage() {
     setDocx({ loading: false, html: docxHtml, filename: entry.docxFilename })
     localStorage.setItem(CFG_KEY, JSON.stringify(entry.cfg))
     localStorage.setItem(PHOTOS_KEY, JSON.stringify(entry.photos ?? []))
+    localStorage.setItem(LOCKED_KEY, '1')
     localStorage.removeItem(EMENDA_DRAFT_KEY)
     if (docxHtml) sessionStorage.setItem(DOCX_HTML_KEY, docxHtml)
     else sessionStorage.removeItem(DOCX_HTML_KEY)
@@ -665,8 +666,46 @@ export default function Cispr15ConfigPage() {
       setEutFolder(entry.eutFolderPath)
       sessionStorage.setItem('eutFolderPath', entry.eutFolderPath)
     }
+    setLocked(true)
     setTab('formulario')
     flash4(`Relatório "${entry.numRelatorio}" carregado`)
+  }
+
+  /* ── excluir emenda ── */
+  async function handleDeleteEmenda(relatorioId: string, emendaNum: number) {
+    try {
+      const raw = localStorage.getItem(RELATORIOS_KEY)
+      if (!raw) return
+      const lista: RelatorioSalvo[] = JSON.parse(raw)
+      const idx = lista.findIndex(r => r.id === relatorioId)
+      if (idx < 0) return
+      const rel = lista[idx]
+
+      // Tentar excluir PDF da pasta de cópias
+      const san = (v: string) => (v ?? '').replace(/[/\\:*?"<>|\s]/g, '_').replace(/_+/g, '_')
+      const emendaDisplayNum = formatEmendaNumero(rel.numRelatorio, emendaNum)
+      const pdfFilename = `${san(emendaDisplayNum || rel.protocolo)}_${rel.cfg.tipo}_${san(rel.cfg.fabricante)}.pdf`
+      try {
+        const api = (window as any).electronAPI
+        if (api) await api.deletePdfCopy(pdfFilename)
+      } catch {}
+
+      // Remover emenda e recalcular currentCfg
+      const newEmendas = rel.emendas.filter(e => e.numero !== emendaNum)
+      const lastEmenda = [...newEmendas].sort((a, b) => b.numero - a.numero)[0]
+      const newCurrentCfg = lastEmenda?.cfgSnapshot
+
+      lista[idx] = { ...rel, emendas: newEmendas, currentCfg: newCurrentCfg }
+      localStorage.setItem(RELATORIOS_KEY, JSON.stringify(lista))
+      setRelatoriosList(lista)
+
+      const api2 = (window as any).electronAPI
+      if (api2) {
+        try { await api2.saveRelatorios(lista.map(r => ({ ...r, photos: [] }))) } catch {}
+      }
+    } catch (err) {
+      alert('Erro ao excluir emenda: ' + String(err))
+    }
   }
 
   /* ── ver PDF de relatório salvo ── */
@@ -677,10 +716,12 @@ export default function Cispr15ConfigPage() {
     setDocx({ loading: false, html: docxHtml, filename: entry.docxFilename })
     localStorage.setItem(CFG_KEY, JSON.stringify(entry.cfg))
     localStorage.setItem(PHOTOS_KEY, JSON.stringify(entry.photos ?? []))
+    localStorage.setItem(LOCKED_KEY, '1')
     localStorage.removeItem(EMENDA_DRAFT_KEY)
     if (docxHtml) sessionStorage.setItem(DOCX_HTML_KEY, docxHtml)
     else sessionStorage.removeItem(DOCX_HTML_KEY)
     sessionStorage.setItem(DOCX_NAME_KEY, entry.docxFilename ?? '')
+    setLocked(true)
     router.push('/cispr15/relatorio')
   }
 
@@ -885,7 +926,7 @@ export default function Cispr15ConfigPage() {
       </div>
 
       {tab === 'clientes'     && <ClientesTab     onUsar={handleUsarCliente} />}
-      {tab === 'emendas'      && <EmendasTab    relatorios={relatoriosList} onCarregarRelatorio={handleCarregarRelatorio} />}
+      {tab === 'emendas'      && <EmendasTab    relatorios={relatoriosList} onCarregarRelatorio={handleCarregarRelatorio} onDeleteEmenda={handleDeleteEmenda} />}
       {tab === 'relatorios'   && <RelatoriosTab onCarregar={handleCarregarRelatorio} onVerPDF={handleVerPDFRelatorio} />}
 
       {tab === 'formulario' && <div className="space-y-5">
@@ -905,9 +946,9 @@ export default function Cispr15ConfigPage() {
           <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-amber-500/8 border border-amber-500/20 text-amber-400">
             <Lock size={16} className="shrink-0" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold">Formulário bloqueado</p>
+              <p className="text-sm font-semibold">Relatório emitido — somente leitura</p>
               <p className="text-[11px] text-amber-400/70">
-                Relatório {cfg.numRelatorio} já foi emitido.
+                {cfg.numRelatorio ? `Nº ${cfg.numRelatorio} · ` : ''}Para alterar, use Gerar Emenda.
               </p>
             </div>
             <button
@@ -915,12 +956,6 @@ export default function Cispr15ConfigPage() {
               onClick={novoRelatorio}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/15 bg-white/5 hover:bg-white/10 text-white/60 text-xs font-semibold transition-all shrink-0">
               <Plus size={12} /> Novo
-            </button>
-            <button
-              type="button"
-              onClick={() => { localStorage.removeItem(LOCKED_KEY); setLocked(false) }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 text-xs font-semibold transition-all shrink-0">
-              <Unlock size={12} /> Desbloquear
             </button>
           </div>
         )}

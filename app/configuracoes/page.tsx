@@ -24,14 +24,15 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 export default function ConfiguracoesPage() {
   const router = useRouter()
-  const [settings,   setSettings]   = useState<AppSettings>(SETTINGS_DEFAULTS)
-  const [saved,      setSaved]      = useState(false)
-  const [error,      setError]      = useState<string | null>(null)
-  const [isElectron, setIsElectron] = useState(false)
-  const [gateOpen,   setGateOpen]   = useState(false)
-  const [gateInput,  setGateInput]  = useState('')
-  const [gateError,  setGateError]  = useState(false)
-  const [appPassword, setAppPassword] = useState('')
+  const [settings,     setSettings]     = useState<AppSettings>(SETTINGS_DEFAULTS)
+  const [saved,        setSaved]        = useState(false)
+  const [error,        setError]        = useState<string | null>(null)
+  const [isElectron,   setIsElectron]   = useState(false)
+  const [localDataDir, setLocalDataDir] = useState<string | null>(null)
+  const [gateOpen,     setGateOpen]     = useState(false)
+  const [gateInput,    setGateInput]    = useState('')
+  const [gateError,    setGateError]    = useState(false)
+  const [appPassword,  setAppPassword]  = useState('')
 
   useEffect(() => {
     const api = (window as any).electronAPI
@@ -41,8 +42,9 @@ export default function ConfiguracoesPage() {
         setSettings(s)
         const senha = s.senhaEmissao ?? ''
         setAppPassword(senha)
-        if (senha && !sessionStorage.getItem(AUTH_KEY)) setGateOpen(true)
+        if (senha) setGateOpen(true)
       })
+      api.getLocalDataDir?.().then((d: string) => setLocalDataDir(d))
     } else {
       try {
         const raw = localStorage.getItem(SETTINGS_KEY)
@@ -51,7 +53,7 @@ export default function ConfiguracoesPage() {
           setSettings(s)
           const senha = s.senhaEmissao ?? ''
           setAppPassword(senha)
-          if (senha && !sessionStorage.getItem(AUTH_KEY)) setGateOpen(true)
+          if (senha) setGateOpen(true)
         }
       } catch {}
     }
@@ -184,18 +186,21 @@ export default function ConfiguracoesPage() {
             </p>
           </div>
 
-          {settings.dataFolder && (
-            <div className="grid grid-cols-1 gap-2 text-[11px]">
-              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-teal/6 border border-teal/15">
-                <FolderOpen size={11} className="text-teal shrink-0" />
-                <span className="text-teal/80 font-mono truncate">{settings.dataFolder}</span>
-              </div>
-              <div className="flex gap-4 text-white/30 font-mono px-1">
-                <span>→ cispr15_clientes.json</span>
-                <span>→ cispr15_relatorios.json</span>
-              </div>
+          <div className="grid grid-cols-1 gap-2 text-[11px]">
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-teal/6 border border-teal/15">
+              <FolderOpen size={11} className="text-teal shrink-0" />
+              <span className="text-teal/80 font-mono truncate">
+                {settings.dataFolder || localDataDir || '—'}
+              </span>
+              {!settings.dataFolder && (
+                <span className="ml-auto shrink-0 text-[9px] text-white/25 font-mono uppercase tracking-widest">local</span>
+              )}
             </div>
-          )}
+            <div className="flex gap-4 text-white/30 font-mono px-1">
+              <span>→ cispr15_clientes.json</span>
+              <span>→ cispr15_relatorios.json</span>
+            </div>
+          </div>
         </Section>
 
         {/* Pasta da Agenda */}
@@ -218,10 +223,17 @@ export default function ConfiguracoesPage() {
             </div>
             <p className="text-[10px] text-white/25 font-mono">
               Pasta onde <span className="text-white/40">cispr15_agenda.json</span> será armazenado.
-              Se vazio, usa a mesma pasta de dados compartilhados acima.
+              Se vazio, usa a mesma pasta de dados compartilhados acima (ou a pasta local padrão).
               Técnicos que apenas consultam podem ter acesso somente a esta pasta.
             </p>
           </div>
+          {!settings.agendaFolder && !settings.dataFolder && localDataDir && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/4 border border-white/8 text-[11px]">
+              <FolderOpen size={11} className="text-white/30 shrink-0" />
+              <span className="text-white/40 font-mono truncate">{localDataDir}</span>
+              <span className="ml-auto shrink-0 text-[9px] text-white/25 font-mono uppercase tracking-widest">local</span>
+            </div>
+          )}
         </Section>
 
         {/* Pasta de cópias de PDF */}
@@ -355,7 +367,6 @@ export default function ConfiguracoesPage() {
               onKeyDown={e => {
                 if (e.key === 'Enter') {
                   if (gateInput === appPassword) {
-                    sessionStorage.setItem(AUTH_KEY, '1')
                     setGateOpen(false); setGateInput('')
                   } else { setGateError(true); setGateInput('') }
                 }
@@ -372,7 +383,6 @@ export default function ConfiguracoesPage() {
               type="button"
               onClick={() => {
                 if (gateInput === appPassword) {
-                  sessionStorage.setItem(AUTH_KEY, '1')
                   setGateOpen(false); setGateInput('')
                 } else { setGateError(true); setGateInput('') }
               }}

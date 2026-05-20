@@ -25,6 +25,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setSettings:     (partial)   => ipcRenderer.invoke('settings:set',          partial),
   browseExcel:     ()          => ipcRenderer.invoke('settings:browse-excel'),
   browseFolder:    (title)     => ipcRenderer.invoke('settings:browse-folder', { title }),
+  getLocalDataDir: ()          => ipcRenderer.invoke('settings:get-local-data-dir'),
 
   // Dados de rede (clientes / relatórios / agenda)
   getClientes:     ()          => ipcRenderer.invoke('data:get-clientes'),

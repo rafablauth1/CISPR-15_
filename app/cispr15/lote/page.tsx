@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils'
 import {
   type LoteAmostra, type LoteConfig, type Cispr15Config, type RelatorioSalvo, type EquipamentoSalvo,
   newAmostra, LOTE_KEY, RELATORIOS_KEY, CFG_KEY, PHOTOS_KEY, DOCX_HTML_KEY, DOCX_NAME_KEY, EQUIPAMENTOS_KEY, RELATORIO_DOCX_PFX, AGENDA_KEY,
+  AUTH_KEY, SETTINGS_KEY,
 } from '../types'
 
 /* ─── helpers ─────────────────────────────────────────────────────────────── */
@@ -120,7 +121,9 @@ function AmostraCard({ index, amostra, expanded, onToggle, onChange, tipoLote, o
     try {
       const all = Array.from(files)
       const docxFile   = all.find(f => f.name.toLowerCase().endsWith('.docx'))
-      const imageFiles = all.filter(f => f.type.startsWith('image/')).sort((a, b) => getNum(a.name) - getNum(b.name))
+      const imageFiles = all.filter(f =>
+        f.type.startsWith('image/') || /\.(jpe?g|png|gif|bmp|webp|tiff?)$/i.test(f.name)
+      ).sort((a, b) => getNum(a.name) - getNum(b.name))
 
       let updated = { ...amostra }
 
@@ -372,9 +375,29 @@ export default function LotePage() {
   const [lote,        setLote]        = useState<LoteConfig | null>(null)
   const [expanded,    setExpanded]    = useState<number | null>(0)
   const [emitindo,    setEmitindo]    = useState(false)
-  const [resultado,   setResultado]   = useState<{ reprovados: number[]; checked: boolean } | null>(null)
+  const [resultado,   setResultado]   = useState<{ reprovados: number[]; checked: boolean; autoRemoved: boolean } | null>(null)
   const [emitidos,    setEmitidos]    = useState<Record<number, string>>({}) // index → numRelatorio
   const [equipamentos,setEquipamentos] = useState<EquipamentoSalvo[]>([])
+  const [emitModal,   setEmitModal]   = useState<{ conformes: number; reprovadosNomes: string[] } | null>(null)
+  const [gateOpen,    setGateOpen]    = useState(false)
+  const [gateInput,   setGateInput]   = useState('')
+  const [gateError,   setGateError]   = useState(false)
+  const [appPassword, setAppPassword] = useState('')
+
+  useEffect(() => {
+    async function initGate() {
+      let senha = ''
+      const api = (window as any).electronAPI
+      if (api) {
+        try { const s = await api.getSettings(); senha = s.senhaEmissao ?? '' } catch {}
+      } else {
+        try { const raw = localStorage.getItem(SETTINGS_KEY); if (raw) senha = (JSON.parse(raw) as any).senhaEmissao ?? '' } catch {}
+      }
+      setAppPassword(senha)
+      if (senha && !sessionStorage.getItem(AUTH_KEY)) setGateOpen(true)
+    }
+    initGate()
+  }, [])
 
   useEffect(() => {
     try {
@@ -404,7 +427,13 @@ export default function LotePage() {
   function saveLote(next: LoteConfig) {
     setLote(next)
     try { localStorage.setItem(LOTE_KEY, JSON.stringify(next)) }
-    catch { alert('Armazenamento cheio — reduza o número de fotos.') }
+    catch {
+      // Quota exceeded: try saving without docxHtml (keep it only in memory)
+      try {
+        const compact = { ...next, amostras: next.amostras.map(a => ({ ...a, docxHtml: null })) }
+        localStorage.setItem(LOTE_KEY, JSON.stringify(compact))
+      } catch { alert('Armazenamento cheio — reduza o número de fotos.') }
+    }
   }
 
   function handleQtd(n: number) {
@@ -429,18 +458,28 @@ export default function LotePage() {
 
   function verificarConformidade() {
     if (!lote) return
-    const reprovados = lote.amostras
+    const reprovadosIdx = lote.amostras
       .map((a, i) => ({ a, i }))
       .filter(({ a }) => a.conformidade === 'reprovado')
       .map(({ i }) => i)
-    setResultado({ reprovados, checked: true })
+    setResultado({ reprovados: reprovadosIdx, checked: true, autoRemoved: reprovadosIdx.length > 0 })
+    if (reprovadosIdx.length > 0) {
+      const novas = lote.amostras.filter((_, i) => !reprovadosIdx.includes(i))
+      saveLote({ ...lote, qtd: Math.max(1, novas.length), amostras: novas })
+    }
   }
 
-  function removerReprovados() {
-    if (!lote || !resultado) return
-    const novas = lote.amostras.filter((_, i) => !resultado.reprovados.includes(i))
-    saveLote({ ...lote, qtd: Math.max(1, novas.length), amostras: novas })
-    setResultado(null)
+  function iniciarEmissao() {
+    if (!lote) return
+    const reprovadosIdx = lote.amostras
+      .map((a, i) => a.conformidade === 'reprovado' ? i : -1)
+      .filter(i => i >= 0)
+    const conformes = lote.amostras.filter(a => a.conformidade !== 'reprovado')
+    if (conformes.length === 0) { alert('Nenhuma amostra para emitir.'); return }
+    setEmitModal({
+      conformes: conformes.length,
+      reprovadosNomes: reprovadosIdx.map(i => `Amostra ${i + 1}`),
+    })
   }
 
   async function salvarRelatorioSalvo(am: LoteAmostra, numRelatorio: string) {
@@ -470,6 +509,10 @@ export default function LotePage() {
       docxFilename: am.docxFilename,
       emendas: [],
     }
+    // Save docxHtml FIRST (before the larger list save that can push storage over quota)
+    if (am.docxHtml) {
+      try { localStorage.setItem(RELATORIO_DOCX_PFX + novo.id, am.docxHtml) } catch {}
+    }
     const api = (window as any).electronAPI
     let lista: RelatorioSalvo[] = []
     if (api) {
@@ -478,11 +521,19 @@ export default function LotePage() {
     if (!lista.length) {
       try { const raw = localStorage.getItem(RELATORIOS_KEY); if (raw) lista = JSON.parse(raw) } catch {}
     }
-    lista = [...lista, novo]
-    if (api) { try { await api.saveRelatorios(lista) } catch {} }
-    localStorage.setItem(RELATORIOS_KEY, JSON.stringify(lista))
-    if (am.docxHtml) {
-      try { localStorage.setItem(RELATORIO_DOCX_PFX + novo.id, am.docxHtml) } catch {}
+    // For localStorage, strip photos from the list to avoid quota overflow;
+    // photos remain in LOTE_KEY so they're still accessible within the session.
+    const novoSemFotos = { ...novo, photos: [] as typeof novo.photos }
+    const listaSemFotos = [...lista, novoSemFotos]
+    if (api) { try { await api.saveRelatorios(listaSemFotos) } catch {} }
+    try {
+      localStorage.setItem(RELATORIOS_KEY, JSON.stringify(listaSemFotos))
+    } catch {
+      // Quota: try even without previous entries' photos
+      try {
+        const listaMini = [...lista.map(r => ({ ...r, photos: [] as typeof r.photos })), novoSemFotos]
+        localStorage.setItem(RELATORIOS_KEY, JSON.stringify(listaMini))
+      } catch {}
     }
     return novo
   }
@@ -672,22 +723,19 @@ export default function LotePage() {
             ? 'border-red/20 bg-red/8 text-red-400'
             : 'border-green/20 bg-green/8 text-green-400'
         )}>
-          {resultado.reprovados.length === 0 ? (
+          {resultado.reprovados.length === 0 && !resultado.autoRemoved ? (
             <span className="flex items-center gap-2">
               <ShieldCheck size={14} /> Todas as amostras estão conformes.
             </span>
+          ) : resultado.autoRemoved ? (
+            <span className="flex items-center gap-2">
+              <ShieldX size={14} />
+              {resultado.reprovados.length} amostra(s) reprovada(s) removida(s) do lote automaticamente.
+            </span>
           ) : (
-            <div className="flex items-center justify-between gap-4">
-              <span className="flex items-center gap-2">
-                <ShieldX size={14} />
-                {resultado.reprovados.length} reprovada(s):{' '}
-                {resultado.reprovados.map(i => `Amostra ${i + 1}`).join(', ')}
-              </span>
-              <button type="button" onClick={removerReprovados}
-                className="text-xs font-semibold underline hover:no-underline shrink-0">
-                Remover do lote
-              </button>
-            </div>
+            <span className="flex items-center gap-2">
+              <ShieldCheck size={14} /> Todas as amostras estão conformes.
+            </span>
           )}
         </div>
       )}
@@ -711,12 +759,114 @@ export default function LotePage() {
           className="btn-secondary flex items-center gap-2 px-4 py-2.5 text-sm">
           <ArrowLeft size={13} /> Voltar
         </button>
-        <button type="button" onClick={emitirLote} disabled={emitindo}
+        <button type="button" onClick={iniciarEmissao} disabled={emitindo}
           className="btn-primary flex items-center gap-2 px-5 py-2.5 text-sm font-bold">
           {emitindo ? <Loader2 size={13} className="animate-spin" /> : <Users size={13} />}
           {emitindo ? 'Emitindo…' : 'Emitir Lote'}
         </button>
       </div>
+
+      {/* ── Gate de acesso ── */}
+      {gateOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+          <div className="card w-full max-w-sm mx-4 p-7 space-y-5 animate-fade-in">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gold/12 border border-gold/25 flex items-center justify-center shrink-0">
+                <Shield size={18} className="text-gold" />
+              </div>
+              <div>
+                <p className="font-bold text-white">Área de Emissão</p>
+                <p className="text-[11px] text-white/40">Informe a senha para acessar</p>
+              </div>
+            </div>
+            <input
+              type="password"
+              value={gateInput}
+              autoFocus
+              placeholder="Senha"
+              className={cn('input w-full', gateError && 'border-red-500/60')}
+              onChange={e => { setGateInput(e.target.value); setGateError(false) }}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  if (gateInput === appPassword) {
+                    sessionStorage.setItem(AUTH_KEY, '1')
+                    setGateOpen(false); setGateInput('')
+                  } else { setGateError(true); setGateInput('') }
+                }
+              }}
+            />
+            {gateError && <p className="text-xs text-red-400">Senha incorreta.</p>}
+            <div className="flex gap-2 justify-end">
+              <button type="button"
+                onClick={() => router.push('/cispr15')}
+                className="px-4 py-2 rounded-lg border border-white/10 text-white/40 hover:text-white/70 text-sm transition-all">
+                Cancelar
+              </button>
+              <button type="button"
+                onClick={() => {
+                  if (gateInput === appPassword) {
+                    sessionStorage.setItem(AUTH_KEY, '1')
+                    setGateOpen(false); setGateInput('')
+                  } else { setGateError(true); setGateInput('') }
+                }}
+                className="btn-primary px-5 py-2 text-sm font-bold">
+                Entrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal de confirmação de emissão ── */}
+      {emitModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <div className="card w-full max-w-md mx-4 p-6 space-y-5 animate-fade-in">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gold/12 border border-gold/25 flex items-center justify-center shrink-0">
+                <Users size={18} className="text-gold" />
+              </div>
+              <div>
+                <p className="font-bold text-white text-sm">Confirmação de Emissão</p>
+                <p className="text-[11px] text-white/40">Verifique o resumo antes de prosseguir</p>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-white/8 bg-white/3 p-4 space-y-3 text-sm">
+              <div className="flex items-center gap-2 text-green-400">
+                <ShieldCheck size={14} />
+                <span><b>{emitModal.conformes}</b> amostra(s) conforme(s) — serão emitidas</span>
+              </div>
+              {emitModal.reprovadosNomes.length > 0 && (
+                <div className="flex items-start gap-2 text-red-400">
+                  <ShieldX size={14} className="mt-0.5 shrink-0" />
+                  <span>
+                    <b>{emitModal.reprovadosNomes.length}</b> reprovada(s) — serão ignoradas:{' '}
+                    <span className="font-mono text-[11px]">{emitModal.reprovadosNomes.join(', ')}</span>
+                  </span>
+                </div>
+              )}
+              {emitModal.reprovadosNomes.length === 0 && (
+                <div className="flex items-center gap-2 text-white/40 text-xs">
+                  <Shield size={12} /> Nenhuma amostra reprovada.
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-2 justify-end">
+              <button type="button"
+                onClick={() => setEmitModal(null)}
+                className="px-4 py-2 rounded-lg border border-white/10 text-white/40 hover:text-white/70 text-sm transition-all">
+                Cancelar
+              </button>
+              <button type="button"
+                onClick={() => { setEmitModal(null); emitirLote() }}
+                className="btn-primary px-5 py-2 text-sm font-bold flex items-center gap-2">
+                <ArrowRight size={14} /> Confirmar emissão
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   )

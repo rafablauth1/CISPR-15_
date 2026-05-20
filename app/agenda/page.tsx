@@ -714,7 +714,7 @@ export default function AgendaPage() {
       try {
         const res = await api.getAgenda()
         setFromNetwork(!!res.fromNetwork)
-        if (res.ok && res.fromNetwork && Array.isArray(res.agenda)) {
+        if (res.ok && Array.isArray(res.agenda)) {
           setAgenda(res.agenda); return
         }
       } catch {}
@@ -804,11 +804,17 @@ export default function AgendaPage() {
   async function openPdfCopy(item: AgendaItem) {
     const api = (window as any).electronAPI
     if (!api) return
-    const query = item.protocolo || item.numRelatorio
+    // busca por numRelatorio primeiro (mais específico), fallback para protocolo
+    const query = item.numRelatorio || item.protocolo
     if (!query) return
     const res = await api.findPdfCopy(query)
-    if (res?.ok && res.filePath) {
-      api.openPath(res.filePath)
+    if (res?.ok && res.filePaths?.length > 0) {
+      if (res.filePaths.length === 1) {
+        api.openPath(res.filePaths[0])
+      } else {
+        // múltiplos PDFs (original + emendas) — abre a pasta para o usuário escolher
+        api.openPath(res.folder)
+      }
     } else if (res?.folder) {
       api.openPath(res.folder)
     } else {

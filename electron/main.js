@@ -76,24 +76,24 @@ function writeSettings(partial) {
   return merged
 }
 
-/* ─── dados de rede (clientes / relatórios) ───────────────────────────────── */
+/* ─── dados (rede ou local) ───────────────────────────────────────────────── */
+
+function getDefaultDataDir() {
+  return path.join(getUserDataDir(), 'dados')
+}
 
 function dataFilePath(filename) {
   const { dataFolder } = readSettings()
-  if (!dataFolder) return null
-  return path.join(dataFolder, filename)
+  return path.join(dataFolder || getDefaultDataDir(), filename)
 }
 
 function agendaFilePath() {
   const { agendaFolder, dataFolder } = readSettings()
-  const folder = agendaFolder || dataFolder
-  if (!folder) return null
-  return path.join(folder, 'cispr15_agenda.json')
+  return path.join(agendaFolder || dataFolder || getDefaultDataDir(), 'cispr15_agenda.json')
 }
 
 function readAgendaFile() {
   const fp = agendaFilePath()
-  if (!fp) return null
   try {
     if (fs.existsSync(fp)) return JSON.parse(fs.readFileSync(fp, 'utf-8'))
   } catch {}
@@ -102,7 +102,6 @@ function readAgendaFile() {
 
 function writeAgendaFile(data) {
   const fp = agendaFilePath()
-  if (!fp) throw new Error('Pasta de agenda não configurada. Vá em Configurações.')
   fs.mkdirSync(path.dirname(fp), { recursive: true })
   let lastErr = null
   for (let i = 0; i < 4; i++) {
@@ -123,7 +122,6 @@ function copyPdfToFolder(filePath) {
 
 function readDataFile(filename) {
   const fp = dataFilePath(filename)
-  if (!fp) return null
   try {
     if (fs.existsSync(fp)) return JSON.parse(fs.readFileSync(fp, 'utf-8'))
   } catch {}
@@ -132,7 +130,6 @@ function readDataFile(filename) {
 
 function writeDataFile(filename, data) {
   const fp = dataFilePath(filename)
-  if (!fp) throw new Error('Pasta de dados não configurada. Vá em Configurações.')
   fs.mkdirSync(path.dirname(fp), { recursive: true })
   let lastErr = null
   for (let i = 0; i < 4; i++) {
@@ -394,8 +391,9 @@ ipcMain.handle('shell:open-path', async (_, { path: p }) => {
 /* ─── IPC: Dados de rede (clientes / relatórios) ─────────────────────────── */
 
 ipcMain.handle('data:get-clientes', () => {
+  const { dataFolder } = readSettings()
   const data = readDataFile('cispr15_clientes.json')
-  return { ok: true, clientes: data ?? [], fromNetwork: data !== null }
+  return { ok: true, clientes: data ?? [], fromNetwork: !!dataFolder }
 })
 
 ipcMain.handle('data:save-clientes', (_, { clientes }) => {
@@ -404,8 +402,9 @@ ipcMain.handle('data:save-clientes', (_, { clientes }) => {
 })
 
 ipcMain.handle('data:get-relatorios', () => {
+  const { dataFolder } = readSettings()
   const data = readDataFile('cispr15_relatorios.json')
-  return { ok: true, relatorios: data ?? [], fromNetwork: data !== null }
+  return { ok: true, relatorios: data ?? [], fromNetwork: !!dataFolder }
 })
 
 ipcMain.handle('data:save-relatorios', (_, { relatorios }) => {
@@ -414,14 +413,17 @@ ipcMain.handle('data:save-relatorios', (_, { relatorios }) => {
 })
 
 ipcMain.handle('data:get-agenda', () => {
+  const { agendaFolder, dataFolder } = readSettings()
   const data = readAgendaFile()
-  return { ok: true, agenda: data ?? [], fromNetwork: data !== null }
+  return { ok: true, agenda: data ?? [], fromNetwork: !!(agendaFolder || dataFolder) }
 })
 
 ipcMain.handle('data:save-agenda', (_, { agenda }) => {
   try { writeAgendaFile(agenda); return { ok: true } }
   catch (err) { return { ok: false, error: String(err) } }
 })
+
+ipcMain.handle('settings:get-local-data-dir', () => getDefaultDataDir())
 
 /* ─── IPC: PDF ────────────────────────────────────────────────────────────── */
 
