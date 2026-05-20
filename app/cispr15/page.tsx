@@ -628,7 +628,7 @@ export default function Cispr15ConfigPage() {
     sessionStorage.removeItem(DOCX_NAME_KEY)
   }
 
-  const labelId = cfg.tipo === 'lampada' ? 'Número de Série' : 'Número de Série'
+  const labelId = cfg.tipo === 'lampada' ? 'Código de Barras' : 'Número de Série'
 
   /* ── validação ── */
   const validationErrors = useMemo(() => {
@@ -1262,18 +1262,25 @@ export default function Cispr15ConfigPage() {
                 placeholder="Ex: Lucas Menegotto Dias" />
             </Row>
             <Row label="Orçamento LABELO">
-              <input className="input" value={cfg.orcamento} onChange={set('orcamento')} placeholder="Ex: 260921" />
+              <input className="input" value={cfg.orcamento} onChange={set('orcamento')} placeholder="Ex: 260921" inputMode="numeric" />
             </Row>
             <Row label="Protocolo LABELO">
               <input className="input" value={cfg.protocolo} onChange={set('protocolo')}
-                placeholder="Ex: 26041895"
+                placeholder="Ex: 26041895" inputMode="numeric"
                 onBlur={e => preencherDaAgenda(e.target.value)} />
             </Row>
             <Row label="Período — Início">
               <input className="input" type="date" value={cfg.periodoInicio} onChange={set('periodoInicio')} />
             </Row>
             <Row label="Período — Fim">
-              <input className="input" type="date" value={cfg.periodoFim} onChange={set('periodoFim')} />
+              <input
+                className={cn('input', cfg.periodoFim && cfg.periodoInicio && cfg.periodoFim < cfg.periodoInicio && 'border-red-500/50')}
+                type="date" value={cfg.periodoFim} onChange={set('periodoFim')} />
+              {cfg.periodoFim && cfg.periodoInicio && cfg.periodoFim < cfg.periodoInicio && (
+                <p className="text-[10px] text-red-400 flex items-center gap-1">
+                  <AlertTriangle size={9} /> Fim anterior ao início do período
+                </p>
+              )}
             </Row>
             <Row label="Data de Emissão" span2>
               <input className="input" type="date" value={cfg.dataEmissao} onChange={set('dataEmissao')} />

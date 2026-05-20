@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, ArrowRight, Plus, Search, X, CheckCircle2, Clock, Edit2,
-  Trash2, ChevronDown, ChevronUp, FileText,
+  Trash2, ChevronDown, ChevronUp, FileText, Loader2,
   Lightbulb, Lamp, Settings, Layers, RotateCcw, Link2, FileSearch,
   AlertTriangle, Wifi, BarChart2, Tag, TrendingUp, Printer,
 } from 'lucide-react'
@@ -159,6 +159,7 @@ function ItemModal({ item, onSave, onClose, clientes }: {
   const [showDUT, setShowDUT] = useState(
     !!(item.fabricante || item.modelo || item.potencia || item.tensaoAlim)
   )
+  const [cepStatus, setCepStatus] = useState<'idle'|'loading'|'ok'|'error'>('idle')
 
   const s = (k: keyof AgendaItem) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
@@ -180,6 +181,22 @@ function ItemModal({ item, onSave, onClose, clientes }: {
       const tags = p.tags ?? []
       return { ...p, tags: tags.includes(id) ? tags.filter(t => t !== id) : [...tags, id] }
     })
+  }
+
+  async function handleCep(raw: string) {
+    const digits = raw.replace(/\D/g, '').slice(0, 8)
+    const formatted = digits.length > 5 ? `${digits.slice(0, 5)}-${digits.slice(5)}` : digits
+    setForm(prev => ({ ...prev, clienteCep: formatted }))
+    if (digits.length < 8) { setCepStatus('idle'); return }
+    setCepStatus('loading')
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${digits}/json/`)
+      const data = await res.json()
+      if (!data.erro) {
+        setForm(prev => ({ ...prev, clienteCep: formatted, clienteCidade: `${data.localidade} - ${data.uf}` }))
+        setCepStatus('ok')
+      } else { setCepStatus('error') }
+    } catch { setCepStatus('error') }
   }
 
   const tags = form.tags ?? []
@@ -213,11 +230,11 @@ function ItemModal({ item, onSave, onClose, clientes }: {
         <div className="grid grid-cols-2 gap-4">
           <div className="flex flex-col gap-1.5">
             <Label>Protocolo LABELO</Label>
-            <input className="input" value={form.protocolo} onChange={s('protocolo')} placeholder="Ex: 26041953" />
+            <input className="input" value={form.protocolo} onChange={s('protocolo')} placeholder="Ex: 26041953" inputMode="numeric" />
           </div>
           <div className="flex flex-col gap-1.5">
             <Label>Orçamento LABELO</Label>
-            <input className="input" value={form.orcamento} onChange={s('orcamento')} placeholder="Ex: 0887" />
+            <input className="input" value={form.orcamento} onChange={s('orcamento')} placeholder="Ex: 0887" inputMode="numeric" />
           </div>
           <div className="flex flex-col gap-1.5">
             <Label>Data de Entrada</Label>
@@ -272,7 +289,34 @@ function ItemModal({ item, onSave, onClose, clientes }: {
             </div>
             <div className="flex flex-col gap-1.5">
               <Label>CEP <span className="normal-case text-white/20">(opcional)</span></Label>
-              <input className="input" value={form.clienteCep ?? ''} onChange={s('clienteCep')} placeholder="00000-000" />
+              <div className="relative">
+                <input
+                  className={cn('input',
+                    cepStatus === 'ok'    && 'border-green-500/40',
+                    cepStatus === 'error' && 'border-red-500/50',
+                  )}
+                  value={form.clienteCep ?? ''}
+                  onChange={e => handleCep(e.target.value)}
+                  placeholder="00000-000"
+                  inputMode="numeric"
+                  maxLength={9}
+                />
+                {cepStatus === 'loading' && (
+                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2">
+                    <Loader2 size={12} className="animate-spin text-white/30" />
+                  </span>
+                )}
+                {cepStatus === 'ok' && (
+                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2">
+                    <CheckCircle2 size={12} className="text-green-400" />
+                  </span>
+                )}
+              </div>
+              {cepStatus === 'error' && (
+                <p className="text-[10px] text-red-400 flex items-center gap-1">
+                  <AlertTriangle size={9} /> CEP não localizado
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -398,8 +442,9 @@ interface LoteForm {
   previsaoSaida: string
 }
 
-function LoteModal({ onSave, onClose, clientes }: {
-  onSave: (items: AgendaItem[]) => void; onClose: () => void; clientes: ClienteDB[]
+function LoteModal({ onSave, onClose, clientes, agenda }: {
+  onSave: (items: AgendaItem[]) => void; onClose: () => void
+  clientes: ClienteDB[]; agenda: AgendaItem[]
 }) {
   const entrada = today()
   const [form, setForm] = useState<LoteForm>({
@@ -410,6 +455,7 @@ function LoteModal({ onSave, onClose, clientes }: {
     dataEntrada: entrada,
     previsaoSaida: addBusinessDays(entrada, 10),
   })
+  const [respTouched, setRespTouched] = useState(false)
 
   const s = (k: keyof LoteForm) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
@@ -430,8 +476,15 @@ function LoteModal({ onSave, onClose, clientes }: {
     return form.protocolos.split(/[\n,;]+/).map(s => s.trim()).filter(Boolean)
   }, [form.protocolos])
 
+  const duplicates = useMemo(() => {
+    const existing = new Set(agenda.map(a => a.protocolo?.trim().toLowerCase()).filter(Boolean))
+    return new Set(parsed.filter(p => existing.has(p.trim().toLowerCase())))
+  }, [parsed, agenda])
+
   function handleSave() {
     if (parsed.length === 0) { alert('Informe ao menos um protocolo.'); return }
+    if (!form.responsavel.trim()) { setRespTouched(true); return }
+    if (form.previsaoSaida && form.dataEntrada && form.previsaoSaida < form.dataEntrada) return
     const items: AgendaItem[] = parsed.map(proto => ({
       id: crypto.randomUUID(),
       tipo: form.tipo,
@@ -479,6 +532,11 @@ function LoteModal({ onSave, onClose, clientes }: {
               {parsed.length} protocolo(s): {parsed.slice(0, 5).join(', ')}{parsed.length > 5 ? ` …+${parsed.length - 5}` : ''}
             </p>
           )}
+          {duplicates.size > 0 && (
+            <p className="text-[11px] text-orange-400/90 flex items-center gap-1 font-mono">
+              <AlertTriangle size={9} /> {duplicates.size} já na agenda: {[...duplicates].slice(0, 3).join(', ')}{duplicates.size > 3 ? '…' : ''}
+            </p>
+          )}
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -497,11 +555,24 @@ function LoteModal({ onSave, onClose, clientes }: {
         <div className="grid grid-cols-2 gap-4">
           <div className="flex flex-col gap-1.5">
             <Label>Orçamento LABELO <span className="normal-case text-white/20">(opcional)</span></Label>
-            <input className="input" value={form.orcamento} onChange={s('orcamento')} placeholder="Ex: 0887" />
+            <input className="input" value={form.orcamento} onChange={s('orcamento')} placeholder="Ex: 0887" inputMode="numeric" />
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label>Responsável pelo Preenchimento</Label>
-            <input className="input" value={form.responsavel} onChange={s('responsavel')} placeholder="Ex: João Silva" />
+            <label className="text-[10px] text-white/35 uppercase tracking-widest font-mono flex items-center gap-1">
+              Responsável pelo Preenchimento <span className="text-red-400 normal-case">*</span>
+            </label>
+            <input
+              className={cn('input', respTouched && !form.responsavel.trim() && 'border-red-500/50')}
+              value={form.responsavel}
+              onChange={e => { setForm(p => ({ ...p, responsavel: e.target.value })); setRespTouched(true) }}
+              onBlur={() => setRespTouched(true)}
+              placeholder="Ex: João Silva"
+            />
+            {respTouched && !form.responsavel.trim() && (
+              <p className="text-[10px] text-red-400 flex items-center gap-1">
+                <AlertTriangle size={9} /> Campo obrigatório
+              </p>
+            )}
           </div>
           <div className="flex flex-col gap-1.5 col-span-2">
             <Label>Cliente <span className="normal-case text-white/20">(opcional)</span></Label>
@@ -521,13 +592,20 @@ function LoteModal({ onSave, onClose, clientes }: {
           <div className="flex flex-col gap-1.5">
             <Label>Previsão de Saída</Label>
             <div className="flex gap-2">
-              <input type="date" className="input flex-1" value={form.previsaoSaida} onChange={s('previsaoSaida')} />
+              <input type="date"
+                className={cn('input flex-1', form.previsaoSaida && form.dataEntrada && form.previsaoSaida < form.dataEntrada && 'border-red-500/50')}
+                value={form.previsaoSaida} onChange={s('previsaoSaida')} />
               <button type="button" title="Recalcular: +10 dias úteis"
                 onClick={() => setForm(p => ({ ...p, previsaoSaida: addBusinessDays(p.dataEntrada, 10) }))}
                 className="w-9 shrink-0 rounded-lg border border-white/10 text-white/30 hover:text-teal hover:border-teal/30 flex items-center justify-center transition-all">
                 <RotateCcw size={12} />
               </button>
             </div>
+            {form.previsaoSaida && form.dataEntrada && form.previsaoSaida < form.dataEntrada && (
+              <p className="text-[10px] text-red-400 flex items-center gap-1">
+                <AlertTriangle size={9} /> Previsão anterior à data de entrada
+              </p>
+            )}
           </div>
         </div>
 
@@ -1762,7 +1840,7 @@ export default function AgendaPage() {
       })()}
 
       {editItem && <ItemModal item={editItem} onSave={handleSave} onClose={() => setEditItem(null)} clientes={clientes} />}
-      {showLote && <LoteModal onSave={handleSaveLote} onClose={() => setShowLote(false)} clientes={clientes} />}
+      {showLote && <LoteModal onSave={handleSaveLote} onClose={() => setShowLote(false)} clientes={clientes} agenda={agenda} />}
       {showGerarLote && (
         <GerarLoteModal
           agenda={agenda}

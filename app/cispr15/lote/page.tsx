@@ -1,9 +1,9 @@
 ﻿'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  ArrowLeft, ArrowRight, X, Loader2, CheckCircle2,
+  ArrowLeft, ArrowRight, X, Loader2, CheckCircle2, AlertTriangle,
   FolderOpen, Upload, ChevronDown, Users,
   Shield, ShieldCheck, ShieldX, Plus, Minus,
   Lightbulb, Lamp, Trash2,
@@ -252,7 +252,14 @@ function AmostraCard({ index, amostra, expanded, onToggle, onChange, tipoLote, o
               <input className="input text-sm" type="date" value={amostra.periodoInicio} onChange={set('periodoInicio')} />
             </Row>
             <Row label="Período — Fim">
-              <input className="input text-sm" type="date" value={amostra.periodoFim} onChange={set('periodoFim')} />
+              <input
+                className={cn('input text-sm', amostra.periodoFim && amostra.periodoInicio && amostra.periodoFim < amostra.periodoInicio && 'border-red-500/50')}
+                type="date" value={amostra.periodoFim} onChange={set('periodoFim')} />
+              {amostra.periodoFim && amostra.periodoInicio && amostra.periodoFim < amostra.periodoInicio && (
+                <p className="text-[10px] text-red-400 flex items-center gap-1">
+                  <AlertTriangle size={9} /> Fim anterior ao início do período
+                </p>
+              )}
             </Row>
           </div>
 
@@ -383,6 +390,8 @@ export default function LotePage() {
   const [gateInput,   setGateInput]   = useState('')
   const [gateError,   setGateError]   = useState(false)
   const [appPassword, setAppPassword] = useState('')
+  const [capsLock,    setCapsLock]    = useState(false)
+  const gateInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     async function initGate() {
@@ -397,6 +406,13 @@ export default function LotePage() {
       if (senha && !sessionStorage.getItem(AUTH_KEY)) setGateOpen(true)
     }
     initGate()
+  }, [])
+
+  useEffect(() => {
+    const check = (e: KeyboardEvent) => setCapsLock(e.getModifierState('CapsLock'))
+    window.addEventListener('keydown', check)
+    window.addEventListener('keyup', check)
+    return () => { window.removeEventListener('keydown', check); window.removeEventListener('keyup', check) }
   }, [])
 
   useEffect(() => {
@@ -780,6 +796,7 @@ export default function LotePage() {
               </div>
             </div>
             <input
+              ref={gateInputRef}
               type="password"
               value={gateInput}
               autoFocus
@@ -791,10 +808,11 @@ export default function LotePage() {
                   if (gateInput === appPassword) {
                     sessionStorage.setItem(AUTH_KEY, '1')
                     setGateOpen(false); setGateInput('')
-                  } else { setGateError(true); setGateInput('') }
+                  } else { setGateError(true); setGateInput(''); setTimeout(() => gateInputRef.current?.focus(), 0) }
                 }
               }}
             />
+            {capsLock && <p className="text-[10px] text-amber-400/80">⇪ Caps Lock ativo</p>}
             {gateError && <p className="text-xs text-red-400">Senha incorreta.</p>}
             <div className="flex gap-2 justify-end">
               <button type="button"
@@ -807,7 +825,7 @@ export default function LotePage() {
                   if (gateInput === appPassword) {
                     sessionStorage.setItem(AUTH_KEY, '1')
                     setGateOpen(false); setGateInput('')
-                  } else { setGateError(true); setGateInput('') }
+                  } else { setGateError(true); setGateInput(''); setTimeout(() => gateInputRef.current?.focus(), 0) }
                 }}
                 className="btn-primary px-5 py-2 text-sm font-bold">
                 Entrar

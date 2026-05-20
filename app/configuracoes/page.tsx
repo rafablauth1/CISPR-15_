@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Settings, FolderOpen, FileSpreadsheet,
@@ -33,6 +33,15 @@ export default function ConfiguracoesPage() {
   const [gateInput,    setGateInput]    = useState('')
   const [gateError,    setGateError]    = useState(false)
   const [appPassword,  setAppPassword]  = useState('')
+  const [capsLock,     setCapsLock]     = useState(false)
+  const gateInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    const check = (e: KeyboardEvent) => setCapsLock(e.getModifierState('CapsLock'))
+    window.addEventListener('keydown', check)
+    window.addEventListener('keyup', check)
+    return () => { window.removeEventListener('keydown', check); window.removeEventListener('keyup', check) }
+  }, [])
 
   useEffect(() => {
     const api = (window as any).electronAPI
@@ -358,6 +367,7 @@ export default function ConfiguracoesPage() {
           <div className="flex flex-col gap-1.5">
             <label className="text-[10px] text-white/35 uppercase tracking-widest font-mono">Senha</label>
             <input
+              ref={gateInputRef}
               type="password"
               className={cn('input', gateError && 'border-red-500/50')}
               placeholder="••••••"
@@ -368,10 +378,11 @@ export default function ConfiguracoesPage() {
                 if (e.key === 'Enter') {
                   if (gateInput === appPassword) {
                     setGateOpen(false); setGateInput('')
-                  } else { setGateError(true); setGateInput('') }
+                  } else { setGateError(true); setGateInput(''); setTimeout(() => gateInputRef.current?.focus(), 0) }
                 }
               }}
             />
+            {capsLock && <p className="text-[10px] text-amber-400/80">⇪ Caps Lock ativo</p>}
             {gateError && <p className="text-[11px] text-red-400">Senha incorreta.</p>}
           </div>
           <div className="flex gap-2">
@@ -384,7 +395,7 @@ export default function ConfiguracoesPage() {
               onClick={() => {
                 if (gateInput === appPassword) {
                   setGateOpen(false); setGateInput('')
-                } else { setGateError(true); setGateInput('') }
+                } else { setGateError(true); setGateInput(''); setTimeout(() => gateInputRef.current?.focus(), 0) }
               }}
               className="btn-primary flex-1 py-2.5 text-sm font-bold flex items-center justify-center gap-2">
               <ArrowRight size={14} /> Entrar
