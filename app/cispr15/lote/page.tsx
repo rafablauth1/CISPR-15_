@@ -306,7 +306,7 @@ function AmostraCard({ index, amostra, expanded, onToggle, onChange, tipoLote, o
                     <input className="input text-sm" value={amostra.driverTensaoAlim ?? ''} onChange={e => onChange({ ...amostra, driverTensaoAlim: e.target.value })} />
                   </Row>
                   <Row label="Frequência de Rede">
-                    <input className="input text-sm" value={amostra.driverFrequencia ?? ''} onChange={e => onChange({ ...amostra, driverFrequencia: e.target.value })} placeholder="50/60Hz" />
+                    <input className="input text-sm" value={amostra.driverFrequencia ?? ''} onChange={e => onChange({ ...amostra, driverFrequencia: e.target.value })} placeholder="60Hz" />
                   </Row>
                   <Row label="Orçamento LABELO">
                     <input className="input text-sm" value={amostra.driverOrcamento ?? 'Não identificado'} onChange={e => onChange({ ...amostra, driverOrcamento: e.target.value })} />

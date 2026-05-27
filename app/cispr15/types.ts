@@ -88,14 +88,14 @@ export const today = () => new Date().toISOString().split('T')[0]
 export function newAmostra(): LoteAmostra {
   return {
     produto: '', fabricante: '', modelo: '', identificador: '',
-    tensaoAlim: '', potencia: '', frequencia: '50/60Hz',
+    tensaoAlim: '', potencia: '', frequencia: '60Hz',
     protocolo: '', orcamento: '',
     periodoInicio: today(), periodoFim: today(), dataEmissao: today(),
     conformidade: 'pendente', numRelatorio: '',
     photos: [], docxHtml: null, docxFilename: null,
     temDriver: false,
     driverProduto: '', driverFabricante: '', driverModelo: '', driverIdentificador: '',
-    driverPotencia: '', driverTensaoAlim: '', driverFrequencia: '50/60Hz',
+    driverPotencia: '', driverTensaoAlim: '', driverFrequencia: '60Hz',
     driverOrcamento: 'Não identificado', driverProtocolo: 'Não identificado',
   }
 }
@@ -104,10 +104,10 @@ export const DEFAULTS: Cispr15Config = {
   tipo: 'lampada', tensaoConfig: '127_220',
   cliente: '', clienteRua: '', clienteCidade: '', clienteCep: '',
   produto: '', fabricante: '', modelo: '', identificador: '', lacre: '',
-  tensaoAlim: '', potencia: '', frequencia: '50/60Hz',
+  tensaoAlim: '', potencia: '', frequencia: '60Hz',
   temDriver: false,
   driverProduto: '', driverFabricante: '', driverModelo: '', driverIdentificador: '',
-  driverPotencia: '', driverTensaoAlim: '', driverFrequencia: '50/60Hz',
+  driverPotencia: '', driverTensaoAlim: '', driverFrequencia: '60Hz',
   driverOrcamento: 'Não identificado', driverProtocolo: 'Não identificado',
   documentacao: 'embalagem com especificações',
   numRelatorio: '', orcamento: '', protocolo: '',

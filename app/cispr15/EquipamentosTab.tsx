@@ -153,7 +153,7 @@ export function EquipamentosTab({ onUpdate }: { onUpdate?: (list: EquipamentoSal
             <Field label="Produto / Descrição" value={draft.produto} onChange={sd('produto')}
               placeholder="Ex: Lâmpada LED Bulbo 9W" span2 />
             <Field label="Fabricante" value={draft.fabricante} onChange={sd('fabricante')}
-              placeholder="Ex: Philips" />
+              placeholder="Labelo" />
             <Field label="Modelo" value={draft.modelo} onChange={sd('modelo')}
               placeholder="Ex: CorePro LEDbulb" />
             <Field label="Potência" value={draft.potencia} onChange={sd('potencia')}

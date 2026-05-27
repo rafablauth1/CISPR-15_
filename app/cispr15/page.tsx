@@ -1289,7 +1289,7 @@ export default function Cispr15ConfigPage() {
               <input className="input" value={cfg.produto} onChange={set('produto')} placeholder="Ex: Luminária LED" />
             </Row>
             <Row label="Fabricante">
-              <input className="input" value={cfg.fabricante} onChange={set('fabricante')} placeholder="Ex: Tradetek" />
+              <input className="input" value={cfg.fabricante} onChange={set('fabricante')} placeholder="Labelo" />
             </Row>
             <Row label="Modelo">
               <input className="input" value={cfg.modelo} onChange={set('modelo')} placeholder="Ex: AGN7120D4" />
@@ -1311,7 +1311,7 @@ export default function Cispr15ConfigPage() {
               <input className="input" value={cfg.tensaoAlim} onChange={set('tensaoAlim')} placeholder="Ex: 90 a 305VAC" />
             </Row>
             <Row label="Frequência de Rede">
-              <input className="input" value={cfg.frequencia} onChange={set('frequencia')} placeholder="Ex: 50/60Hz" />
+              <input className="input" value={cfg.frequencia} onChange={set('frequencia')} placeholder="Ex: 60Hz" />
             </Row>
           </div>
         </div>
@@ -1366,7 +1366,7 @@ export default function Cispr15ConfigPage() {
                   <input className="input" value={cfg.driverTensaoAlim ?? ''} onChange={set('driverTensaoAlim')} placeholder="Ex: 90 a 305VAC" />
                 </Row>
                 <Row label="Frequência de Rede">
-                  <input className="input" value={cfg.driverFrequencia ?? ''} onChange={set('driverFrequencia')} placeholder="Ex: 50/60Hz" />
+                  <input className="input" value={cfg.driverFrequencia ?? ''} onChange={set('driverFrequencia')} placeholder="Ex: 60Hz" />
                 </Row>
                 <Row label="Orçamento LABELO">
                   <input className="input" value={cfg.driverOrcamento ?? 'Não identificado'} onChange={set('driverOrcamento')} placeholder="Não identificado" />
@@ -1389,15 +1389,15 @@ export default function Cispr15ConfigPage() {
             </Row>
             <Row label="Responsável Técnico">
               <input className="input" value={cfg.responsavel} onChange={set('responsavel')}
-                placeholder="Ex: Lucas Menegotto Dias" />
+                placeholder="Dionata Blauth" />
             </Row>
             <Row label="Orçamento LABELO">
-              <input className="input" value={cfg.orcamento} onChange={set('orcamento')} placeholder="Ex: 260921" inputMode="numeric"
+              <input className="input" value={cfg.orcamento} onChange={set('orcamento')} placeholder="Orçamento" inputMode="numeric"
                 onBlur={e => preencherClienteDoOrcamento(e.target.value)} />
             </Row>
             <Row label="Protocolo LABELO">
               <input className="input" value={cfg.protocolo} onChange={set('protocolo')}
-                placeholder="Ex: 26041895" inputMode="numeric"
+                placeholder="Protocolo" inputMode="numeric"
                 onBlur={e => preencherDaAgenda(e.target.value)} />
             </Row>
             <Row label="Período — Início">

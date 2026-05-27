@@ -281,7 +281,7 @@ function ItemModal({ item, onSave, onClose, clientes, customTags, onCustomTagsCh
   onCustomTagsChange: (tags: CustomTag[]) => void
 }) {
   const [form, setForm] = useState<AgendaItem>({
-    fabricante: '', modelo: '', identificador: '', potencia: '', tensaoAlim: '', frequencia: '50/60Hz',
+    fabricante: '', modelo: '', identificador: '', potencia: '', tensaoAlim: '', frequencia: '60Hz',
     clienteRua: '', clienteCidade: '', clienteCep: '', documentacao: '', tags: [],
     ...item,
   })
@@ -408,7 +408,7 @@ function ItemModal({ item, onSave, onClose, clientes, customTags, onCustomTagsCh
         <div className="grid grid-cols-2 gap-4">
           <div className="flex flex-col gap-1.5">
             <Label>Protocolo LABELO</Label>
-            <input className="input" value={form.protocolo} onChange={s('protocolo')} placeholder="Ex: 26041953" inputMode="numeric" />
+            <input className="input" value={form.protocolo} onChange={s('protocolo')} placeholder="Protocolo" inputMode="numeric" />
           </div>
           <div className="flex flex-col gap-1.5">
             <Label>Orçamento LABELO</Label>
@@ -438,7 +438,7 @@ function ItemModal({ item, onSave, onClose, clientes, customTags, onCustomTagsCh
           </div>
           <div className="flex flex-col gap-1.5">
             <Label>Responsável</Label>
-            <input className="input" value={form.responsavel} onChange={s('responsavel')} placeholder="Ex: João Silva" />
+            <input className="input" value={form.responsavel} onChange={s('responsavel')} placeholder="Dionata Blauth" />
           </div>
           <div className="flex flex-col gap-1.5">
             <Label>N° Relatório <span className="normal-case text-white/20">(quando emitido)</span></Label>
@@ -515,7 +515,7 @@ function ItemModal({ item, onSave, onClose, clientes, customTags, onCustomTagsCh
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label>Fabricante</Label>
-                <input className="input" value={form.fabricante ?? ''} onChange={s('fabricante')} placeholder="Ex: Philips" />
+                <input className="input" value={form.fabricante ?? ''} onChange={s('fabricante')} placeholder="Labelo" />
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label>Modelo</Label>
@@ -535,7 +535,7 @@ function ItemModal({ item, onSave, onClose, clientes, customTags, onCustomTagsCh
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label>Frequência</Label>
-                <input className="input" value={form.frequencia ?? ''} onChange={s('frequencia')} placeholder="50/60Hz" />
+                <input className="input" value={form.frequencia ?? ''} onChange={s('frequencia')} placeholder="60Hz" />
               </div>
               <div className="flex flex-col gap-1.5 col-span-2">
                 <Label>Documentação</Label>
@@ -644,7 +644,7 @@ function ItemModal({ item, onSave, onClose, clientes, customTags, onCustomTagsCh
                       </div>
                       <div className="flex flex-col gap-1.5">
                         <Label>Frequência</Label>
-                        <input className="input" value={form.driverFrequencia ?? ''} onChange={s('driverFrequencia')} placeholder="50/60Hz" />
+                        <input className="input" value={form.driverFrequencia ?? ''} onChange={s('driverFrequencia')} placeholder="60Hz" />
                       </div>
                       <div className="flex flex-col gap-1.5">
                         <Label>Orçamento LABELO</Label>
@@ -915,7 +915,7 @@ function LoteModal({ onSave, onClose, clientes, agenda }: {
             className="input min-h-[110px] resize-none font-mono text-sm"
             value={form.protocolos}
             onChange={s('protocolos')}
-            placeholder={"26041953\n26041954\n26041955"}
+            placeholder={"Protocolo 1\nProtocolo 2\nProtocolo 3"}
             autoFocus
           />
           {parsed.length > 0 && (
@@ -957,7 +957,7 @@ function LoteModal({ onSave, onClose, clientes, agenda }: {
               value={form.responsavel}
               onChange={e => { setForm(p => ({ ...p, responsavel: e.target.value })); setRespTouched(true) }}
               onBlur={() => setRespTouched(true)}
-              placeholder="Ex: João Silva"
+              placeholder="Dionata Blauth"
             />
             {respTouched && !form.responsavel.trim() && (
               <p className="text-[10px] text-red-400 flex items-center gap-1">
@@ -1363,7 +1363,7 @@ export default function AgendaPage() {
       lacre: '',
       tensaoAlim: item.tensaoAlim ?? '',
       potencia: item.potencia ?? '',
-      frequencia: item.frequencia ?? '50/60Hz',
+      frequencia: item.frequencia ?? '60Hz',
       temDriver: item.temDriver,
       driverProduto: item.driverProduto,
       driverFabricante: item.driverFabricante,
@@ -1399,7 +1399,7 @@ export default function AgendaPage() {
       identificador: item.identificador ?? '',
       tensaoAlim: item.tensaoAlim ?? '',
       potencia: item.potencia ?? '',
-      frequencia: item.frequencia ?? '50/60Hz',
+      frequencia: item.frequencia ?? '60Hz',
       protocolo: item.protocolo,
       orcamento: item.orcamento,
       periodoInicio: today(),
