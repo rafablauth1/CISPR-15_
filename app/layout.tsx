@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Syne, Figtree, DM_Mono } from 'next/font/google'
 import './globals.css'
 import { ErrorBoundary } from './ErrorBoundary'
+import { ThemeProvider } from './ThemeProvider'
 
 const syne = Syne({
   subsets: ['latin'],
@@ -31,6 +32,20 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="pt-BR" className={`${syne.variable} ${figtree.variable} ${dmMono.variable}`}>
       <head>
+        {/* Aplica tema salvo imediatamente (antes da hidratação) para evitar flash */}
+        <script dangerouslySetInnerHTML={{ __html: `
+          (function(){
+            try {
+              var t = JSON.parse(localStorage.getItem('cispr15_theme_v1') || '{}');
+              var h = document.documentElement;
+              if (t.accent) h.setAttribute('data-accent', t.accent);
+              if (t.bg)     h.setAttribute('data-bg',     t.bg);
+              if (t.radius) h.setAttribute('data-radius', t.radius);
+              var pat = t.pattern || (t.dotgrid === false ? 'none' : 'dots');
+              h.setAttribute('data-pattern', pat);
+            } catch(e){}
+          })();
+        `}} />
         {/* Restaura o foco da janela Electron após confirm/alert nativos fecharem */}
         <script dangerouslySetInnerHTML={{ __html: `
           (function(){
@@ -48,8 +63,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           })();
         `}} />
       </head>
-      <body className="bg-navy text-white antialiased font-body">
+      <body className="bg-navy text-white antialiased font-body dot-grid">
         <ErrorBoundary>{children}</ErrorBoundary>
+        <ThemeProvider />
       </body>
     </html>
   )

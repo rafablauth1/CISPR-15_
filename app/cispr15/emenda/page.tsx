@@ -49,21 +49,42 @@ function detectChanges(
 ): AmendmentChange[] {
   const changes: AmendmentChange[] = []
   let m = 1
-  const diff = (keys: (keyof Cispr15Config)[]) =>
-    keys.some(k => String(original[k] ?? '') !== String(amended[k] ?? ''))
 
-  if (diff(['cliente', 'clienteRua', 'clienteCidade', 'clienteCep']))
-    changes.push({ marker: m++, campo: 'cliente', descricao: 'Alteração nos dados do cliente' })
-  if (diff(['produto', 'fabricante', 'modelo', 'identificador']))
-    changes.push({ marker: m++, campo: 'amostra', descricao: 'Alteração nos dados da amostra' })
-  if (diff(['tensaoAlim', 'potencia', 'frequencia']))
-    changes.push({ marker: m++, campo: 'tecnico', descricao: 'Alteração nos dados técnicos da amostra' })
-  if (diff(['periodoInicio', 'periodoFim', 'dataEmissao']))
-    changes.push({ marker: m++, campo: 'periodo', descricao: 'Alteração no período de realização dos ensaios' })
-  if (diff(['documentacao']))
+  const fieldLabel: Partial<Record<keyof Cispr15Config, string>> = {
+    cliente: 'Cliente', clienteRua: 'Endereço', clienteCidade: 'Cidade', clienteCep: 'CEP',
+    produto: 'Produto', fabricante: 'Fabricante', modelo: 'Modelo', identificador: 'Identificador',
+    tensaoAlim: 'Tensão de Alimentação', potencia: 'Potência', frequencia: 'Frequência',
+    periodoInicio: 'Início do Período', periodoFim: 'Fim do Período', dataEmissao: 'Data de Emissão',
+    documentacao: 'Documentação', protocolo: 'Protocolo', orcamento: 'Orçamento',
+  }
+  const diffCampos = (keys: (keyof Cispr15Config)[]) =>
+    keys.filter(k => String(original[k] ?? '') !== String(amended[k] ?? ''))
+      .map(k => fieldLabel[k] ?? String(k))
+
+  const clienteCampos = diffCampos(['cliente', 'clienteRua', 'clienteCidade', 'clienteCep'])
+  if (clienteCampos.length > 0)
+    changes.push({ marker: m++, campo: 'cliente', descricao: 'Alteração nos dados do cliente', campos: clienteCampos })
+
+  const amostraCampos = diffCampos(['produto', 'fabricante', 'modelo', 'identificador'])
+  if (amostraCampos.length > 0)
+    changes.push({ marker: m++, campo: 'amostra', descricao: 'Alteração nos dados da amostra', campos: amostraCampos })
+
+  const tecnicoCampos = diffCampos(['tensaoAlim', 'potencia', 'frequencia'])
+  if (tecnicoCampos.length > 0)
+    changes.push({ marker: m++, campo: 'tecnico', descricao: 'Alteração nos dados técnicos da amostra', campos: tecnicoCampos })
+
+  const periodoCampos = diffCampos(['periodoInicio', 'periodoFim', 'dataEmissao'])
+  if (periodoCampos.length > 0)
+    changes.push({ marker: m++, campo: 'periodo', descricao: 'Alteração no período de realização dos ensaios', campos: periodoCampos })
+
+  const docCampos = diffCampos(['documentacao'])
+  if (docCampos.length > 0)
     changes.push({ marker: m++, campo: 'documentacao', descricao: 'Alteração na documentação que acompanha a amostra' })
-  if (diff(['protocolo', 'orcamento']))
-    changes.push({ marker: m++, campo: 'protocolo', descricao: 'Alteração nos dados de protocolo' })
+
+  const protoCampos = diffCampos(['protocolo', 'orcamento'])
+  if (protoCampos.length > 0)
+    changes.push({ marker: m++, campo: 'protocolo', descricao: 'Alteração nos dados de protocolo', campos: protoCampos })
+
   if (resultadosAlterados.conduzida)
     changes.push({ marker: m++, campo: 'resultados_conduzida', descricao: 'Alteração nos resultados — Perturbações Conduzidas' })
   if (resultadosAlterados.loop)
@@ -620,9 +641,14 @@ export default function EmendaPage() {
         {alteracoes.length > 0 && (
           <ul className="space-y-1.5">
             {alteracoes.map(a => (
-              <li key={a.campo} className="flex items-center gap-2 text-xs text-amber-300/80">
-                <span className="font-mono font-bold text-amber-400 w-4 text-center">{a.marker}</span>
-                {a.descricao}
+              <li key={a.campo} className="flex items-start gap-2 text-xs text-amber-300/80">
+                <span className="font-mono font-bold text-amber-400 w-4 text-center shrink-0">{a.marker}</span>
+                <span>
+                  {a.descricao}
+                  {a.campos && a.campos.length > 0 && (
+                    <span className="text-amber-400/60"> — {a.campos.join(', ')}</span>
+                  )}
+                </span>
               </li>
             ))}
           </ul>

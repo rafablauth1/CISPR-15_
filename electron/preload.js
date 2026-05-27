@@ -62,4 +62,5 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Assinatura digital (Windows Certificate Store)
   listCerts:      ()                             => ipcRenderer.invoke('pdf:list-certs'),
   signPdf:        (eutFolderPath, pdfFilename)   => ipcRenderer.invoke('pdf:sign-file', { eutFolderPath, pdfFilename }),
+
 })

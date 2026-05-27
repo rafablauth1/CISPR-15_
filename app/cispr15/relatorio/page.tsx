@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Printer, Upload, X, Loader2, FolderOpen } from 'lucide-react'
+import { ArrowLeft, Printer, Upload, X, Loader2, FolderOpen, PenLine, CheckCircle2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   type Cispr15Config, type EmendaDraft, type RelatorioSalvo,
@@ -177,6 +177,9 @@ export default function Cispr15RelatorioPage() {
   const [gerando,      setGerando]     = useState(false)
   const [savedFile,    setSavedFile]   = useState<string | null>(null)
   const [emendaDraft,  setEmendaDraft] = useState<EmendaDraft | null>(null)
+  const [hasCert,      setHasCert]     = useState(false)
+  const [signState,    setSignState]   = useState<'idle' | 'loading' | 'ok' | 'error'>('idle')
+  const [signMsg,      setSignMsg]     = useState('')
   const photoRef    = useRef<HTMLInputElement>(null)
   const pastaRef    = useRef<HTMLInputElement>(null)
   const isPrintMode = useRef(false)
@@ -271,6 +274,17 @@ export default function Cispr15RelatorioPage() {
         })
       return
     }
+
+    // Verifica certificado digital
+    ;(async () => {
+      try {
+        const api = (window as any).electronAPI
+        if (api?.getSettings) {
+          const s = await api.getSettings()
+          setHasCert(!!(s?.certThumbprint))
+        }
+      } catch {}
+    })()
 
     // Modo normal: carrega do localStorage
     const raw = localStorage.getItem(CFG_KEY)
@@ -449,6 +463,47 @@ export default function Cispr15RelatorioPage() {
       ])
     } finally {
       setPastaLoading(false)
+    }
+  }
+
+  async function assinarEPublicarEmenda() {
+    if (!cfg || !emendaDraft) return
+    if (!hasCert) {
+      setSignState('error')
+      setSignMsg('Nenhum certificado configurado. Configure em Configurações → Assinatura Digital.')
+      return
+    }
+    const eutPath = emendaDraft.eutFolderPath
+    if (!eutPath) {
+      setSignState('error')
+      setSignMsg('Pasta EUT não associada — carregue a pasta da EUT primeiro.')
+      return
+    }
+    const san = (v: string) => (v ?? '').replace(/[/\\:*?"<>|\s]/g, '_').replace(/_+/g, '_')
+    const emNum = emendaDraft ? formatEmendaNumero(cfg.numRelatorio, emendaDraft.emendaNum) : cfg.numRelatorio
+    const filename = `${san(emNum || cfg.protocolo)}_${cfg.tipo}_${san(cfg.fabricante)}.pdf`
+    const api = (window as any).electronAPI
+    if (!api?.signPdf || !api?.publishPdf) return
+    setSignState('loading')
+    setSignMsg('')
+    try {
+      const signRes = await api.signPdf(eutPath, filename)
+      if (!signRes.ok) {
+        setSignState('error')
+        setSignMsg(signRes.error ?? 'Erro ao assinar')
+        return
+      }
+      const pubRes = await api.publishPdf(eutPath, filename)
+      if (pubRes.ok) {
+        setSignState('ok')
+        setSignMsg('Assinado e publicado com sucesso')
+      } else {
+        setSignState('error')
+        setSignMsg('Assinado, mas erro ao publicar: ' + (pubRes.error ?? ''))
+      }
+    } catch (e: any) {
+      setSignState('error')
+      setSignMsg(e.message)
     }
   }
 
@@ -752,6 +807,9 @@ export default function Cispr15RelatorioPage() {
                 const result = await api.salvarPDFNaEut(filename, folderPath)
                 if (result.ok) {
                   setSavedFile(result.filePath ?? filename)
+                  if (result.usedDocuments) {
+                    alert(`A pasta da EUT não foi encontrada.\nO PDF foi salvo em Documentos:\n${result.filePath ?? filename}`)
+                  }
                   if (emendaDraft) await commitEmenda(emendaDraft, cfg ?? undefined)
                 } else if (!result.canceled) {
                   alert('Erro ao gerar PDF: ' + (result.error ?? 'Erro desconhecido'))
@@ -803,6 +861,27 @@ export default function Cispr15RelatorioPage() {
             ? <><Loader2 size={14} className="animate-spin" /> Gerando…</>
             : <><Printer size={14} /> Baixar PDF</>}
         </button>
+
+        {/* Assinar e Publicar — apenas em modo emenda */}
+        {emendaDraft && (
+          <button
+            onClick={assinarEPublicarEmenda}
+            disabled={signState === 'loading'}
+            title={signMsg || (signState === 'ok' ? 'Publicado com sucesso' : 'Assinar digitalmente e publicar o PDF da emenda')}
+            className={cn(
+              'flex items-center gap-2 px-4 py-2 text-sm rounded-lg border transition-all font-semibold',
+              signState === 'ok'      && 'border-green/30 bg-green/8 text-green-400',
+              signState === 'error'   && 'border-red-500/30 bg-red-500/8 text-red-400',
+              signState === 'loading' && 'border-blue-500/30 bg-blue-500/8 text-blue-400 opacity-70 cursor-wait',
+              (signState === 'idle')  && 'border-white/12 text-white/50 hover:border-white/25 hover:text-white/80',
+            )}>
+            {signState === 'loading'
+              ? <><Loader2 size={14} className="animate-spin" /> Processando…</>
+              : signState === 'ok'
+                ? <><CheckCircle2 size={14} /> Publicado</>
+                : <><PenLine size={14} /> Assinar e Publicar</>}
+          </button>
+        )}
       </div>
 
       {/* ════════════════════════════════════════════════
@@ -840,6 +919,16 @@ export default function Cispr15RelatorioPage() {
               </div>
             </div>
           </div>
+
+          {/* Cancela e Substitui (apenas em modo emenda) */}
+          {emendaDraft && (
+            <p style={{ textAlign: 'center', fontFamily: 'Arial, Helvetica, sans-serif', fontSize: '11pt', fontWeight: 'normal', marginBottom: 10 }}>
+              {'Cancela e Substitui o Relatório de Ensaio N° '}
+              {emendaDraft.emendaNum === 1
+                ? emendaDraft.numRelatorioOriginal
+                : formatEmendaNumero(emendaDraft.numRelatorioOriginal, emendaDraft.emendaNum - 1)}
+            </p>
+          )}
 
           {/* Período e emissão — alinhado à direita, fonte menor */}
           <div style={{ textAlign: 'right', marginBottom: 16 }}>
@@ -1214,7 +1303,12 @@ export default function Cispr15RelatorioPage() {
                 {emendaDraft.alteracoes.map((a, i) => (
                   <tr key={i} style={{ background: i % 2 === 0 ? 'white' : '#f5f8ff' }}>
                     <td style={{ border: '1px solid #ccc', padding: '3px 8px', textAlign: 'center', fontWeight: 700, color: '#c00' }}>{a.marker}</td>
-                    <td style={{ border: '1px solid #ccc', padding: '3px 8px' }}>{a.descricao}</td>
+                    <td style={{ border: '1px solid #ccc', padding: '3px 8px' }}>
+                      {a.descricao}
+                      {a.campos && a.campos.length > 0 && (
+                        <span style={{ color: '#666', fontSize: '9pt' }}> — {a.campos.join(', ')}</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

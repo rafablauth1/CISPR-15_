@@ -534,12 +534,22 @@ ipcMain.handle('pdf:save-eut', async (_, { filename, folderPath }) => {
   const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]
   if (!win) return { ok: false, error: 'sem janela' }
   try {
-    const outDir  = folderPath || eutFolderPath || app.getPath('documents')
+    let outDir = folderPath || eutFolderPath || app.getPath('documents')
+    let usedDocuments = false
+    // Tenta garantir que o diretório exista; se falhar (ex: pasta de rede inacessível), recai para Documentos
+    if (outDir !== app.getPath('documents')) {
+      try {
+        fs.mkdirSync(outDir, { recursive: true })
+      } catch {
+        outDir = app.getPath('documents')
+        usedDocuments = true
+      }
+    }
     const outPath = path.join(outDir, (filename || 'relatorio.pdf').replace(/[\\/:"*?<>|]/g, '_'))
     // Se já existe, apenas abre a pasta sem regerar
     if (fs.existsSync(outPath)) {
       shell.showItemInFolder(outPath)
-      return { ok: true, filePath: outPath, skipped: true }
+      return { ok: true, filePath: outPath, skipped: true, usedDocuments }
     }
     const data = await win.webContents.printToPDF({
       printBackground: true, pageSize: 'A4', landscape: false,
@@ -547,7 +557,7 @@ ipcMain.handle('pdf:save-eut', async (_, { filename, folderPath }) => {
     })
     await writeWithRetry(outPath, data)
     shell.showItemInFolder(outPath)
-    return { ok: true, filePath: outPath }
+    return { ok: true, filePath: outPath, usedDocuments }
   } catch (err) { return { ok: false, error: String(err) } }
 })
 
@@ -728,6 +738,7 @@ ipcMain.handle('window:focus', (event) => {
   if (win) { win.focus(); win.webContents.focus() }
   return { ok: true }
 })
+
 
 /* ─── IPC: Excel ──────────────────────────────────────────────────────────── */
 

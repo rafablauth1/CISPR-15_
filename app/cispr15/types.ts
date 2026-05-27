@@ -149,6 +149,7 @@ export interface AmendmentChange {
   marker: number
   campo: string
   descricao: string
+  campos?: string[]
 }
 
 export interface EmendaDraft {

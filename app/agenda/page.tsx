@@ -126,6 +126,13 @@ function daysUntil(dateStr: string): number {
   return Math.floor((target.getTime() - now.getTime()) / 86400000)
 }
 
+function diasNoLab(dataEntrada: string): number {
+  if (!dataEntrada) return 0
+  const now = new Date(today() + 'T00:00:00')
+  const entrada = new Date(dataEntrada + 'T00:00:00')
+  return Math.max(0, Math.floor((now.getTime() - entrada.getTime()) / 86400000))
+}
+
 function deadlineColor(item: AgendaItem): string {
   if (item.numRelatorio) return 'rgba(255,255,255,0.07)'
   const d = daysUntil(item.previsaoSaida)
@@ -1181,6 +1188,7 @@ export default function AgendaPage() {
   const [fuCliente,     setFuCliente]     = useState('')
   const [fuTipo,        setFuTipo]        = useState<'todos' | 'lampada' | 'luminaria'>('todos')
   const [fuEnsaio,      setFuEnsaio]      = useState<'todos' | 'c_pend' | 'l_pend' | 'b_pend' | 'algum_pend' | 'todos_ok'>('todos')
+  const [fuPdfMode,     setFuPdfMode]     = useState<'lista' | 'cliente'>('lista')
   const [analisePeriodo, setAnalisePeriodo] = useState<'7' | '30' | '90' | '180' | 'all'>('all')
   const [customTags,     setCustomTags]     = useState<CustomTag[]>([])
 
@@ -2458,10 +2466,42 @@ export default function AgendaPage() {
             v === 'reprovado' ? '<span class="fail">&#10007;</span>' :
             '<span class="pend">&#9675;</span>'
 
-          const rows = allEm.map((item, i) => {
+          function prazoCell(item: AgendaItem): string {
             const d = daysUntil(item.previsaoSaida)
             const pc = d < 0 ? 'prazo-late' : d <= 3 ? 'prazo-warn' : ''
             const allOk = item.statusConduzida === 'realizado' && item.statusLoop === 'realizado' && item.statusAnexoB === 'realizado'
+            const badge = d < 0
+              ? `<span class="prazo-badge late">${d}d</span>`
+              : d <= 3
+                ? `<span class="prazo-badge warn">+${d}d</span>`
+                : `<span class="prazo-badge ok2">+${d}d</span>`
+            return `<td class="r ${pc}">
+              ${fmtDate(item.previsaoSaida)} ${badge}
+              ${allOk ? '<div style="font-size:8px;color:#16a34a;font-weight:bold;letter-spacing:.04em">AG. EMISSÃO</div>' : ''}
+            </td>`
+          }
+
+          function labCell(item: AgendaItem): string {
+            const d = diasNoLab(item.dataEntrada)
+            return `<td class="r lab-col">${d}d</td>`
+          }
+
+          // Alerta de itens atrasados
+          const atrasados = allEm.filter(a => daysUntil(a.previsaoSaida) < 0)
+          const alertaHtml = atrasados.length > 0 ? `
+<div class="alerta">
+  <span class="alerta-icon">&#9888;</span>
+  <strong>${atrasados.length} ${atrasados.length === 1 ? 'item atrasado' : 'itens atrasados'}:</strong>
+  ${atrasados.map(a => `<span class="alerta-item">${a.protocolo || a.produto || '—'} (${a.cliente || '—'}, ${Math.abs(daysUntil(a.previsaoSaida))}d em atraso)</span>`).join('')}
+</div>` : ''
+
+          const tableHeader = `<thead><tr>
+            <th>Tipo</th><th>Protocolo</th><th>Cliente</th><th>Produto</th>
+            <th class="c">Conduzida</th><th class="c">Loop</th><th class="c">Anexo B</th>
+            <th class="r">No lab</th><th class="r">Previsão / Prazo</th>
+          </tr></thead>`
+
+          function itemRow(item: AgendaItem, i: number): string {
             return `<tr class="${i % 2 === 1 ? 'alt' : ''}">
               <td class="tipo">${item.tipo === 'lampada' ? 'Lâmpada' : 'Luminária'}</td>
               <td class="mono">${item.protocolo || '—'}</td>
@@ -2470,9 +2510,30 @@ export default function AgendaPage() {
               <td class="c">${s(item.statusConduzida)}</td>
               <td class="c">${s(item.statusLoop)}</td>
               <td class="c">${s(item.statusAnexoB)}</td>
-              <td class="r ${pc}">${fmtDate(item.previsaoSaida)}${allOk ? '<div style="font-size:8px;color:#16a34a;font-weight:bold;letter-spacing:.04em;font-family:Arial">AG. EMISSÃO</div>' : ''}</td>
+              ${labCell(item)}
+              ${prazoCell(item)}
             </tr>`
-          }).join('')
+          }
+
+          // Modo: lista ou agrupado por cliente
+          let tableHtml = ''
+          if (allEm.length === 0) {
+            tableHtml = '<p style="color:#999;padding:24px 0;text-align:center">Nenhum item em andamento.</p>'
+          } else if (fuPdfMode === 'cliente') {
+            const grupos = Array.from(new Set(allEm.map(a => a.cliente || '—'))).sort()
+            tableHtml = grupos.map(cliente => {
+              const itens = allEm.filter(a => (a.cliente || '—') === cliente)
+              const rows = itens.map((item, i) => itemRow(item, i)).join('')
+              return `<div class="grupo-cliente">
+                <div class="grupo-title">${cliente} <span class="grupo-count">${itens.length} ${itens.length === 1 ? 'item' : 'itens'}</span></div>
+                <table>${tableHeader}<tbody>${rows}</tbody></table>
+              </div>`
+            }).join('')
+          } else {
+            const rows = allEm.map((item, i) => itemRow(item, i)).join('')
+            tableHtml = `<div class="sec-title">Em andamento — ${allEm.length} ${allEm.length === 1 ? 'item' : 'itens'}</div>
+              <table>${tableHeader}<tbody>${rows}</tbody></table>`
+          }
 
           const now = new Date().toLocaleString('pt-BR')
           const NAVY = '#1F3864'
@@ -2501,6 +2562,12 @@ body{font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#1a1a1a;backgro
 .prog-bg{background:#e5e7eb;border-radius:3px;height:7px;overflow:hidden}
 .prog-fill{height:100%;border-radius:3px}
 .sec-title{font-size:10px;font-weight:bold;color:${NAVY};text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+.alerta{background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;padding:10px 14px;margin-bottom:16px;font-size:10px;color:#b91c1c;display:flex;flex-wrap:wrap;gap:6px;align-items:flex-start}
+.alerta-icon{font-size:13px;margin-right:4px}
+.alerta-item{background:#fee2e2;border-radius:3px;padding:1px 6px;white-space:nowrap}
+.grupo-cliente{margin-bottom:20px}
+.grupo-title{font-size:11px;font-weight:bold;color:${NAVY};border-bottom:1px solid ${NAVY};padding-bottom:5px;margin-bottom:8px}
+.grupo-count{font-size:10px;font-weight:normal;color:#666;margin-left:6px}
 table{width:100%;border-collapse:collapse;font-size:11px}
 thead tr{background:${NAVY}}
 thead th{color:#fff;text-align:left;padding:7px 10px;font-size:10px;font-weight:bold;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap}
@@ -2509,11 +2576,16 @@ tbody tr.alt{background:#f8f9fa}
 tbody td{padding:6px 10px;vertical-align:middle}
 td.mono{font-family:monospace;font-size:10px;color:#555}
 td.tipo{font-size:10px;color:#555;white-space:nowrap}
+td.lab-col{font-family:monospace;font-size:10px;color:#888;text-align:right;white-space:nowrap}
 .c{text-align:center}
 .r{text-align:right;font-family:monospace;font-size:10px}
 .ok{color:#16a34a;font-weight:bold;font-size:13px}
 .fail{color:#dc2626;font-weight:bold;font-size:13px}
 .pend{color:#ccc}
+.prazo-badge{display:inline-block;border-radius:3px;padding:0 4px;font-size:9px;font-weight:bold;margin-left:3px;font-family:monospace}
+.prazo-badge.late{background:#fee2e2;color:#dc2626}
+.prazo-badge.warn{background:#fef3c7;color:#d97706}
+.prazo-badge.ok2{background:#f0fdf4;color:#16a34a}
 .prazo-warn{color:#d97706;font-weight:bold}
 .prazo-late{color:#dc2626;font-weight:bold}
 .footer{margin-top:28px;padding-top:10px;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;font-size:9px;color:#aaa}
@@ -2526,15 +2598,8 @@ td.tipo{font-size:10px;color:#555;white-space:nowrap}
 </div>
 ${filterLabel ? `<div class="filter-badge">Filtro: ${filterLabel}</div>` : ''}
 <div class="summary">${summaryCard('Lâmpadas', displayLamp)}${summaryCard('Luminárias', displayLum)}</div>
-${allEm.length > 0 ? `
-<div class="sec-title">Em andamento — ${allEm.length} ${allEm.length === 1 ? 'item' : 'itens'}</div>
-<table>
-  <thead><tr>
-    <th>Tipo</th><th>Protocolo</th><th>Cliente</th><th>Produto</th>
-    <th class="c">Conduzida</th><th class="c">Loop</th><th class="c">Anexo B</th><th class="r">Previsão</th>
-  </tr></thead>
-  <tbody>${rows}</tbody>
-</table>` : '<p style="color:#999;padding:24px 0;text-align:center">Nenhum item em andamento.</p>'}
+${alertaHtml}
+${tableHtml}
 <div class="footer"><span>Gerado em ${now}</span><span>Documento interno · LABELO PUCRS · Confidencial</span></div>
 </body></html>`
         }
@@ -2544,7 +2609,8 @@ ${allEm.length > 0 ? `
           const isoDate = new Date().toISOString().split('T')[0]
           const tipoLabel = fuTipo === 'lampada' ? 'Lâmpadas' : fuTipo === 'luminaria' ? 'Luminárias' : ''
           const clienteLabel = fuCliente ? fuCliente.slice(0, 30).replace(/[/\\:"*?<>|]/g, '') : ''
-          const filename = ['Follow-up', tipoLabel, clienteLabel || 'Geral', isoDate]
+          const modeLabel = fuPdfMode === 'cliente' ? 'PorCliente' : ''
+          const filename = ['Follow-up', tipoLabel, clienteLabel || 'Geral', modeLabel, isoDate]
             .filter(Boolean).join(' ') + '.pdf'
           const html = buildReportHtml(landscape)
 
@@ -2617,10 +2683,22 @@ ${allEm.length > 0 ? `
                 </p>
                 <p className="text-[10px] text-white/30 font-mono mt-0.5">{dateLabel}</p>
               </div>
-              <button data-noprint type="button" onClick={handlePrint}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-white/80 hover:bg-white/8 text-xs font-semibold transition-all">
-                <Printer size={12} /> Imprimir
-              </button>
+              <div data-noprint className="flex items-center gap-2">
+                {/* Toggle modo PDF */}
+                <div className="flex gap-0.5 p-0.5 rounded-lg bg-white/4 border border-white/8">
+                  {([['lista','Lista'],['cliente','Por cliente']] as const).map(([v, lbl]) => (
+                    <button key={v} type="button" onClick={() => setFuPdfMode(v)}
+                      className={cn('px-2.5 py-1 rounded text-[10px] font-semibold transition-all',
+                        fuPdfMode === v ? 'bg-gold/15 border border-gold/25 text-gold' : 'text-white/35 hover:text-white/60')}>
+                      {lbl}
+                    </button>
+                  ))}
+                </div>
+                <button type="button" onClick={handlePrint}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-white/80 hover:bg-white/8 text-xs font-semibold transition-all">
+                  <Printer size={12} /> Imprimir
+                </button>
+              </div>
             </div>
 
             {/* Cards por tipo */}
@@ -2628,6 +2706,29 @@ ${allEm.length > 0 ? `
               <TypeCard label="Lâmpadas"  icon={<Lightbulb size={15} className="text-amber-400" />} stats={displayLamp} />
               <TypeCard label="Luminárias" icon={<Lamp size={15} className="text-teal-400" />}      stats={displayLum} />
             </div>
+
+            {/* Banner de alertas de prazo */}
+            {(() => {
+              const atrasados = allEmBase.filter(a => daysUntil(a.previsaoSaida) < 0)
+              const urgentes  = allEmBase.filter(a => { const d = daysUntil(a.previsaoSaida); return d >= 0 && d <= 3 })
+              if (atrasados.length === 0 && urgentes.length === 0) return null
+              return (
+                <div className="flex gap-2 flex-wrap">
+                  {atrasados.length > 0 && (
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs">
+                      <AlertTriangle size={11} className="shrink-0" />
+                      <span><b>{atrasados.length}</b> {atrasados.length === 1 ? 'item atrasado' : 'itens atrasados'}</span>
+                    </div>
+                  )}
+                  {urgentes.length > 0 && (
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs">
+                      <AlertTriangle size={11} className="shrink-0" />
+                      <span><b>{urgentes.length}</b> {urgentes.length === 1 ? 'item' : 'itens'} vence{urgentes.length === 1 ? '' : 'm'} em ≤ 3 dias</span>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
 
             {/* Filtros */}
             {allEmBase.length > 0 && (
@@ -2692,10 +2793,10 @@ ${allEm.length > 0 ? `
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="border-b border-white/5">
-                        {['', 'Protocolo', 'Cliente', 'Produto', 'Conduzida', 'Loop', 'Anexo B', 'Previsão'].map(h => (
+                        {['', 'Protocolo', 'Cliente', 'Produto', 'Conduzida', 'Loop', 'Anexo B', 'No lab', 'Previsão'].map(h => (
                           <th key={h} className={cn(
                             'py-2 px-3 text-[10px] text-white/25 font-mono font-normal',
-                            ['Conduzida','Loop','Anexo B'].includes(h) ? 'text-center' : h === 'Previsão' ? 'text-right' : 'text-left',
+                            ['Conduzida','Loop','Anexo B'].includes(h) ? 'text-center' : ['No lab','Previsão'].includes(h) ? 'text-right' : 'text-left',
                           )}>{h}</th>
                         ))}
                       </tr>
@@ -2705,6 +2806,7 @@ ${allEm.length > 0 ? `
                         const d = daysUntil(item.previsaoSaida)
                         const prazoColor = d < 0 ? 'text-red-400' : d <= 3 ? 'text-amber-400' : 'text-white/35'
                         const allOk = item.statusConduzida === 'realizado' && item.statusLoop === 'realizado' && item.statusAnexoB === 'realizado'
+                        const noLab = diasNoLab(item.dataEntrada)
                         return (
                           <tr key={item.id}
                             className={cn('border-b border-white/4 hover:bg-white/3 cursor-pointer transition-colors', i % 2 === 1 && 'bg-white/1')}
@@ -2728,8 +2830,23 @@ ${allEm.length > 0 ? `
                                  <span className="text-white/20 font-mono leading-none">○</span>}
                               </td>
                             ))}
+                            {/* Dias no lab */}
+                            <td className="px-3 py-2 text-right font-mono text-[11px] text-white/30 whitespace-nowrap">
+                              {noLab}d
+                            </td>
+                            {/* Previsão + badge de prazo */}
                             <td className={cn('px-3 py-2 text-right font-mono text-[11px] whitespace-nowrap', prazoColor)}>
-                              <div>{fmtDate(item.previsaoSaida)}</div>
+                              <div className="flex items-center justify-end gap-1.5">
+                                <span>{fmtDate(item.previsaoSaida)}</span>
+                                <span className={cn(
+                                  'text-[9px] font-bold px-1 py-0.5 rounded',
+                                  d < 0  ? 'bg-red-500/15 text-red-400' :
+                                  d <= 3 ? 'bg-amber-500/15 text-amber-400' :
+                                           'bg-white/5 text-white/25',
+                                )}>
+                                  {d < 0 ? `${d}d` : `+${d}d`}
+                                </span>
+                              </div>
                               {allOk && (
                                 <div className="text-[9px] font-sans font-semibold text-green-400/80 tracking-wide mt-0.5 uppercase">
                                   Ag. Emissão
