@@ -1316,6 +1316,69 @@ export default function Cispr15ConfigPage() {
           </div>
         </div>
 
+        {/* ── Driver (acessório de ensaio — só luminária) ── */}
+        {cfg.tipo === 'luminaria' && (
+          <div className="card p-5">
+            <div className="flex items-center justify-between mb-3">
+              <p className="form-section">Acessório de Ensaio</p>
+              <button
+                type="button"
+                onClick={() => setCfg(prev => ({
+                  ...prev,
+                  temDriver: !prev.temDriver,
+                  driverOrcamento: prev.driverOrcamento || 'Não identificado',
+                  driverProtocolo: prev.driverProtocolo || 'Não identificado',
+                }))}
+                className={cn(
+                  'flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-mono font-semibold transition-all',
+                  cfg.temDriver
+                    ? 'border-teal/40 bg-teal/10 text-teal'
+                    : 'border-white/10 text-white/35 hover:border-white/25 hover:text-white/60',
+                )}>
+                {cfg.temDriver ? '✓ Driver ativo' : '+ Incluir Driver'}
+              </button>
+            </div>
+
+            {!cfg.temDriver && (
+              <p className="text-[11px] text-white/25 font-mono">
+                Ative para incluir os dados do driver (luminária) como acessório de ensaio no relatório (seção 2.1).
+              </p>
+            )}
+
+            {cfg.temDriver && (
+              <div className="grid grid-cols-2 gap-x-4 gap-y-4">
+                <Row label="Produto / Descrição do Driver" span2>
+                  <input className="input" value={cfg.driverProduto ?? ''} onChange={set('driverProduto')} placeholder="Ex: Driver LED" />
+                </Row>
+                <Row label="Fabricante">
+                  <input className="input" value={cfg.driverFabricante ?? ''} onChange={set('driverFabricante')} placeholder="Ex: Meanwell" />
+                </Row>
+                <Row label="Modelo">
+                  <input className="input" value={cfg.driverModelo ?? ''} onChange={set('driverModelo')} placeholder="Ex: HLG-100H-24A" />
+                </Row>
+                <Row label="Número de Série">
+                  <input className="input" value={cfg.driverIdentificador ?? ''} onChange={set('driverIdentificador')} placeholder="N° de série do driver" />
+                </Row>
+                <Row label="Potência Nominal">
+                  <input className="input" value={cfg.driverPotencia ?? ''} onChange={set('driverPotencia')} placeholder="Ex: 100W" />
+                </Row>
+                <Row label="Tensão de Alimentação">
+                  <input className="input" value={cfg.driverTensaoAlim ?? ''} onChange={set('driverTensaoAlim')} placeholder="Ex: 90 a 305VAC" />
+                </Row>
+                <Row label="Frequência de Rede">
+                  <input className="input" value={cfg.driverFrequencia ?? ''} onChange={set('driverFrequencia')} placeholder="Ex: 50/60Hz" />
+                </Row>
+                <Row label="Orçamento LABELO">
+                  <input className="input" value={cfg.driverOrcamento ?? 'Não identificado'} onChange={set('driverOrcamento')} placeholder="Não identificado" />
+                </Row>
+                <Row label="Protocolo LABELO">
+                  <input className="input" value={cfg.driverProtocolo ?? 'Não identificado'} onChange={set('driverProtocolo')} placeholder="Não identificado" />
+                </Row>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ── Dados do Relatório ── */}
         <div className="card p-5">
           <p className="form-section mb-4">Dados do Relatório</p>

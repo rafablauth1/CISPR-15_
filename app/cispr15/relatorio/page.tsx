@@ -893,10 +893,42 @@ export default function Cispr15RelatorioPage() {
             )
           })()}
 
-          <p style={pTitle}>2.1 Documentação que acompanha a amostra:<Sup n={markerFor('documentacao')} /></p>
+          {cfg.temDriver && cfg.tipo === 'luminaria' && (
+            <>
+              <p style={pTitle}>2.1 Acessório de Ensaio (Driver):</p>
+              {(() => {
+                const td1: React.CSSProperties = { border: '1px solid #999', padding: '2px 6px', width: '44%' }
+                const td2: React.CSSProperties = { border: '1px solid #999', padding: '2px 6px', fontWeight: 700, width: '30%', whiteSpace: 'nowrap' }
+                const td3: React.CSSProperties = { border: '1px solid #999', padding: '2px 6px', width: '26%' }
+                const lv = (lbl: string, val: string) => <><b>{lbl}:</b> {val}</>
+                const driverRows: [React.ReactNode, string, string][] = [
+                  [<b>{cfg.driverProduto || '—'}</b>,                          'Tensão de alimentação:', cfg.driverTensaoAlim  || '—'],
+                  [lv('Fabricante', cfg.driverFabricante  || '—'),             'Potência nominal:',      cfg.driverPotencia    || '—'],
+                  [lv('Modelo',     cfg.driverModelo      || '—'),             'Frequência de rede:',    cfg.driverFrequencia  || '—'],
+                  [lv('Número de Série', cfg.driverIdentificador || '—'),      'Orçamento LABELO:',      cfg.driverOrcamento   || 'Não identificado'],
+                  [lv('Protocolo LABELO', cfg.driverProtocolo || 'Não identificado'), '', ''],
+                ]
+                return (
+                  <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 8, marginBottom: 6, fontSize: FS.sm }}>
+                    <tbody>
+                      {driverRows.map((row, i) => (
+                        <tr key={i} style={{ background: i % 2 === 0 ? 'white' : '#f5f8ff' }}>
+                          <td style={td1}>{row[0]}</td>
+                          <td style={td2}>{row[1]}</td>
+                          <td style={td3}>{row[2]}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )
+              })()}
+            </>
+          )}
+
+          <p style={pTitle}>{cfg.temDriver && cfg.tipo === 'luminaria' ? '2.2' : '2.1'} Documentação que acompanha a amostra:<Sup n={markerFor('documentacao')} /></p>
           <p style={{ ...pJ, marginTop: 8 }}>{cfg.documentacao || '—'}</p>
 
-          <p style={pTitle}>2.2 Observações:</p>
+          <p style={pTitle}>{cfg.temDriver && cfg.tipo === 'luminaria' ? '2.3' : '2.2'} Observações:</p>
           {(() => {
             const falhas: string[] = []
             if ((cfg.resultadoConduzida ?? 'pass') === 'fail') falhas.push('Perturbações Conduzidas')

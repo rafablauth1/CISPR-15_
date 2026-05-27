@@ -15,6 +15,17 @@ export interface Cispr15Config {
   tensaoAlim: string
   potencia: string
   frequencia: string
+  // Driver (acessório de ensaio — apenas luminária)
+  temDriver?: boolean
+  driverProduto?: string
+  driverFabricante?: string
+  driverModelo?: string
+  driverIdentificador?: string
+  driverPotencia?: string
+  driverTensaoAlim?: string
+  driverFrequencia?: string
+  driverOrcamento?: string
+  driverProtocolo?: string
   // Amostra
   documentacao: string
   // Relatório
@@ -41,6 +52,17 @@ export interface LoteAmostra {
   photos: { name: string; base64: string }[]
   docxHtml: string | null
   docxFilename: string | null
+  // Driver (acessório de ensaio — apenas luminária)
+  temDriver?: boolean
+  driverProduto?: string
+  driverFabricante?: string
+  driverModelo?: string
+  driverIdentificador?: string
+  driverPotencia?: string
+  driverTensaoAlim?: string
+  driverFrequencia?: string
+  driverOrcamento?: string
+  driverProtocolo?: string
 }
 
 export interface LoteConfig {
@@ -71,6 +93,10 @@ export function newAmostra(): LoteAmostra {
     periodoInicio: today(), periodoFim: today(), dataEmissao: today(),
     conformidade: 'pendente', numRelatorio: '',
     photos: [], docxHtml: null, docxFilename: null,
+    temDriver: false,
+    driverProduto: '', driverFabricante: '', driverModelo: '', driverIdentificador: '',
+    driverPotencia: '', driverTensaoAlim: '', driverFrequencia: '50/60Hz',
+    driverOrcamento: 'Não identificado', driverProtocolo: 'Não identificado',
   }
 }
 
@@ -79,6 +105,10 @@ export const DEFAULTS: Cispr15Config = {
   cliente: '', clienteRua: '', clienteCidade: '', clienteCep: '',
   produto: '', fabricante: '', modelo: '', identificador: '', lacre: '',
   tensaoAlim: '', potencia: '', frequencia: '50/60Hz',
+  temDriver: false,
+  driverProduto: '', driverFabricante: '', driverModelo: '', driverIdentificador: '',
+  driverPotencia: '', driverTensaoAlim: '', driverFrequencia: '50/60Hz',
+  driverOrcamento: 'Não identificado', driverProtocolo: 'Não identificado',
   documentacao: 'embalagem com especificações',
   numRelatorio: '', orcamento: '', protocolo: '',
   periodoInicio: today(), periodoFim: today(), dataEmissao: today(),
@@ -189,6 +219,17 @@ export interface AgendaItem {
   tensaoAlim?: string
   frequencia?: string
   documentacao?: string
+  // Driver (acessório de ensaio — apenas luminária)
+  temDriver?: boolean
+  driverProduto?: string
+  driverFabricante?: string
+  driverModelo?: string
+  driverIdentificador?: string
+  driverPotencia?: string
+  driverTensaoAlim?: string
+  driverFrequencia?: string
+  driverOrcamento?: string
+  driverProtocolo?: string
   dataEntrada: string
   previsaoSaida: string
   dataEmissao: string

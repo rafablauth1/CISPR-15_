@@ -593,6 +593,71 @@ function ItemModal({ item, onSave, onClose, clientes, customTags, onCustomTagsCh
                   </div>
                 )}
               </div>
+
+              {/* Driver — só para luminária */}
+              {form.tipo === 'luminaria' && (
+                <div className="col-span-2 pt-2 border-t border-white/5 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[9px] text-white/30 font-mono uppercase tracking-widest">Acessório de Ensaio</p>
+                    <button
+                      type="button"
+                      onClick={() => setForm(p => ({
+                        ...p,
+                        temDriver: !p.temDriver,
+                        driverOrcamento: p.driverOrcamento || 'Não identificado',
+                        driverProtocolo: p.driverProtocolo || 'Não identificado',
+                      }))}
+                      className={cn(
+                        'flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[10px] font-mono font-semibold transition-all',
+                        form.temDriver
+                          ? 'border-teal/40 bg-teal/10 text-teal'
+                          : 'border-white/10 text-white/30 hover:border-white/25 hover:text-white/55',
+                      )}>
+                      {form.temDriver ? '✓ Driver ativo' : '+ Driver'}
+                    </button>
+                  </div>
+                  {form.temDriver && (
+                    <div className="grid grid-cols-2 gap-3 p-2.5 rounded-xl border border-teal/15 bg-teal/3">
+                      <div className="flex flex-col gap-1.5 col-span-2">
+                        <Label>Produto / Descrição</Label>
+                        <input className="input" value={form.driverProduto ?? ''} onChange={s('driverProduto')} placeholder="Ex: Driver LED" />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <Label>Fabricante</Label>
+                        <input className="input" value={form.driverFabricante ?? ''} onChange={s('driverFabricante')} />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <Label>Modelo</Label>
+                        <input className="input" value={form.driverModelo ?? ''} onChange={s('driverModelo')} />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <Label>Número de Série</Label>
+                        <input className="input" value={form.driverIdentificador ?? ''} onChange={s('driverIdentificador')} />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <Label>Potência</Label>
+                        <input className="input" value={form.driverPotencia ?? ''} onChange={s('driverPotencia')} placeholder="Ex: 100W" />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <Label>Tensão de Alimentação</Label>
+                        <input className="input" value={form.driverTensaoAlim ?? ''} onChange={s('driverTensaoAlim')} placeholder="Ex: 90 a 305 VAC" />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <Label>Frequência</Label>
+                        <input className="input" value={form.driverFrequencia ?? ''} onChange={s('driverFrequencia')} placeholder="50/60Hz" />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <Label>Orçamento LABELO</Label>
+                        <input className="input" value={form.driverOrcamento ?? 'Não identificado'} onChange={s('driverOrcamento')} />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <Label>Protocolo LABELO</Label>
+                        <input className="input" value={form.driverProtocolo ?? 'Não identificado'} onChange={s('driverProtocolo')} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
           {!showDUT && (
@@ -1299,6 +1364,16 @@ export default function AgendaPage() {
       tensaoAlim: item.tensaoAlim ?? '',
       potencia: item.potencia ?? '',
       frequencia: item.frequencia ?? '50/60Hz',
+      temDriver: item.temDriver,
+      driverProduto: item.driverProduto,
+      driverFabricante: item.driverFabricante,
+      driverModelo: item.driverModelo,
+      driverIdentificador: item.driverIdentificador,
+      driverPotencia: item.driverPotencia,
+      driverTensaoAlim: item.driverTensaoAlim,
+      driverFrequencia: item.driverFrequencia,
+      driverOrcamento: item.driverOrcamento,
+      driverProtocolo: item.driverProtocolo,
       documentacao: item.documentacao ?? 'embalagem com especificações',
       numRelatorio: '',
       orcamento: item.orcamento,
@@ -1335,6 +1410,16 @@ export default function AgendaPage() {
       photos: [],
       docxHtml: null,
       docxFilename: null,
+      temDriver: item.temDriver,
+      driverProduto: item.driverProduto,
+      driverFabricante: item.driverFabricante,
+      driverModelo: item.driverModelo,
+      driverIdentificador: item.driverIdentificador,
+      driverPotencia: item.driverPotencia,
+      driverTensaoAlim: item.driverTensaoAlim,
+      driverFrequencia: item.driverFrequencia,
+      driverOrcamento: item.driverOrcamento || 'Não identificado',
+      driverProtocolo: item.driverProtocolo || 'Não identificado',
     }))
     const lote: LoteConfig = {
       tipo: primeiro.tipo,

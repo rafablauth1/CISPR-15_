@@ -263,6 +263,62 @@ function AmostraCard({ index, amostra, expanded, onToggle, onChange, tipoLote, o
             </Row>
           </div>
 
+          {/* Driver — só para luminária */}
+          {tipoLote === 'luminaria' && (
+            <div className="border-t border-white/5 pt-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-[9px] text-white/25 font-mono uppercase tracking-wider">Acessório de Ensaio</p>
+                <button
+                  type="button"
+                  onClick={() => onChange({
+                    ...amostra,
+                    temDriver: !amostra.temDriver,
+                    driverOrcamento: amostra.driverOrcamento || 'Não identificado',
+                    driverProtocolo: amostra.driverProtocolo || 'Não identificado',
+                  })}
+                  className={cn(
+                    'flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[10px] font-mono font-semibold transition-all',
+                    amostra.temDriver
+                      ? 'border-teal/40 bg-teal/10 text-teal'
+                      : 'border-white/10 text-white/30 hover:border-white/25 hover:text-white/55',
+                  )}>
+                  {amostra.temDriver ? '✓ Driver ativo' : '+ Driver'}
+                </button>
+              </div>
+              {amostra.temDriver && (
+                <div className="grid grid-cols-2 gap-x-4 gap-y-3 p-3 rounded-xl border border-teal/15 bg-teal/3">
+                  <Row label="Produto / Descrição" span2>
+                    <input className="input text-sm" value={amostra.driverProduto ?? ''} onChange={e => onChange({ ...amostra, driverProduto: e.target.value })} placeholder="Ex: Driver LED" />
+                  </Row>
+                  <Row label="Fabricante">
+                    <input className="input text-sm" value={amostra.driverFabricante ?? ''} onChange={e => onChange({ ...amostra, driverFabricante: e.target.value })} />
+                  </Row>
+                  <Row label="Modelo">
+                    <input className="input text-sm" value={amostra.driverModelo ?? ''} onChange={e => onChange({ ...amostra, driverModelo: e.target.value })} />
+                  </Row>
+                  <Row label="Número de Série">
+                    <input className="input text-sm" value={amostra.driverIdentificador ?? ''} onChange={e => onChange({ ...amostra, driverIdentificador: e.target.value })} />
+                  </Row>
+                  <Row label="Potência">
+                    <input className="input text-sm" value={amostra.driverPotencia ?? ''} onChange={e => onChange({ ...amostra, driverPotencia: e.target.value })} placeholder="Ex: 60W" />
+                  </Row>
+                  <Row label="Tensão de Alimentação">
+                    <input className="input text-sm" value={amostra.driverTensaoAlim ?? ''} onChange={e => onChange({ ...amostra, driverTensaoAlim: e.target.value })} />
+                  </Row>
+                  <Row label="Frequência de Rede">
+                    <input className="input text-sm" value={amostra.driverFrequencia ?? ''} onChange={e => onChange({ ...amostra, driverFrequencia: e.target.value })} placeholder="50/60Hz" />
+                  </Row>
+                  <Row label="Orçamento LABELO">
+                    <input className="input text-sm" value={amostra.driverOrcamento ?? 'Não identificado'} onChange={e => onChange({ ...amostra, driverOrcamento: e.target.value })} />
+                  </Row>
+                  <Row label="Protocolo LABELO">
+                    <input className="input text-sm" value={amostra.driverProtocolo ?? 'Não identificado'} onChange={e => onChange({ ...amostra, driverProtocolo: e.target.value })} />
+                  </Row>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Anexos */}
           <div className="border-t border-white/5 pt-3 space-y-3">
             <p className="text-[9px] text-white/25 font-mono uppercase tracking-wider">Anexos</p>
@@ -507,6 +563,12 @@ export default function LotePage() {
       produto: am.produto, fabricante: am.fabricante, modelo: am.modelo,
       identificador: am.identificador, lacre: '',
       tensaoAlim: am.tensaoAlim, potencia: am.potencia, frequencia: am.frequencia,
+      temDriver: am.temDriver,
+      driverProduto: am.driverProduto, driverFabricante: am.driverFabricante,
+      driverModelo: am.driverModelo, driverIdentificador: am.driverIdentificador,
+      driverPotencia: am.driverPotencia, driverTensaoAlim: am.driverTensaoAlim,
+      driverFrequencia: am.driverFrequencia,
+      driverOrcamento: am.driverOrcamento, driverProtocolo: am.driverProtocolo,
       documentacao: 'embalagem com especificações',
       numRelatorio, orcamento: am.orcamento, protocolo: am.protocolo,
       periodoInicio: am.periodoInicio, periodoFim: am.periodoFim, dataEmissao: am.dataEmissao,
@@ -626,6 +688,12 @@ export default function LotePage() {
       produto: am.produto, fabricante: am.fabricante, modelo: am.modelo,
       identificador: am.identificador, lacre: '',
       tensaoAlim: am.tensaoAlim, potencia: am.potencia, frequencia: am.frequencia,
+      temDriver: am.temDriver,
+      driverProduto: am.driverProduto, driverFabricante: am.driverFabricante,
+      driverModelo: am.driverModelo, driverIdentificador: am.driverIdentificador,
+      driverPotencia: am.driverPotencia, driverTensaoAlim: am.driverTensaoAlim,
+      driverFrequencia: am.driverFrequencia,
+      driverOrcamento: am.driverOrcamento, driverProtocolo: am.driverProtocolo,
       documentacao: 'embalagem com especificações',
       numRelatorio: am.numRelatorio, orcamento: am.orcamento, protocolo: am.protocolo,
       periodoInicio: am.periodoInicio, periodoFim: am.periodoFim, dataEmissao: am.dataEmissao,
