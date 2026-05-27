@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeImage } = require('electron')
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeImage, nativeTheme } = require('electron')
 const path    = require('path')
 const http    = require('http')
 const fs      = require('fs')
@@ -253,6 +253,11 @@ async function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
     },
   })
+
+  /* Barra de título nativa em dark mode para combinar com o tema escuro do app.
+     autoHideMenuBar esconde a barra de menus (aparece ao pressionar Alt). */
+  nativeTheme.themeSource = 'dark'
+  win.setAutoHideMenuBar(true)
 
   const HIDE_CHROME_CSS = `aside { display: none !important; } header.sticky { display: none !important; }`
   win.webContents.on('did-start-loading', () => {
@@ -738,6 +743,7 @@ ipcMain.handle('window:focus', (event) => {
   if (win) { win.focus(); win.webContents.focus() }
   return { ok: true }
 })
+
 
 
 /* ─── IPC: Excel ──────────────────────────────────────────────────────────── */

@@ -42,6 +42,24 @@
 [data-radius="sharp"] { --radius-card: 4px;  --radius-btn: 3px;  }
 [data-radius="pill"]  { --radius-card: 18px; --radius-btn: 12px; }
 
+/* Override das classes Tailwind rounded-* inline (rounded-lg, rounded-xl, etc.)
+   que não passam pelo @apply nos componentes e ficariam com valor fixo.
+   rounded-full (círculos, dots, avatares) é preservado intencionalmente.
+   rounded sem sufixo (4px, estilo sutil em tags/badges) também é preservado. */
+[data-radius="sharp"] .rounded-sm                                        { border-radius: 2px !important; }
+[data-radius="sharp"] .rounded-md,
+[data-radius="sharp"] .rounded-lg                                        { border-radius: var(--radius-btn) !important; }
+[data-radius="sharp"] .rounded-xl,
+[data-radius="sharp"] .rounded-2xl,
+[data-radius="sharp"] .rounded-3xl                                       { border-radius: var(--radius-card) !important; }
+
+[data-radius="pill"]  .rounded-sm                                        { border-radius: 6px !important; }
+[data-radius="pill"]  .rounded-md                                        { border-radius: var(--radius-btn) !important; }
+[data-radius="pill"]  .rounded-lg,
+[data-radius="pill"]  .rounded-xl,
+[data-radius="pill"]  .rounded-2xl,
+[data-radius="pill"]  .rounded-3xl                                       { border-radius: var(--radius-card) !important; }
+
 /* ── Padrões de fundo ── */
 /* Padrão padrão (dots) — definido em .dot-grid abaixo */
 [data-pattern="none"] .dot-grid  { background-image: none !important; }
@@ -211,7 +229,7 @@
     background: rgba(232,185,75,0.10);
     color: #E8B94B;
     border: 1px solid rgba(232,185,75,0.22);
-    border-radius: 4px;
+    border-radius: var(--radius-btn, 4px);
     letter-spacing: 0.08em;
   }
 
@@ -230,8 +248,9 @@
 
   /* ── NAV ITEM (sidebar) ─────────────────────────────────── */
   .nav-item {
-    @apply flex items-center gap-2.5 px-3 py-2 rounded-lg text-[11.5px] font-medium
+    @apply flex items-center gap-2.5 px-3 py-2 text-[11.5px] font-medium
            transition-all duration-150 cursor-pointer select-none;
+    border-radius: var(--radius-btn, 7px);
     color: rgba(255,255,255,0.42);
   }
   .nav-item:hover {
