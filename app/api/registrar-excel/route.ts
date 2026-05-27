@@ -4,32 +4,47 @@ import fs from 'fs'
 import path from 'path'
 import { readSettings } from '@/lib/settings-server'
 
+// xlsx-populate preserva toda a formatação do Excel ao escrever
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const XlsxPopulate = require('xlsx-populate')
+
 function getExcelPath(): string {
   const settings = readSettings()
   if (settings.excelPath) return path.normalize(settings.excelPath)
-  // fallback para desenvolvimento
   return path.normalize('C:/Users/Notla/OneDrive/Área de Trabalho/Compatibilidade eletromagnética_2026.xlsx')
 }
 
-function toExcelSerial(date: Date): number {
-  return date.getTime() / 86400000 + 25569
-}
-
-function readWorkbook() {
-  const EXCEL_PATH = getExcelPath()
-  if (!fs.existsSync(EXCEL_PATH)) {
-    throw new Error(`Planilha não encontrada: ${EXCEL_PATH}\n\nConfigure o caminho em Configurações.`)
+function readRows(): { rows: any[][]; excelPath: string } {
+  const excelPath = getExcelPath()
+  if (!fs.existsSync(excelPath)) {
+    throw new Error(`Planilha não encontrada: ${excelPath}\n\nConfigure o caminho em Configurações.`)
   }
-  const buf = fs.readFileSync(EXCEL_PATH)
-  return { wb: XLSX.read(buf, { type: 'buffer' }), path: EXCEL_PATH }
+  const buf = fs.readFileSync(excelPath)
+  const wb  = XLSX.read(buf, { type: 'buffer' })
+  const ws  = wb.Sheets[wb.SheetNames[0]]
+  const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as any[][]
+  return { rows, excelPath }
 }
 
-async function writeWorkbook(wb: XLSX.WorkBook, filePath: string): Promise<void> {
-  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer
+async function patchCells(
+  excelPath: string,
+  patches: Array<{ cell: string; value?: any; numberFormat?: string; clear?: boolean }>,
+) {
   let lastErr: Error | null = null
   for (let attempt = 1; attempt <= 4; attempt++) {
     try {
-      fs.writeFileSync(filePath, buf)
+      const wb   = await XlsxPopulate.fromFileAsync(excelPath)
+      const sheet = wb.sheet(0)
+      for (const p of patches) {
+        const cell = sheet.cell(p.cell)
+        if (p.clear) {
+          cell.value(null)
+        } else {
+          cell.value(p.value)
+          if (p.numberFormat) cell.style('numberFormat', p.numberFormat)
+        }
+      }
+      await wb.toFileAsync(excelPath)
       return
     } catch (err: any) {
       lastErr = err
@@ -50,18 +65,15 @@ function findNextEmptyRow(rows: any[][]): number {
 
 export async function GET(request: NextRequest) {
   const checkProtocolo = request.nextUrl.searchParams.get('checkProtocolo')
-
   try {
-    const { wb } = readWorkbook()
-    const ws = wb.Sheets[wb.SheetNames[0]]
-    const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as any[][]
+    const { rows } = readRows()
 
     if (checkProtocolo !== null) {
       const needle = checkProtocolo.trim().toLowerCase()
       for (const row of rows) {
         const cell = String(row[6] ?? '').trim().toLowerCase()
         if (cell && cell === needle) {
-          const num = row[2]
+          const num  = row[2]
           const year = new Date().getFullYear()
           return NextResponse.json({ exists: true, numRelatorio: num ? `EMC ${num}/${year}` : undefined })
         }
@@ -71,9 +83,36 @@ export async function GET(request: NextRequest) {
 
     const idx = findNextEmptyRow(rows)
     if (idx === -1) return NextResponse.json({ error: 'Sem linhas disponíveis' }, { status: 400 })
-    const num = parseInt(String(rows[idx][2]), 10)
+    const num  = parseInt(String(rows[idx][2]), 10)
     const year = new Date().getFullYear()
     return NextResponse.json({ proximoNumero: num, relatorio: `EMC ${num}/${year}` })
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 })
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const { numRelatorio } = await request.json()
+    const match = String(numRelatorio ?? '').match(/(\d+)/)
+    if (!match) return NextResponse.json({ error: 'Formato inválido' }, { status: 400 })
+    const num = parseInt(match[1], 10)
+
+    const { rows, excelPath } = readRows()
+    const idx = rows.findIndex(row => parseInt(String(row[2]), 10) === num)
+    if (idx < 0) return NextResponse.json({ error: 'Número não encontrado' }, { status: 404 })
+
+    const row1 = idx + 1
+    await patchCells(excelPath, [
+      { cell: `E${row1}`, value: 'CANCELADO' },
+      { cell: `F${row1}`, clear: true },
+      { cell: `G${row1}`, clear: true },
+      { cell: `H${row1}`, clear: true },
+      { cell: `I${row1}`, clear: true },
+      { cell: `J${row1}`, clear: true },
+    ])
+
+    return NextResponse.json({ ok: true })
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
@@ -82,38 +121,28 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const { cliente = '', produto = '', protocolo = '', orcamento = '', responsavel = '' } = await request.json()
-    const { wb, path: excelPath } = readWorkbook()
-    const ws = wb.Sheets[wb.SheetNames[0]]
-    const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as any[][]
+
+    const { rows, excelPath } = readRows()
     const idx = findNextEmptyRow(rows)
     if (idx === -1) return NextResponse.json({ error: 'Sem linhas disponíveis na planilha' }, { status: 400 })
 
-    const num = parseInt(String(rows[idx][2]), 10)
-    const row1 = idx + 1
+    const num    = parseInt(String(rows[idx][2]), 10)
+    const row1   = idx + 1
     const orcNum = Number(orcamento)
 
-    const updates: [string, any, XLSX.ExcelDataType][] = [
-      [`E${row1}`, cliente,                               's'],
-      [`F${row1}`, produto,                               's'],
-      [`G${row1}`, protocolo,                             's'],
-      [`H${row1}`, isNaN(orcNum) ? orcamento : orcNum,   isNaN(orcNum) ? 's' : 'n'],
-      [`I${row1}`, toExcelSerial(new Date()),             'n'],
-      [`J${row1}`, responsavel,                           's'],
-    ]
-
-    for (const [ref, value, type] of updates) {
-      const existing = ws[ref] ?? {}
-      ws[ref] = { ...existing, v: value, t: type, w: undefined }
-    }
-    const dateCell = ws[`I${row1}`]
-    if (dateCell && !dateCell.z) dateCell.z = 'dd/mm/yyyy hh:mm'
-
-    await writeWorkbook(wb, excelPath)
+    await patchCells(excelPath, [
+      { cell: `E${row1}`, value: cliente },
+      { cell: `F${row1}`, value: produto },
+      { cell: `G${row1}`, value: protocolo },
+      { cell: `H${row1}`, value: isNaN(orcNum) ? orcamento : orcNum },
+      { cell: `I${row1}`, value: new Date(), numberFormat: 'dd/mm/yyyy' },
+      { cell: `J${row1}`, value: responsavel },
+    ])
 
     const year = new Date().getFullYear()
     return NextResponse.json({ numero: num, numRelatorio: `EMC ${num}/${year}` })
   } catch (err: any) {
-    const msg = err.message ?? String(err)
+    const msg  = err.message ?? String(err)
     const hint = msg.includes('EBUSY') || msg.includes('lock') ||
       msg.includes('EPERM') || msg.includes('EACCES') || msg.includes('ENOENT')
       ? ' — verifique se a planilha está fechada e tente novamente'

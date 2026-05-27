@@ -1,8 +1,11 @@
-﻿'use client'
+'use client'
 
 import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, History, CheckCircle2, AlertCircle, ChevronDown, Upload, X, Loader2 } from 'lucide-react'
+import {
+  ArrowLeft, History, CheckCircle2, AlertCircle, ChevronDown,
+  Upload, X, Loader2, Plus, ImageOff, RotateCcw,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   type Cispr15Config, type RelatorioSalvo, type AmendmentChange, type EmendaDraft,
@@ -11,11 +14,37 @@ import {
 } from '../types'
 import { filterDocxForResult } from '../docx-filter'
 
+/* ─── resize helper ───────────────────────────────────────────────────────── */
+async function resizeToBase64(file: File, maxW = 1000, maxH = 1000): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      let { width: w, height: h } = img
+      if (w > maxW || h > maxH) {
+        const r = Math.min(maxW / w, maxH / h)
+        w = Math.round(w * r); h = Math.round(h * r)
+      }
+      const canvas = document.createElement('canvas')
+      canvas.width = w; canvas.height = h
+      canvas.getContext('2d')!.drawImage(img, 0, 0, w, h)
+      URL.revokeObjectURL(url)
+      resolve(canvas.toDataURL('image/jpeg', 0.82))
+    }
+    img.onerror = reject
+    img.src = url
+  })
+}
+
 /* ─── diff engine ─────────────────────────────────────────────────────────── */
+type PhotoEntry = { name: string; base64: string }
+
 function detectChanges(
   original: Cispr15Config,
   amended: Cispr15Config,
   photosAlteradas: boolean[],
+  photosNovas: (PhotoEntry | null | undefined)[],
+  originalPhotosLen: number,
   resultadosAlterados: { conduzida: boolean; loop: boolean; anexoB: boolean },
 ): AmendmentChange[] {
   const changes: AmendmentChange[] = []
@@ -42,8 +71,16 @@ function detectChanges(
   if (resultadosAlterados.anexoB)
     changes.push({ marker: m++, campo: 'resultados_anexoB', descricao: 'Alteração nos resultados — Perturbações Radiadas (Anexo B 30–300 MHz)' })
   photosAlteradas.forEach((changed, i) => {
-    if (changed)
-      changes.push({ marker: m++, campo: `foto_${i + 1}`, descricao: `Substituição da Figura ${i + 1} – Amostra ensaiada` })
+    if (!changed) return
+    const entry = photosNovas[i]
+    const isNew = i >= originalPhotosLen && entry != null
+    const isRemoved = entry === null
+    const descricao = isRemoved
+      ? `Remoção da Figura ${i + 1} – Amostra ensaiada`
+      : isNew
+        ? `Adição de Figura ${i + 1} – Amostra ensaiada`
+        : `Substituição da Figura ${i + 1} – Amostra ensaiada`
+    changes.push({ marker: m++, campo: `foto_${i + 1}`, descricao })
   })
   return changes
 }
@@ -87,11 +124,11 @@ function Field({
 /* ─── página ──────────────────────────────────────────────────────────────── */
 export default function EmendaPage() {
   const router = useRouter()
-  const [relatorios,      setRelatorios]      = useState<RelatorioSalvo[]>([])
-  const [selectedId,      setSelectedId]      = useState<string>('')
-  const [cfg,             setCfg]             = useState<Cispr15Config>(DEFAULTS)
-  const [dataEmenda,      setDataEmenda]       = useState(today())
-  const [photosAlteradas, setPhotosAlteradas] = useState<boolean[]>([false, false, false, false])
+  const [relatorios,  setRelatorios]  = useState<RelatorioSalvo[]>([])
+  const [selectedId,  setSelectedId]  = useState<string>('')
+  const [cfg,         setCfg]         = useState<Cispr15Config>(DEFAULTS)
+  const [dataEmenda,  setDataEmenda]  = useState(today())
+  const [photosNovas, setPhotosNovas] = useState<(PhotoEntry | null | undefined)[]>([])
 
   type ResultSlot = { checked: boolean; html: string | null; name: string | null; loading: boolean }
   const emptySlot = (): ResultSlot => ({ checked: false, html: null, name: null, loading: false })
@@ -119,14 +156,57 @@ export default function EmendaPage() {
     [relatorios, selectedId],
   )
 
+  const numFotos   = Math.max(selected?.photos.length ?? 2, 4)
+  const totalFotos = Math.max(numFotos, photosNovas.length)
+
+  const photosAlteradas = useMemo(
+    () => Array.from({ length: totalFotos }, (_, i) => photosNovas[i] !== undefined),
+    [totalFotos, photosNovas],
+  )
+
   function selectReport(id: string) {
     setSelectedId(id)
     const r = relatorios.find(r => r.id === id)
     if (r) {
       setCfg({ ...(r.currentCfg ?? r.cfg) })
-      setPhotosAlteradas(Array(Math.max(r.photos.length, 4)).fill(false))
+      setPhotosNovas([])
       setResultados({ conduzida: emptySlot(), loop: emptySlot(), anexoB: emptySlot() })
     }
+  }
+
+  async function handlePhotoUpload(file: File, index: number) {
+    const full   = await resizeToBase64(file)
+    const base64 = full.replace(/^data:image\/\w+;base64,/, '')
+    setPhotosNovas(prev => {
+      const next = [...prev]
+      while (next.length <= index) next.push(undefined)
+      next[index] = { name: file.name, base64 }
+      return next
+    })
+  }
+
+  function handlePhotoRemove(index: number) {
+    const hasOriginal = !!selected?.photos[index]
+    setPhotosNovas(prev => {
+      const next = [...prev]
+      while (next.length <= index) next.push(undefined)
+      if (hasOriginal) {
+        next[index] = null
+      } else {
+        next[index] = undefined
+        while (next.length > 0 && next[next.length - 1] === undefined) next.pop()
+      }
+      return next
+    })
+  }
+
+  function handlePhotoRestore(index: number) {
+    setPhotosNovas(prev => {
+      const next = [...prev]
+      next[index] = undefined
+      while (next.length > 0 && next[next.length - 1] === undefined) next.pop()
+      return next
+    })
   }
 
   async function handleNovoDocx(file: File, key: keyof typeof resultados) {
@@ -147,12 +227,16 @@ export default function EmendaPage() {
     setCfg(prev => ({ ...prev, [k]: v }))
 
   const alteracoes = useMemo(
-    () => selected ? detectChanges(selected.cfg, cfg, photosAlteradas, {
-      conduzida: resultados.conduzida.checked,
-      loop:      resultados.loop.checked,
-      anexoB:    resultados.anexoB.checked,
-    }) : [],
-    [selected, cfg, photosAlteradas, resultados],
+    () => selected ? detectChanges(
+      selected.cfg, cfg, photosAlteradas, photosNovas,
+      selected.photos.length,
+      {
+        conduzida: resultados.conduzida.checked,
+        loop:      resultados.loop.checked,
+        anexoB:    resultados.anexoB.checked,
+      },
+    ) : [],
+    [selected, cfg, photosAlteradas, photosNovas, resultados],
   )
 
   function gerarEmenda() {
@@ -176,9 +260,40 @@ export default function EmendaPage() {
     localStorage.setItem(EMENDA_DRAFT_KEY, JSON.stringify(draft))
     localStorage.setItem(CFG_KEY, JSON.stringify(cfg))
 
-    try { localStorage.setItem(PHOTOS_KEY, JSON.stringify(selected.photos)) } catch {}
+    // Commit emenda imediatamente para que apareça na aba de emendas antes do PDF
+    try {
+      const rawR = localStorage.getItem(RELATORIOS_KEY)
+      if (rawR) {
+        const lista: RelatorioSalvo[] = JSON.parse(rawR)
+        const idx = lista.findIndex(r => r.id === selected.id)
+        if (idx >= 0) {
+          const emendas = [...lista[idx].emendas]
+          if (!emendas.find(e => e.numero === emendaNum)) {
+            emendas.push({ numero: emendaNum, dataEmenda, alteracoes })
+          }
+          lista[idx] = { ...lista[idx], emendas, currentCfg: cfg }
+          localStorage.setItem(RELATORIOS_KEY, JSON.stringify(lista))
+          const api = (window as any).electronAPI
+          if (api) {
+            try { api.saveRelatorios(lista.map((r: RelatorioSalvo) => ({ ...r, photos: [] }))).catch(() => {}) } catch {}
+          }
+        }
+      }
+    } catch {}
 
-    // Combinar HTMLs dos resultados que tiverem upload; senão, restaurar o docx original
+    // Build merged photos: originals overridden/extended by photosNovas
+    const mergedPhotos: PhotoEntry[] = []
+    for (let i = 0; i < totalFotos; i++) {
+      const entry = photosNovas[i]
+      if (entry === null) continue          // removed
+      if (entry !== undefined) {
+        mergedPhotos.push(entry)            // new / replaced
+      } else if (selected.photos[i]) {
+        mergedPhotos.push(selected.photos[i]) // original unchanged
+      }
+    }
+    try { localStorage.setItem(PHOTOS_KEY, JSON.stringify(mergedPhotos)) } catch {}
+
     const htmlParts: string[] = []
     const nameParts: string[] = []
     if (resultados.conduzida.checked && resultados.conduzida.html) {
@@ -223,8 +338,6 @@ export default function EmendaPage() {
       </div>
     )
   }
-
-  const numFotos = Math.max(selected?.photos.length ?? 2, 4)
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -322,37 +435,112 @@ export default function EmendaPage() {
         </div>
       </div>
 
-      {/* ── Fotos e Resultados ── */}
+      {/* ── Fotos ── */}
       <div className="card p-5 mb-4">
-        <p className="form-section mb-3">Fotos e Resultados dos Ensaios</p>
-        <p className="text-[10px] text-white/30 font-mono mb-4">
-          Marque os itens que serão substituídos no relatório
+        <p className="form-section mb-1">Fotos da amostra</p>
+        <p className="text-[10px] text-white/25 font-mono mb-4">
+          Passe o mouse sobre a foto para substituir ou remover · clique em "+" para adicionar
         </p>
-        <div className="space-y-2 mb-4">
-          {Array.from({ length: numFotos }, (_, i) => (
-            <label key={i} className="flex items-center gap-3 cursor-pointer group">
-              <input
-                type="checkbox"
-                checked={photosAlteradas[i] ?? false}
-                onChange={e => {
-                  const next = [...photosAlteradas]
-                  while (next.length <= i) next.push(false)
-                  next[i] = e.target.checked
-                  setPhotosAlteradas(next)
-                }}
-                className="w-4 h-4 rounded accent-amber-400 cursor-pointer"
-              />
-              <span className="text-sm text-white/60 group-hover:text-white/80">
-                Figura {i + 1} – Amostra ensaiada
-                {selected?.photos[i] && (
-                  <span className="text-white/25 text-xs ml-2 font-mono">{selected.photos[i].name}</span>
-                )}
-              </span>
-            </label>
-          ))}
+
+        <div className="grid grid-cols-2 gap-3">
+          {Array.from({ length: totalFotos }, (_, i) => {
+            const origPhoto    = selected?.photos[i]
+            const newEntry     = photosNovas[i]
+            const isChanged    = newEntry !== undefined
+            const isRemoved    = newEntry === null
+            const displayPhoto = isRemoved ? null : (newEntry ?? origPhoto ?? null)
+
+            return (
+              <div key={i} className={cn(
+                'rounded-xl border overflow-hidden',
+                isChanged ? 'border-amber-500/35' : 'border-white/8',
+              )}>
+                {/* Thumbnail */}
+                <div className="h-28 relative bg-white/2 flex items-center justify-center overflow-hidden">
+                  {displayPhoto ? (
+                    <>
+                      <img
+                        src={`data:image/jpeg;base64,${displayPhoto.base64}`}
+                        className="w-full h-full object-cover"
+                        alt={`Figura ${i + 1}`}
+                      />
+                      <div className="absolute inset-0 bg-black/65 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                        <label className="cursor-pointer flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-[11px] text-white transition-all">
+                          <Upload size={10} /> Substituir
+                          <input type="file" accept="image/*" className="hidden"
+                            onChange={e => { const f = e.target.files?.[0]; if (f) handlePhotoUpload(f, i) }} />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => handlePhotoRemove(i)}
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-500/25 hover:bg-red-500/45 text-[11px] text-red-300 transition-all">
+                          <X size={10} /> Remover
+                        </button>
+                      </div>
+                    </>
+                  ) : isRemoved ? (
+                    <div className="flex flex-col items-center gap-1.5 text-red-400/50">
+                      <ImageOff size={22} />
+                      <span className="text-[10px] font-mono">Removida</span>
+                      {origPhoto && (
+                        <button
+                          type="button"
+                          onClick={() => handlePhotoRestore(i)}
+                          className="flex items-center gap-1 text-[10px] text-white/35 hover:text-white/70 mt-1 px-2 py-1 rounded border border-white/10 transition-all">
+                          <RotateCcw size={9} /> Restaurar
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <label className="cursor-pointer flex flex-col items-center gap-1.5 text-white/20 hover:text-teal/60 transition-colors w-full h-full justify-center">
+                      <Upload size={20} />
+                      <span className="text-[10px] font-mono">Adicionar</span>
+                      <input type="file" accept="image/*" className="hidden"
+                        onChange={e => { const f = e.target.files?.[0]; if (f) handlePhotoUpload(f, i) }} />
+                    </label>
+                  )}
+                </div>
+
+                {/* Footer */}
+                <div className={cn(
+                  'px-2.5 py-1.5 flex items-center gap-1.5',
+                  isChanged ? 'bg-amber-500/8' : '',
+                )}>
+                  <span className="text-[10px] font-mono text-white/35 shrink-0">Fig. {i + 1}</span>
+                  {isChanged && !isRemoved && (
+                    <span className="text-[9px] font-mono text-amber-400 border border-amber-500/30 rounded px-1 leading-tight">alterada</span>
+                  )}
+                  {isRemoved && (
+                    <span className="text-[9px] font-mono text-red-400 border border-red-500/30 rounded px-1 leading-tight">removida</span>
+                  )}
+                  {displayPhoto?.name && (
+                    <span className="text-[9px] font-mono text-white/20 truncate flex-1 text-right">{displayPhoto.name}</span>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+
+          {/* Add new photo */}
+          <label className="rounded-xl border border-dashed border-white/12 hover:border-teal/35 hover:bg-teal/5 transition-all cursor-pointer flex flex-col items-center justify-center gap-1.5 h-36 text-white/20 hover:text-teal/60">
+            <Plus size={20} />
+            <span className="text-[10px] font-mono">Nova foto</span>
+            <input type="file" accept="image/*" className="hidden"
+              onChange={e => {
+                const f = e.target.files?.[0]
+                if (f) handlePhotoUpload(f, Math.max(numFotos, photosNovas.length))
+              }} />
+          </label>
         </div>
-        <div className="border-t border-white/5 pt-3 space-y-3">
-          <p className="text-[10px] text-white/30 font-mono">Resultados dos ensaios</p>
+      </div>
+
+      {/* ── Resultados dos ensaios ── */}
+      <div className="card p-5 mb-4">
+        <p className="form-section mb-3">Resultados dos Ensaios</p>
+        <p className="text-[10px] text-white/30 font-mono mb-3">
+          Marque e carregue um novo .docx para substituir os resultados
+        </p>
+        <div className="space-y-3">
           {(
             [
               { key: 'conduzida' as const, label: 'Perturbações Conduzidas' },

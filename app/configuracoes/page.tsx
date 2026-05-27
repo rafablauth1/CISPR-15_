@@ -5,9 +5,17 @@ import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Settings, FolderOpen, FileSpreadsheet,
   CheckCircle2, AlertTriangle, Save, RotateCcw, Lock, ArrowRight,
+  Shield, RefreshCw, BadgeCheck,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { type AppSettings, SETTINGS_DEFAULTS, SETTINGS_KEY, AUTH_KEY } from '@/app/cispr15/types'
+
+interface CertInfo {
+  subject: string
+  thumbprint: string
+  notAfter: string
+  issuer: string
+}
 
 function Label({ children }: { children: React.ReactNode }) {
   return <label className="text-[10px] text-white/35 uppercase tracking-widest font-mono">{children}</label>
@@ -34,6 +42,9 @@ export default function ConfiguracoesPage() {
   const [gateError,    setGateError]    = useState(false)
   const [appPassword,  setAppPassword]  = useState('')
   const [capsLock,     setCapsLock]     = useState(false)
+  const [certs,        setCerts]        = useState<CertInfo[]>([])
+  const [certsLoading, setCertsLoading] = useState(false)
+  const [certsError,   setCertsError]   = useState<string | null>(null)
   const gateInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -111,6 +122,33 @@ export default function ConfiguracoesPage() {
     if (!api) return
     const res = await api.browseFolder('Selecionar pasta de cópias de PDF')
     if (!res.canceled) setSettings(s => ({ ...s, pdfCopyFolder: res.folderPath }))
+  }
+
+  async function browseUpdateFolder() {
+    const api = (window as any).electronAPI
+    if (!api) return
+    const res = await api.browseFolder('Selecionar pasta de atualização automática')
+    if (!res.canceled) setSettings(s => ({ ...s, updateFolder: res.folderPath }))
+  }
+
+  async function listarCertificados() {
+    const api = (window as any).electronAPI
+    if (!api) return
+    setCertsLoading(true)
+    setCertsError(null)
+    try {
+      const res = await api.listCerts()
+      if (res.ok) {
+        setCerts(res.certs)
+        if (res.certs.length === 0) setCertsError('Nenhum certificado com chave privada encontrado. Verifique se o software do token está ativo.')
+      } else {
+        setCertsError(res.error || 'Erro ao listar certificados')
+      }
+    } catch (e: any) {
+      setCertsError(e.message)
+    } finally {
+      setCertsLoading(false)
+    }
   }
 
   function restaurarPadroes() {
@@ -291,6 +329,32 @@ export default function ConfiguracoesPage() {
           </label>
         </Section>
 
+        {/* Atualização automática */}
+        <Section title="Atualização Automática">
+          <div className="space-y-2">
+            <Label>Pasta de atualização (rede)</Label>
+            <div className="flex gap-2">
+              <input
+                className="input flex-1 text-sm font-mono"
+                value={settings.updateFolder ?? ''}
+                onChange={e => setSettings(s => ({ ...s, updateFolder: e.target.value }))}
+                placeholder="Ex: \\servidor\projetos\CISPR15\updates"
+              />
+              {isElectron && (
+                <button type="button" onClick={browseUpdateFolder}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-white/10 text-white/50 hover:text-teal hover:border-teal/30 transition-all text-xs shrink-0">
+                  <FolderOpen size={13} /> Procurar
+                </button>
+              )}
+            </div>
+            <p className="text-[10px] text-white/25 font-mono">
+              Pasta onde o instalador e o <span className="text-white/40">version.json</span> ficam disponíveis.
+              Ao abrir o app, ele verifica se há versão mais nova e oferece atualização automática.
+              Deixe vazio para desativar.
+            </p>
+          </div>
+        </Section>
+
         {/* Segurança */}
         <Section title="Segurança — Emissão de Relatórios">
           <div className="space-y-2">
@@ -312,6 +376,82 @@ export default function ConfiguracoesPage() {
             </p>
           </div>
         </Section>
+
+        {/* Assinatura Digital */}
+        {isElectron && (
+          <Section title="Assinatura Digital de PDF">
+            <div className="space-y-3">
+              <p className="text-[10px] text-white/25 font-mono">
+                Selecione o certificado A3 (instalado no PC) para assinar os PDFs automaticamente ao gerar.
+                O software do token deve estar ativo antes de listar.
+              </p>
+
+              {/* Certificado selecionado */}
+              {settings.certThumbprint && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-teal/6 border border-teal/15">
+                  <BadgeCheck size={13} className="text-teal shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] text-teal/90 font-mono truncate">
+                      {certs.find(c => c.thumbprint === settings.certThumbprint)?.subject || 'Certificado configurado'}
+                    </p>
+                    <p className="text-[9px] text-white/30 font-mono truncate">{settings.certThumbprint}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSettings(s => ({ ...s, certThumbprint: '' }))}
+                    className="text-[10px] text-white/30 hover:text-red-400 transition-colors shrink-0"
+                  >
+                    Remover
+                  </button>
+                </div>
+              )}
+
+              {/* Botão listar + lista */}
+              <button
+                type="button"
+                onClick={listarCertificados}
+                disabled={certsLoading}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg border border-white/10 text-white/50 hover:text-teal hover:border-teal/30 transition-all text-xs disabled:opacity-40"
+              >
+                {certsLoading
+                  ? <RefreshCw size={12} className="animate-spin" />
+                  : <Shield size={12} />
+                }
+                {certsLoading ? 'Buscando...' : 'Listar certificados disponíveis'}
+              </button>
+
+              {certsError && (
+                <p className="text-[10px] text-amber-400/80 flex items-center gap-1">
+                  <AlertTriangle size={9} /> {certsError}
+                </p>
+              )}
+
+              {certs.length > 0 && (
+                <div className="space-y-1.5">
+                  <Label>Selecione o certificado de assinatura</Label>
+                  {certs.map(cert => (
+                    <button
+                      key={cert.thumbprint}
+                      type="button"
+                      onClick={() => setSettings(s => ({ ...s, certThumbprint: cert.thumbprint }))}
+                      className={cn(
+                        'w-full text-left px-3 py-2.5 rounded-lg border transition-all text-[11px]',
+                        settings.certThumbprint === cert.thumbprint
+                          ? 'border-teal/40 bg-teal/8 text-teal'
+                          : 'border-white/8 bg-white/3 text-white/60 hover:border-white/20 hover:text-white/80'
+                      )}
+                    >
+                      <p className="font-mono truncate">{cert.subject}</p>
+                      <p className="text-[9px] text-white/30 font-mono mt-0.5">
+                        Expira: {cert.notAfter} · {cert.thumbprint.slice(0, 16)}…
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </Section>
+        )}
 
         {!isElectron && (
           <div className="flex items-start gap-2 px-4 py-3 rounded-xl bg-amber-500/8 border border-amber-500/20 text-amber-400 text-[11px]">

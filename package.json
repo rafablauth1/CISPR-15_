@@ -1,6 +1,6 @@
 {
   "name": "cispr15-labelo",
-  "version": "1.0.0",
+  "version": "1.0.10",
   "description": "Gerador de Relatórios CISPR 15 — LABELO/PUCRS",
   "main": "electron/main.js",
   "scripts": {
@@ -8,13 +8,19 @@
     "build": "next build",
     "start": "next start",
     "electron": "electron .",
-    "dist": "electron-builder --win --x64"
+    "dist": "next build && electron-builder --win --x64",
+    "postdist": "node scripts/publish-update.js",
+    "publish-update": "node scripts/publish-update.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.2",
+    "@signpdf/placeholder-plain": "^3.3.0",
+    "@signpdf/signpdf": "^3.3.0",
     "mammoth": "^1.12.0",
+    "node-forge": "^1.4.0",
     "tesseract.js": "^7.0.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "xlsx-populate": "^1.21.0"
   },
   "devDependencies": {
     "@types/node": "^20.13.0",
@@ -40,7 +46,7 @@
     "productName": "CISPR 15 LABELO",
     "copyright": "LABELO/PUCRS",
     "directories": {
-      "output": "dist"
+      "output": "C:\\Temp\\cispr15-dist"
     },
     "forceCodeSigning": false,
     "win": {
@@ -57,8 +63,9 @@
     },
     "nsis": {
       "oneClick": false,
-      "allowElevation": false,
-      "perMachine": false,
+      "allowElevation": true,
+      "perMachine": true,
+      "include": "build/installer.nsh",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "CISPR 15 LABELO",

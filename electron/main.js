@@ -3,9 +3,10 @@ const path    = require('path')
 const http    = require('http')
 const fs      = require('fs')
 const os      = require('os')
-const { execFile } = require('child_process')
+const { execFile, spawn } = require('child_process')
 const XLSX    = require('xlsx')
 const mammoth = require('mammoth')
+const { listSigningCerts, signPDF } = require('./pdf-signer')
 
 /* ─── PowerShell script para Windows OCR ─────────────────────────────────── */
 const PS_OCR_SCRIPT = `
@@ -43,12 +44,41 @@ const ICON_PATH = app.isPackaged
 
 app.setAppUserModelId('br.pucrs.labelo.cispr15')
 
+if (app.isPackaged) {
+  app.commandLine.appendSwitch('disable-background-networking')
+  app.commandLine.appendSwitch('disable-component-update')
+  app.commandLine.appendSwitch('disable-sync')
+  app.commandLine.appendSwitch('no-pings')
+  app.commandLine.appendSwitch('disable-breakpad')
+}
+
 /* pasta da EUT ativa */
 let eutFolderPath = null
 
 /* ─── settings ────────────────────────────────────────────────────────────── */
 
-const SETTINGS_DEFAULTS = { excelPath: '', dataFolder: '', agendaFolder: '', pdfCopyFolder: '', pdfAutoSaveToEut: true }
+const SETTINGS_DEFAULTS = { excelPath: '', dataFolder: '', agendaFolder: '', pdfCopyFolder: '', pdfAutoSaveToEut: true, updateFolder: '', certThumbprint: '' }
+
+/* pasta raiz do app:
+   - dev:       …/cispr15-standalone/
+   - instalado: …/AppData/Local/Programs/CISPR 15 LABELO/   (junto ao exe)  */
+function getAppRoot() {
+  if (app.isPackaged) return path.dirname(app.getPath('exe'))
+  return path.join(__dirname, '..')
+}
+
+/* defaults de pasta — dados em userData (sobrevive a updates/reinstalações) */
+function getDefaultPaths() {
+  const root     = getAppRoot()
+  const userData = app.getPath('userData')
+  return {
+    excelPath:     'C:\\Users\\Notla\\OneDrive\\Área de Trabalho\\Compatibilidade eletromagnética_2026.xlsx',
+    dataFolder:    path.join(userData, 'dados'),
+    agendaFolder:  path.join(userData, 'agenda'),
+    pdfCopyFolder: path.join(userData, 'pdfs'),
+    updateFolder:  path.join(root, 'updates'),
+  }
+}
 
 function getUserDataDir() {
   return app.getPath('userData')
@@ -59,13 +89,40 @@ function getSettingsFile() {
 }
 
 function readSettings() {
+  const def = { ...SETTINGS_DEFAULTS, ...getDefaultPaths() }
   try {
     const f = getSettingsFile()
     if (fs.existsSync(f)) {
-      return { ...SETTINGS_DEFAULTS, ...JSON.parse(fs.readFileSync(f, 'utf-8')) }
+      const saved = JSON.parse(fs.readFileSync(f, 'utf-8'))
+      return { ...def, ...saved }
     }
   } catch {}
-  return { ...SETTINGS_DEFAULTS }
+  return def
+}
+
+/* Migra dados antigos (dentro da pasta do app) para userData, uma única vez */
+function migrateDataFolders() {
+  const root    = getAppRoot()
+  const userData = app.getPath('userData')
+  const files   = ['cispr15_relatorios.json', 'cispr15_clientes.json']
+  const agFile  = 'cispr15_agenda.json'
+
+  // dados e agenda
+  const oldDirs = [
+    { old: path.join(root, 'dados'),  new: path.join(userData, 'dados'),  list: files },
+    { old: path.join(root, 'agenda'), new: path.join(userData, 'agenda'), list: [agFile] },
+  ]
+  for (const { old: oldDir, new: newDir, list } of oldDirs) {
+    if (!fs.existsSync(oldDir)) continue
+    fs.mkdirSync(newDir, { recursive: true })
+    for (const file of list) {
+      const src = path.join(oldDir, file)
+      const dst = path.join(newDir, file)
+      if (fs.existsSync(src) && !fs.existsSync(dst)) {
+        try { fs.copyFileSync(src, dst) } catch {}
+      }
+    }
+  }
 }
 
 function writeSettings(partial) {
@@ -79,8 +136,7 @@ function writeSettings(partial) {
 /* ─── dados (rede ou local) ───────────────────────────────────────────────── */
 
 function getDefaultDataDir() {
-  // Mesmo caminho em dev e instalado: Documentos/CISPR 15 LABELO/dados
-  return path.join(app.getPath('documents'), 'CISPR 15 LABELO', 'dados')
+  return getDefaultPaths().dataFolder
 }
 
 function dataFilePath(filename) {
@@ -153,12 +209,19 @@ function ping(port) {
   })
 }
 
-function waitForServer(port, timeoutMs = 60_000) {
+function waitForServer(port, timeoutMs = 120_000, proc) {
   return new Promise((resolve, reject) => {
+    let done = false
     const deadline = Date.now() + timeoutMs
+    if (proc) {
+      proc.on('exit', (code) => {
+        if (!done) { done = true; reject(new Error(`Servidor encerrou inesperadamente (código ${code ?? '?'}). Veja ${app.getPath('userData')}\\server.log`)) }
+      })
+    }
     async function attempt() {
-      if (await ping(port)) return resolve()
-      if (Date.now() >= deadline) return reject(new Error('Servidor não respondeu em ' + (timeoutMs / 1000) + 's'))
+      if (done) return
+      if (await ping(port)) { done = true; return resolve() }
+      if (Date.now() >= deadline) { done = true; return reject(new Error('Servidor não respondeu em ' + (timeoutMs / 1000) + 's')) }
       setTimeout(attempt, 600)
     }
     attempt()
@@ -216,12 +279,12 @@ async function createWindow() {
         app.quit(); return
       }
       port = PROD_PORT
-      try { await startServer(standaloneDir); await waitForServer(PROD_PORT) }
+      try { const proc = await startServer(standaloneDir); await waitForServer(PROD_PORT, 120_000, proc) }
       catch (err) { dialog.showErrorBox('Erro ao iniciar servidor', String(err)); app.quit(); return }
     }
   } else {
     port = PROD_PORT
-    try { await startServer(path.join(process.resourcesPath, 'nextapp')); await waitForServer(PROD_PORT) }
+    try { const proc = await startServer(path.join(process.resourcesPath, 'nextapp')); await waitForServer(PROD_PORT, 120_000, proc) }
     catch (err) { dialog.showErrorBox('Erro ao iniciar CISPR 15', String(err)); app.quit(); return }
   }
 
@@ -236,6 +299,11 @@ async function startServer(appDir) {
   const { utilityProcess } = require('electron')
   const serverScript = path.join(appDir, 'server.js')
   if (!fs.existsSync(serverScript)) throw new Error('server.js não encontrado em:\n' + serverScript)
+
+  const logPath = path.join(app.getPath('userData'), 'server.log')
+  const log = fs.createWriteStream(logPath, { flags: 'a', encoding: 'utf8' })
+  log.write(`\n--- start ${new Date().toISOString()} ---\n`)
+
   serverProcess = utilityProcess.fork(serverScript, [], {
     env: {
       ...process.env,
@@ -246,7 +314,14 @@ async function startServer(appDir) {
     },
     cwd: appDir, stdio: 'pipe',
   })
-  serverProcess.on('exit', () => { serverProcess = null })
+  if (serverProcess.stdout) serverProcess.stdout.on('data', d => log.write('[OUT] ' + d))
+  if (serverProcess.stderr) serverProcess.stderr.on('data', d => log.write('[ERR] ' + d))
+  serverProcess.on('exit', (code) => {
+    log.write(`--- exit code=${code} ${new Date().toISOString()} ---\n`)
+    log.end()
+    serverProcess = null
+  })
+  return serverProcess
 }
 
 /* ─── menu ────────────────────────────────────────────────────────────────── */
@@ -334,6 +409,13 @@ function buildMenu(port) {
 /* ─── ciclo de vida ───────────────────────────────────────────────────────── */
 
 app.whenReady().then(() => {
+  // migra dados antigos (dentro do app) para userData, se necessário
+  try { migrateDataFolders() } catch {}
+  // garante que as pastas de dados existam
+  const dp = getDefaultPaths()
+  for (const dir of [dp.dataFolder, dp.agendaFolder, dp.pdfCopyFolder, dp.updateFolder]) {
+    try { fs.mkdirSync(dir, { recursive: true }) } catch {}
+  }
   Menu.setApplicationMenu(buildMenu())
   createWindow()
 })
@@ -443,7 +525,6 @@ ipcMain.handle('pdf:save', async (_, { filename }) => {
       margins: { marginType: 'none' }, displayHeaderFooter: false,
     })
     fs.writeFileSync(filePath, data)
-    copyPdfToFolder(filePath)
     shell.openPath(filePath)
     return { ok: true, filePath }
   } catch (err) { return { ok: false, error: String(err) } }
@@ -457,7 +538,6 @@ ipcMain.handle('pdf:save-eut', async (_, { filename, folderPath }) => {
     const outPath = path.join(outDir, (filename || 'relatorio.pdf').replace(/[\\/:"*?<>|]/g, '_'))
     // Se já existe, apenas abre a pasta sem regerar
     if (fs.existsSync(outPath)) {
-      copyPdfToFolder(outPath)
       shell.showItemInFolder(outPath)
       return { ok: true, filePath: outPath, skipped: true }
     }
@@ -466,10 +546,63 @@ ipcMain.handle('pdf:save-eut', async (_, { filename, folderPath }) => {
       margins: { marginType: 'none' }, displayHeaderFooter: false,
     })
     await writeWithRetry(outPath, data)
-    copyPdfToFolder(outPath)
     shell.showItemInFolder(outPath)
     return { ok: true, filePath: outPath }
   } catch (err) { return { ok: false, error: String(err) } }
+})
+
+// Lista certificados com chave privada disponíveis no Windows Certificate Store
+ipcMain.handle('pdf:list-certs', async () => {
+  try {
+    const certs = listSigningCerts()
+    return { ok: true, certs }
+  } catch (err) {
+    return { ok: false, error: String(err), certs: [] }
+  }
+})
+
+// Assina digitalmente um PDF já salvo na pasta da EUT
+ipcMain.handle('pdf:sign-file', async (_, { eutFolderPath: eutPath, pdfFilename }) => {
+  const { certThumbprint } = readSettings()
+  if (!certThumbprint) return { ok: false, error: 'Nenhum certificado configurado em Configurações → Assinatura Digital.' }
+  if (!eutPath || !pdfFilename) return { ok: false, error: 'Caminho da pasta EUT não disponível.' }
+  const pdfPath = path.join(eutPath, pdfFilename)
+  if (!fs.existsSync(pdfPath)) return { ok: false, error: `PDF não encontrado:\n${pdfPath}` }
+  try {
+    const pdfBuffer = fs.readFileSync(pdfPath)
+    const signed = await signPDF(pdfBuffer, certThumbprint)
+    fs.writeFileSync(pdfPath, signed)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) }
+  }
+})
+
+// Copia o PDF assinado da pasta EUT para a pasta da agenda (acionado manualmente após assinatura)
+ipcMain.handle('pdf:publish', async (_, { eutFolderPath: eutPath, pdfFilename }) => {
+  const { pdfCopyFolder } = readSettings()
+  if (!pdfCopyFolder) return { ok: false, error: 'Pasta de destino não configurada em Configurações.' }
+  if (!eutPath || !pdfFilename) return { ok: false, error: 'Caminho da pasta EUT não disponível.' }
+  const src = path.join(eutPath, pdfFilename)
+  if (!fs.existsSync(src)) return { ok: false, error: `PDF não encontrado em:\n${src}` }
+  try {
+    fs.mkdirSync(pdfCopyFolder, { recursive: true })
+    const dest = path.join(pdfCopyFolder, pdfFilename)
+    fs.copyFileSync(src, dest)
+    return { ok: true, dest }
+  } catch (err) { return { ok: false, error: String(err) } }
+})
+
+ipcMain.handle('relatorio:cancel-pdf', async (_, { eutFolderPath: eutPath, pdfFilename }) => {
+  const s = readSettings()
+  const targets = []
+  if (eutPath && pdfFilename) targets.push(path.join(eutPath, pdfFilename))
+  if (s.pdfCopyFolder && pdfFilename) targets.push(path.join(s.pdfCopyFolder, pdfFilename))
+  const deleted = []
+  for (const p of targets) {
+    try { if (fs.existsSync(p)) { fs.unlinkSync(p); deleted.push(p) } } catch {}
+  }
+  return { ok: true, deleted }
 })
 
 ipcMain.handle('pdf:followup', async (_, { html, filename, landscape }) => {
@@ -648,6 +781,7 @@ ipcMain.handle('excel:registrar', async (_, { cliente, produto, protocolo, orcam
   const EXCEL_PATH = getExcelPath()
   try {
     if (!fs.existsSync(EXCEL_PATH)) return { error: 'Planilha não encontrada: ' + EXCEL_PATH }
+    // Lê só para encontrar a linha vazia (sem reescrever com XLSX para não perder formatação)
     const buf  = fs.readFileSync(EXCEL_PATH)
     const wb   = XLSX.read(buf, { type: 'buffer' })
     const ws   = wb.Sheets[wb.SheetNames[0]]
@@ -657,26 +791,73 @@ ipcMain.handle('excel:registrar', async (_, { cliente, produto, protocolo, orcam
     const num    = parseInt(String(rows[idx][2]), 10)
     const row1   = idx + 1
     const orcNum = Number(orcamento)
-    for (const [ref, val, t] of [
-      ['E'+row1, cliente,                            's'],
-      ['F'+row1, produto,                            's'],
-      ['G'+row1, protocolo,                          's'],
-      ['H'+row1, isNaN(orcNum) ? orcamento : orcNum, isNaN(orcNum) ? 's' : 'n'],
-      ['I'+row1, toExcelSerial(new Date()),           'n'],
-      ['J'+row1, responsavel,                        's'],
-    ]) { const e = ws[ref] ?? {}; ws[ref] = { ...e, v: val, t, w: undefined } }
-    const dc = ws['I'+row1]; if (dc && !dc.z) dc.z = 'dd/mm/yyyy hh:mm'
-    const out = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
+
+    // Usa xlsx-populate para escrever preservando toda a formatação do modelo
+    const XlsxPopulate = require('xlsx-populate')
     let lastErr = null
     for (let i = 1; i <= 4; i++) {
-      try { fs.writeFileSync(EXCEL_PATH, out); lastErr = null; break }
-      catch (e) { lastErr = e; await new Promise(r => setTimeout(r, 400 * i)) }
+      try {
+        const pop   = await XlsxPopulate.fromFileAsync(EXCEL_PATH)
+        const sheet = pop.sheet(0)
+        sheet.cell(`E${row1}`).value(cliente)
+        sheet.cell(`F${row1}`).value(produto)
+        sheet.cell(`G${row1}`).value(protocolo)
+        sheet.cell(`H${row1}`).value(isNaN(orcNum) ? orcamento : orcNum)
+        sheet.cell(`I${row1}`).value(new Date()).style('numberFormat', 'dd/mm/yyyy')
+        sheet.cell(`J${row1}`).value(responsavel)
+        await pop.toFileAsync(EXCEL_PATH)
+        lastErr = null
+        break
+      } catch (e) { lastErr = e; await new Promise(r => setTimeout(r, 400 * i)) }
     }
     if (lastErr) throw lastErr
     return { numero: num, numRelatorio: `EMC ${num}/${new Date().getFullYear()}` }
   } catch (err) {
     const msg = String(err)
     return { error: msg + ((msg.includes('EBUSY') || msg.includes('EPERM')) ? ' — feche a planilha' : '') }
+  }
+})
+
+/* ─── IPC: Auto-update ────────────────────────────────────────────────────── */
+
+function semverGt(a, b) {
+  const pa = String(a).split('.').map(Number)
+  const pb = String(b).split('.').map(Number)
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] || 0) > (pb[i] || 0)) return true
+    if ((pa[i] || 0) < (pb[i] || 0)) return false
+  }
+  return false
+}
+
+ipcMain.handle('update:check', async () => {
+  try {
+    const s = readSettings()
+    if (!s.updateFolder) return { available: false }
+    const versionFile = path.join(s.updateFolder, 'version.json')
+    if (!fs.existsSync(versionFile)) return { available: false }
+    const remote = JSON.parse(fs.readFileSync(versionFile, 'utf-8'))
+    if (!remote.version || !remote.installer) return { available: false }
+    if (semverGt(remote.version, app.getVersion())) {
+      return { available: true, version: remote.version, installer: remote.installer }
+    }
+    return { available: false }
+  } catch (err) {
+    return { available: false, error: String(err) }
+  }
+})
+
+ipcMain.handle('update:install', async (_, { installer }) => {
+  try {
+    const s = readSettings()
+    const src  = path.join(s.updateFolder, installer)
+    const dest = path.join(os.tmpdir(), installer)
+    fs.copyFileSync(src, dest)
+    spawn(dest, ['/SILENT', '/NORESTART'], { detached: true, stdio: 'ignore' }).unref()
+    setTimeout(() => app.quit(), 800)
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: String(err) }
   }
 })
 

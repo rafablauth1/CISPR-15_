@@ -6,3 +6,9 @@ standalone/
 .env.local
 out/
 dados/*.json
+agenda/*.json
+pdfs/
+updates/
+releases/
+dist.rar
+build/

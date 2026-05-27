@@ -3,10 +3,10 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  ArrowLeft, ArrowRight, Plus, Search, X, CheckCircle2, Clock, Edit2,
-  Trash2, ChevronDown, ChevronUp, FileText, Loader2,
+  ArrowLeft, ArrowRight, Plus, Search, X, CheckCircle2, XCircle, Clock, Edit2,
+  Trash2, ChevronDown, ChevronUp, FileText, Loader2, Download,
   Lightbulb, Lamp, Settings, Layers, RotateCcw, Link2, FileSearch,
-  AlertTriangle, Wifi, BarChart2, Tag, TrendingUp, Printer,
+  AlertTriangle, Wifi, BarChart2, Tag, TrendingUp, Printer, ScanText,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
@@ -26,8 +26,35 @@ const PREDEFINED_TAGS = [
 
 type TagId = typeof PREDEFINED_TAGS[number]['id']
 
+/* ─── tags personalizadas ─────────────────────────────────────────────────── */
+const CUSTOM_TAGS_KEY = 'cispr15_custom_tags_v1'
+
+interface CustomTag { id: string; label: string; color: string }
+
+const TAG_COLORS = [
+  { id: 'red',    cls: 'border-red-400/40 bg-red-400/8 text-red-300',           dot: '#f87171' },
+  { id: 'orange', cls: 'border-orange-400/40 bg-orange-400/8 text-orange-300',  dot: '#fb923c' },
+  { id: 'yellow', cls: 'border-yellow-400/40 bg-yellow-400/8 text-yellow-300',  dot: '#facc15' },
+  { id: 'green',  cls: 'border-green-400/40 bg-green-400/8 text-green-300',     dot: '#4ade80' },
+  { id: 'teal',   cls: 'border-teal/40 bg-teal/8 text-teal',                    dot: '#2dd4bf' },
+  { id: 'blue',   cls: 'border-blue-400/40 bg-blue-400/8 text-blue-300',        dot: '#60a5fa' },
+  { id: 'purple', cls: 'border-purple-400/40 bg-purple-400/8 text-purple-300',  dot: '#c084fc' },
+  { id: 'pink',   cls: 'border-pink-400/40 bg-pink-400/8 text-pink-300',        dot: '#f472b6' },
+] as const
+
+// store partilhado para que TagChip funcione sem prop drilling
+const customTagsStore = new Map<string, { id: string; label: string; cls: string }>()
+
 function tagInfo(id: string) {
-  return PREDEFINED_TAGS.find(t => t.id === id)
+  return PREDEFINED_TAGS.find(t => t.id === id) ?? customTagsStore.get(id) ?? null
+}
+
+function updateCustomTagsStore(tags: CustomTag[]) {
+  customTagsStore.clear()
+  tags.forEach(t => {
+    const color = TAG_COLORS.find(c => c.id === t.color) ?? TAG_COLORS[0]
+    customTagsStore.set(t.id, { id: t.id, label: t.label, cls: color.cls })
+  })
 }
 
 function TagChip({ id, small }: { id: string; small?: boolean }) {
@@ -41,6 +68,42 @@ function TagChip({ id, small }: { id: string; small?: boolean }) {
     )}>
       {t.label}
     </span>
+  )
+}
+
+/* ─── PieChart SVG ─────────────────────────────────────────────────────────── */
+function PieChart({ slices, size = 88 }: {
+  slices: { value: number; color: string; label: string }[]
+  size?: number
+}) {
+  const total = slices.reduce((s, v) => s + v.value, 0)
+  if (total === 0) return (
+    <div style={{ width: size, height: size }} className="flex items-center justify-center rounded-full border border-white/8">
+      <span className="text-[9px] text-white/20 font-mono">—</span>
+    </div>
+  )
+  const r = 38; const cx = 44; const cy = 44
+  let angle = -Math.PI / 2
+  const paths: { d: string; color: string }[] = []
+  slices.filter(s => s.value > 0).forEach(slice => {
+    const frac = slice.value / total
+    const start = angle
+    const end = angle + frac * 2 * Math.PI
+    angle = end
+    if (frac >= 1) {
+      paths.push({ d: `M${cx},${cy - r} A${r},${r} 0 1 1 ${cx - 0.01},${cy - r} Z`, color: slice.color })
+    } else {
+      const x1 = cx + r * Math.cos(start); const y1 = cy + r * Math.sin(start)
+      const x2 = cx + r * Math.cos(end);   const y2 = cy + r * Math.sin(end)
+      paths.push({ d: `M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${frac > 0.5 ? 1 : 0} 1 ${x2},${y2} Z`, color: slice.color })
+    }
+  })
+  return (
+    <svg viewBox="0 0 88 88" width={size} height={size} className="shrink-0">
+      {paths.map((p, i) => (
+        <path key={i} d={p.d} fill={p.color} stroke="rgba(0,0,0,0.25)" strokeWidth="0.8" />
+      ))}
+    </svg>
   )
 }
 
@@ -147,9 +210,75 @@ function ClientePicker({ clientes, onSelect }: {
 }
 
 /* ─── modal item único ────────────────────────────────────────────────────── */
-function ItemModal({ item, onSave, onClose, clientes }: {
+/* ─── OCR helpers ─────────────────────────────────────────────────────────── */
+interface OcrSugestao {
+  produto: string; fabricante: string; modelo: string; identificador: string
+  potencia: string; tensaoAlim: string; frequencia: string
+}
+
+function parsearOCR(text: string, tipo: 'lampada' | 'luminaria'): OcrSugestao {
+  const t  = text.normalize('NFC')
+  const tn = t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+  const potM = t.match(/(\d+(?:[,\.]\d+)?)\s*[Ww](?=[\s,;\n\r]|$)/m)
+  const potencia = potM ? potM[1].replace(',', '.') + 'W' : ''
+  let tensaoAlim = ''
+  const tensLabelM = tn.match(/(?:tens[aã]o|voltage|input|alimenta[cç][aã]o)\s*[:\-]?\s*([\d][^\n\r]{3,25})/)
+  if (tensLabelM) {
+    tensaoAlim = tensLabelM[1].trim().split(/[\n\r]/)[0].replace(/\s+/g, ' ').trim()
+  } else {
+    const acLines = t.split(/\r?\n/).filter(l => /V\s*AC|VAC|\bAC[~\s]/i.test(l))
+    for (const line of acLines) {
+      const nums = [...line.matchAll(/\b(\d{2,4})\b/g)].map(m => parseInt(m[1])).filter(v => v >= 85 && v <= 480)
+      if (nums.length >= 2) { tensaoAlim = nums.join('-') + 'VAC'; break }
+      if (nums.length === 1) { tensaoAlim = nums[0] + 'VAC'; break }
+    }
+    if (!tensaoAlim) { const tr = t.match(/\b\d{2,3}\s*[Vv]?\s*[-–~]\s*\d{2,3}\s*[Vv][Aa]?[Cc]?[~]?/m); tensaoAlim = tr ? tr[0].trim() : '' }
+  }
+  const freqM = t.match(/\d{2}\s*[\/\\]\s*\d{2}\s*[Hh][Zz]|\d{2,3}\s*[Hh][Zz]/m)
+  const frequencia = freqM ? freqM[0].replace(/\s+/g, '') : ''
+  const modeloM  = t.match(/(?:Mod(?:elo)?\.?|Model(?:o)?|M[\/\.]N\.?|MN\.?|Part(?:\.?[Nn]o)?\.?|P[\/\.]N\.?|[Tt]ipo)\s*[:\-.]?\s*([A-Z0-9][A-Z0-9\-\.\/]{2,30})/i)
+  const modeloFb = t.match(/\b([A-Z]{3,6}\d{3,6}[A-Z0-9]{0,6})\b/)
+  const modelo   = modeloM?.[1]?.trim().split(/[\n\r;]/)[0].trim() ?? modeloFb?.[1]?.trim() ?? ''
+  const fabIdx = tn.search(/fabricante|manufacturer|marca|brand|mfr/)
+  let fabricante = ''
+  if (fabIdx >= 0) {
+    const afterLabel = t.slice(fabIdx).match(/[^\n\r:]{3,12}:\s*([^\n\r]{2,60})/)
+    if (afterLabel) fabricante = afterLabel[1].trim().replace(/[\s=|[\]]+$/, '').split(/[;\n\r]/)[0].trim()
+  }
+  const prodM = t.match(/(?:L[aâ]mpada|Lumin[aá]ria)[^\n\r]{0,50}/i)
+  const produto = prodM?.[0]?.trim() ?? ''
+  const serieMatchIdx = tn.search(/(?:serie|n[o°]?\.?\s*(?:de\s+)?serie|s\/n|sn\b|ns\b)/)
+  const idSerie = serieMatchIdx >= 0 ? t.slice(serieMatchIdx).match(/[^:\-.\n\r]{0,15}[:\-.]?\s*([A-Za-z0-9]{3,20})/) : null
+  const idBarras = t.match(/(?:C[oó]d(?:igo)?\s*(?:de\s*)?[Bb]arras?|EAN|GTIN)\s*[:\-]?\s*(\d{8,20})/i)
+  const identificador = tipo === 'lampada'
+    ? (idBarras?.[1] ?? t.match(/\b(\d{12,14})\b/m)?.[1] ?? '')
+    : (idSerie?.[1]?.trim() ?? '')
+  return { produto, fabricante, modelo, identificador, potencia, tensaoAlim, frequencia }
+}
+
+function toGrayscale(base64: string): Promise<string> {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas')
+        canvas.width = img.width; canvas.height = img.height
+        const ctx = canvas.getContext('2d')!
+        ctx.filter = 'grayscale(1)'
+        ctx.drawImage(img, 0, 0)
+        resolve(canvas.toDataURL('image/jpeg', 0.97).split(',')[1])
+      } catch { resolve(base64) }
+    }
+    img.onerror = () => resolve(base64)
+    img.src = `data:image/jpeg;base64,${base64}`
+  })
+}
+
+function ItemModal({ item, onSave, onClose, clientes, customTags, onCustomTagsChange }: {
   item: AgendaItem; onSave: (i: AgendaItem) => void; onClose: () => void
   clientes: ClienteDB[]
+  customTags: CustomTag[]
+  onCustomTagsChange: (tags: CustomTag[]) => void
 }) {
   const [form, setForm] = useState<AgendaItem>({
     fabricante: '', modelo: '', identificador: '', potencia: '', tensaoAlim: '', frequencia: '50/60Hz',
@@ -159,7 +288,13 @@ function ItemModal({ item, onSave, onClose, clientes }: {
   const [showDUT, setShowDUT] = useState(
     !!(item.fabricante || item.modelo || item.potencia || item.tensaoAlim)
   )
-  const [cepStatus, setCepStatus] = useState<'idle'|'loading'|'ok'|'error'>('idle')
+  const [cepStatus,      setCepStatus]      = useState<'idle'|'loading'|'ok'|'error'>('idle')
+  const [ocrLoading,     setOcrLoading]     = useState(false)
+  const [ocrSugestao,    setOcrSugestao]    = useState<OcrSugestao | null>(null)
+  const [ocrTexto,       setOcrTexto]       = useState<string | null>(null)
+  const [showTagManager, setShowTagManager] = useState(false)
+  const [newTagLabel,    setNewTagLabel]    = useState('')
+  const [newTagColor,    setNewTagColor]    = useState<string>(TAG_COLORS[0].id)
 
   const s = (k: keyof AgendaItem) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
@@ -181,6 +316,49 @@ function ItemModal({ item, onSave, onClose, clientes }: {
       const tags = p.tags ?? []
       return { ...p, tags: tags.includes(id) ? tags.filter(t => t !== id) : [...tags, id] }
     })
+  }
+
+  async function handleOcr(file: File) {
+    setOcrLoading(true); setOcrSugestao(null); setOcrTexto(null)
+    try {
+      const reader = new FileReader()
+      const b64raw: string = await new Promise((res, rej) => {
+        reader.onload = () => res((reader.result as string).split(',')[1])
+        reader.onerror = rej
+        reader.readAsDataURL(file)
+      })
+      const gray = await toGrayscale(b64raw)
+      let texts: string[] = []
+      const api = (window as any).electronAPI
+      if (api?.recognizeOcr) {
+        try {
+          const res = await api.recognizeOcr([{ base64: gray }])
+          if (res?.ok && res.texts?.length) texts = (res.texts as string[]).filter((t: string) => t.trim())
+        } catch {}
+      }
+      if (!texts.length) {
+        const { createWorker } = await import('tesseract.js')
+        const worker = await createWorker(['por', 'eng'])
+        await worker.setParameters({ tessedit_pageseg_mode: '6' } as any)
+        try { const { data: { text } } = await worker.recognize(`data:image/jpeg;base64,${gray}`); if (text.trim()) texts.push(text.trim()) } catch {}
+        await worker.terminate()
+      }
+      if (!texts.length) { alert('Não foi possível extrair texto da foto.'); return }
+      const allText = texts.join('\n\n')
+      setOcrTexto(allText)
+      const s = parsearOCR(allText, form.tipo)
+      setOcrSugestao(s)
+      if (!Object.values(s).some(v => v)) alert('OCR não encontrou campos reconhecíveis. Texto bruto disponível abaixo.')
+    } catch (e: any) {
+      alert('Erro no OCR: ' + e.message)
+    } finally {
+      setOcrLoading(false)
+    }
+  }
+
+  function aplicarOcr(campo: keyof OcrSugestao) {
+    if (!ocrSugestao) return
+    setForm(p => ({ ...p, [campo]: ocrSugestao[campo] }))
   }
 
   async function handleCep(raw: string) {
@@ -363,6 +541,58 @@ function ItemModal({ item, onSave, onClose, clientes }: {
                 <Label>Documentação</Label>
                 <input className="input" value={form.documentacao ?? ''} onChange={s('documentacao')} placeholder="embalagem com especificações" />
               </div>
+
+              {/* OCR */}
+              <div className="col-span-2 pt-1 border-t border-white/5">
+                <label className={cn(
+                  'flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-semibold cursor-pointer transition-all w-fit',
+                  ocrLoading
+                    ? 'border-blue-400/30 bg-blue-500/8 text-blue-400 pointer-events-none'
+                    : 'border-white/10 text-white/35 hover:border-teal/35 hover:text-teal/80',
+                )}>
+                  {ocrLoading ? <Loader2 size={11} className="animate-spin" /> : <ScanText size={11} />}
+                  {ocrLoading ? 'Lendo…' : 'Ler Foto (OCR)'}
+                  <input type="file" accept="image/*" className="hidden" disabled={ocrLoading}
+                    onChange={e => { const f = e.target.files?.[0]; if (f) handleOcr(f) }} />
+                </label>
+
+                {(ocrSugestao || ocrTexto) && (
+                  <div className="mt-2 space-y-2">
+                    {ocrSugestao && Object.entries(ocrSugestao).some(([, v]) => v) && (
+                      <div className="p-2.5 rounded-lg border border-teal/20 bg-teal/4 space-y-1.5">
+                        <p className="text-[9px] text-teal/60 font-mono uppercase tracking-wider">
+                          Sugestões OCR — clique para aplicar
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {(Object.entries(ocrSugestao) as [keyof OcrSugestao, string][])
+                            .filter(([, v]) => v)
+                            .map(([campo, valor]) => (
+                              <button key={campo} type="button" onClick={() => aplicarOcr(campo)}
+                                className="flex items-center gap-1 px-2 py-1 rounded border border-teal/25 bg-teal/6 text-teal/80 hover:bg-teal/15 text-[10px] font-mono transition-all">
+                                <span className="text-teal/40">{campo}:</span> {valor}
+                              </button>
+                            ))}
+                          <button type="button" onClick={() => setForm(p => {
+                            const n = { ...p }
+                            for (const [k, v] of Object.entries(ocrSugestao) as [keyof OcrSugestao, string][]) {
+                              if (v) (n as any)[k] = v
+                            }
+                            return n
+                          })} className="px-2 py-1 rounded border border-teal/40 bg-teal/10 text-teal text-[10px] font-mono font-semibold hover:bg-teal/20 transition-all">
+                            Aplicar todos
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {ocrTexto && (
+                      <details className="text-[9px] text-white/20 font-mono">
+                        <summary className="cursor-pointer hover:text-white/40">Texto bruto OCR</summary>
+                        <pre className="mt-1 whitespace-pre-wrap break-all max-h-24 overflow-y-auto bg-white/3 rounded p-2">{ocrTexto}</pre>
+                      </details>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           )}
           {!showDUT && (
@@ -372,9 +602,21 @@ function ItemModal({ item, onSave, onClose, clientes }: {
 
         {/* Tags */}
         <div className="space-y-2">
-          <Label>Marcadores</Label>
+          <div className="flex items-center justify-between">
+            <Label>Marcadores</Label>
+            <button type="button"
+              onClick={() => setShowTagManager(p => !p)}
+              className="text-[10px] text-white/30 hover:text-teal/80 font-mono transition-colors flex items-center gap-1">
+              <Settings size={9} /> {showTagManager ? 'Fechar gerenciador' : 'Gerenciar'}
+            </button>
+          </div>
+
+          {/* seletor de tags */}
           <div className="flex flex-wrap gap-2">
-            {PREDEFINED_TAGS.map(t => (
+            {[...PREDEFINED_TAGS, ...customTags.map(t => {
+              const color = TAG_COLORS.find(c => c.id === t.color) ?? TAG_COLORS[0]
+              return { id: t.id, label: t.label, cls: color.cls }
+            })].map(t => (
               <button key={t.id} type="button" onClick={() => toggleTag(t.id)}
                 className={cn(
                   'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all',
@@ -384,6 +626,90 @@ function ItemModal({ item, onSave, onClose, clientes }: {
               </button>
             ))}
           </div>
+
+          {/* gerenciador inline */}
+          {showTagManager && (
+            <div className="p-3 rounded-xl border border-white/8 bg-white/[0.015] space-y-3">
+              {/* criar nova tag */}
+              <div className="space-y-2">
+                <p className="text-[9px] text-white/30 font-mono uppercase tracking-widest">Nova etiqueta</p>
+                <div className="flex gap-2">
+                  <input
+                    className="input flex-1 text-xs"
+                    placeholder="Nome da etiqueta…"
+                    value={newTagLabel}
+                    onChange={e => setNewTagLabel(e.target.value)}
+                    maxLength={24}
+                  />
+                  <button
+                    type="button"
+                    disabled={!newTagLabel.trim()}
+                    onClick={() => {
+                      const label = newTagLabel.trim()
+                      if (!label) return
+                      const id = 'custom_' + Date.now()
+                      const updated = [...customTags, { id, label, color: newTagColor }]
+                      onCustomTagsChange(updated)
+                      setNewTagLabel('')
+                    }}
+                    className="px-3 py-1.5 rounded-lg border border-teal/30 bg-teal/8 text-teal text-xs font-semibold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-teal/16 transition-all">
+                    Criar
+                  </button>
+                </div>
+                {/* paleta de cores */}
+                <div className="flex gap-1.5 flex-wrap">
+                  {TAG_COLORS.map(c => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setNewTagColor(c.id)}
+                      className={cn(
+                        'w-5 h-5 rounded-full border-2 transition-all',
+                        newTagColor === c.id ? 'border-white/70 scale-110' : 'border-transparent',
+                      )}
+                      style={{ background: c.dot }}
+                      title={c.id}
+                    />
+                  ))}
+                  {/* preview */}
+                  {newTagLabel.trim() && (
+                    <span className={cn(
+                      'inline-flex items-center rounded border font-semibold text-[10px] px-1.5 py-0.5 ml-1',
+                      TAG_COLORS.find(c => c.id === newTagColor)?.cls ?? TAG_COLORS[0].cls,
+                    )}>
+                      {newTagLabel.trim()}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* lista de tags customizadas existentes */}
+              {customTags.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-[9px] text-white/25 font-mono uppercase tracking-widest">Etiquetas criadas</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {customTags.map(t => {
+                      const color = TAG_COLORS.find(c => c.id === t.color) ?? TAG_COLORS[0]
+                      return (
+                        <span key={t.id} className={cn(
+                          'inline-flex items-center gap-1 rounded border font-semibold text-[10px] px-1.5 py-0.5',
+                          color.cls,
+                        )}>
+                          {t.label}
+                          <button
+                            type="button"
+                            onClick={() => onCustomTagsChange(customTags.filter(ct => ct.id !== t.id))}
+                            className="opacity-50 hover:opacity-100 transition-opacity ml-0.5">
+                            <X size={9} />
+                          </button>
+                        </span>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Status dos ensaios */}
@@ -392,14 +718,14 @@ function ItemModal({ item, onSave, onClose, clientes }: {
           <div className="grid grid-cols-3 gap-3">
             {(['statusConduzida', 'statusLoop', 'statusAnexoB'] as const).map((k, i) => (
               <button key={k} type="button"
-                onClick={() => setForm(p => ({ ...p, [k]: p[k] === 'pendente' ? 'realizado' : 'pendente' }))}
+                onClick={() => setForm(p => ({ ...p, [k]: p[k] === 'pendente' ? 'realizado' : p[k] === 'realizado' ? 'reprovado' : 'pendente' }))}
                 className={cn(
                   'flex items-center justify-center gap-2 py-2.5 rounded-xl border text-xs font-semibold transition-all',
-                  form[k] === 'realizado'
-                    ? 'border-green/30 bg-green/8 text-green-400'
-                    : 'border-white/10 text-white/35 hover:border-white/20',
+                  form[k] === 'realizado'  ? 'border-green/30 bg-green/8 text-green-400' :
+                  form[k] === 'reprovado'  ? 'border-red-500/30 bg-red-500/8 text-red-400' :
+                  'border-white/10 text-white/35 hover:border-white/20',
                 )}>
-                {form[k] === 'realizado' ? <CheckCircle2 size={12} /> : <Clock size={12} />}
+                {form[k] === 'realizado' ? <CheckCircle2 size={12} /> : form[k] === 'reprovado' ? <XCircle size={12} /> : <Clock size={12} />}
                 {['Conduzida', 'Loop', 'Anexo B'][i]}
               </button>
             ))}
@@ -673,7 +999,7 @@ function GerarLoteModal({ agenda, onConfirm, onClose }: {
         <div className="flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
             <ArrowRight size={15} className="text-gold" />
-            <p className="text-white font-bold text-sm">Gerar Lote</p>
+            <p className="text-white font-bold text-sm">Emitir Lote</p>
           </div>
           <button onClick={onClose} className="text-white/30 hover:text-white/70 transition-colors">
             <X size={16} />
@@ -776,24 +1102,45 @@ export default function AgendaPage() {
   const [editItem,      setEditItem]      = useState<AgendaItem | null>(null)
   const [showLote,      setShowLote]      = useState(false)
   const [showGerarLote, setShowGerarLote] = useState(false)
+  const [updateInfo,    setUpdateInfo]    = useState<{ version: string; installer: string } | null>(null)
+  const [updating,      setUpdating]      = useState(false)
   const [filter,        setFilter]        = useState<'andamento' | 'concluidos' | 'todos'>('andamento')
   const [relatorios,    setRelatorios]    = useState<RelatorioSalvo[]>([])
-  const [sortKey,       setSortKey]       = useState<'dataEntrada' | 'previsaoSaida' | 'protocolo'>('dataEntrada')
+  const [sortKey,       setSortKey]       = useState<'dataEntrada' | 'previsaoSaida' | 'protocolo' | 'orcamento'>('dataEntrada')
   const [sortDir,       setSortDir]       = useState<'asc' | 'desc'>('desc')
   const [search,        setSearch]        = useState('')
-  const [filterCliente, setFilterCliente] = useState('')
+  const [filterCliente,   setFilterCliente]   = useState('')
   const [isElectron,    setIsElectron]    = useState(false)
   const [fromNetwork,   setFromNetwork]   = useState<boolean | null>(null)
   const [clientes,      setClientes]      = useState<ClienteDB[]>([])
   const [fuCliente,     setFuCliente]     = useState('')
   const [fuTipo,        setFuTipo]        = useState<'todos' | 'lampada' | 'luminaria'>('todos')
   const [fuEnsaio,      setFuEnsaio]      = useState<'todos' | 'c_pend' | 'l_pend' | 'b_pend' | 'algum_pend' | 'todos_ok'>('todos')
+  const [analisePeriodo, setAnalisePeriodo] = useState<'7' | '30' | '90' | '180' | 'all'>('all')
+  const [customTags,     setCustomTags]     = useState<CustomTag[]>([])
 
   useEffect(() => {
     setIsElectron(!!(window as any).electronAPI)
     loadAgenda()
     loadRelatorios()
     loadClientes()
+    try {
+      const raw = localStorage.getItem(CUSTOM_TAGS_KEY)
+      if (raw) {
+        const tags: CustomTag[] = JSON.parse(raw)
+        setCustomTags(tags)
+        updateCustomTagsStore(tags)
+      }
+    } catch {}
+    // check for updates silently (2s delay para não travar o load inicial)
+    const api = (window as any).electronAPI
+    if (api?.checkUpdate) {
+      setTimeout(() => {
+        api.checkUpdate().then((res: any) => {
+          if (res?.available) setUpdateInfo({ version: res.version, installer: res.installer })
+        }).catch(() => {})
+      }, 2000)
+    }
   }, [])
 
   async function loadAgenda() {
@@ -865,6 +1212,12 @@ export default function AgendaPage() {
     } catch {}
   }
 
+  function handleCustomTagsChange(tags: CustomTag[]) {
+    setCustomTags(tags)
+    updateCustomTagsStore(tags)
+    try { localStorage.setItem(CUSTOM_TAGS_KEY, JSON.stringify(tags)) } catch {}
+  }
+
   function handleSave(item: AgendaItem) {
     const exists = agenda.some(a => a.id === item.id)
     saveAgenda(exists ? agenda.map(a => a.id === item.id ? item : a) : [...agenda, item])
@@ -890,9 +1243,17 @@ export default function AgendaPage() {
     saveAgenda(agenda.map(a => a.id !== id ? a : { ...a, numRelatorio: '', dataEmissao: '' }))
   }
 
+  async function handleUpdate() {
+    if (!updateInfo) return
+    setUpdating(true)
+    const api = (window as any).electronAPI
+    const res = await api.installUpdate(updateInfo.installer)
+    if (!res.ok) { alert('Erro ao instalar atualização: ' + res.error); setUpdating(false) }
+  }
+
   function toggleStatus(id: string, field: 'statusConduzida' | 'statusLoop' | 'statusAnexoB') {
     saveAgenda(agenda.map(a => a.id !== id ? a : {
-      ...a, [field]: a[field] === 'pendente' ? 'realizado' : 'pendente',
+      ...a, [field]: a[field] === 'pendente' ? 'realizado' : a[field] === 'realizado' ? 'reprovado' : 'pendente',
     }))
   }
 
@@ -1020,8 +1381,15 @@ export default function AgendaPage() {
   /* ── analytics ── */
   const analytics = useMemo(() => {
     const now = today()
-    const andamento = agenda.filter(a => !a.numRelatorio)
-    const concluidos = agenda.filter(a => !!a.numRelatorio)
+
+    // filtro de período
+    const cutoff = analisePeriodo !== 'all'
+      ? (() => { const d = new Date(); d.setDate(d.getDate() - Number(analisePeriodo)); return d.toISOString().split('T')[0] })()
+      : null
+    const base = cutoff ? agenda.filter(a => !a.dataEntrada || a.dataEntrada >= cutoff) : agenda
+
+    const andamento = base.filter(a => !a.numRelatorio)
+    const concluidos = base.filter(a => !!a.numRelatorio)
     const vencidos   = andamento.filter(a => a.previsaoSaida && a.previsaoSaida < now)
     const urgentes   = andamento.filter(a => { const d = daysUntil(a.previsaoSaida); return d >= 0 && d <= 3 })
     const emDia      = andamento.filter(a => daysUntil(a.previsaoSaida) > 3)
@@ -1033,22 +1401,72 @@ export default function AgendaPage() {
       const key = d.toISOString().substring(0, 7)
       months.push({
         key, label: fmtMonth(key),
-        count:     agenda.filter(a => a.dataEntrada?.startsWith(key)).length,
+        count:      base.filter(a => a.dataEntrada?.startsWith(key)).length,
         concluidos: concluidos.filter(a => a.dataEmissao?.startsWith(key)).length,
       })
     }
 
     // top clientes
     const clientMap: Record<string, number> = {}
-    agenda.forEach(a => { if (a.cliente) clientMap[a.cliente] = (clientMap[a.cliente] ?? 0) + 1 })
+    base.forEach(a => { if (a.cliente) clientMap[a.cliente] = (clientMap[a.cliente] ?? 0) + 1 })
     const topClientes = Object.entries(clientMap).sort((a, b) => b[1] - a[1]).slice(0, 6)
 
     // contagem de tags
     const tagMap: Record<string, number> = {}
-    agenda.forEach(a => a.tags?.forEach(t => { tagMap[t] = (tagMap[t] ?? 0) + 1 }))
+    base.forEach(a => a.tags?.forEach(t => { tagMap[t] = (tagMap[t] ?? 0) + 1 }))
+
+    // ── KPIs de desempenho ──────────────────────────────────────────────────
+    const daysBetween = (a: string, b: string) =>
+      Math.max(0, Math.floor((new Date(b + 'T12:00:00').getTime() - new Date(a + 'T12:00:00').getTime()) / 86400000))
+
+    // Tempo médio de ensaio: entrada → emissão (dias corridos)
+    const concluidosDatas = concluidos.filter(a => a.dataEntrada && a.dataEmissao)
+    const temposEnsaio = concluidosDatas.map(a => daysBetween(a.dataEntrada, a.dataEmissao))
+    const tempoMedioGeral = temposEnsaio.length > 0
+      ? Math.round(temposEnsaio.reduce((s, v) => s + v, 0) / temposEnsaio.length) : null
+
+    // Tempo médio por tipo
+    const lampDatas = concluidosDatas.filter(a => a.tipo === 'lampada')
+    const lumDatas  = concluidosDatas.filter(a => a.tipo === 'luminaria')
+    const avgDias = (items: typeof concluidosDatas) =>
+      items.length > 0 ? Math.round(items.reduce((s, a) => s + daysBetween(a.dataEntrada, a.dataEmissao), 0) / items.length) : null
+    const tempoMedioLamp = avgDias(lampDatas)
+    const tempoMedioLum  = avgDias(lumDatas)
+
+    // Taxa de pontualidade histórica (concluídos que saíram até a previsão)
+    const conclComPrev  = concluidos.filter(a => a.dataEmissao && a.previsaoSaida)
+    const pontualCount  = conclComPrev.filter(a => a.dataEmissao <= a.previsaoSaida).length
+    const taxaPontualidade = conclComPrev.length > 0
+      ? Math.round((pontualCount / conclComPrev.length) * 100) : null
+
+    // Taxa de atraso atual (% dos em andamento que já venceram)
+    const taxaAtrasoAtual = andamento.length > 0
+      ? Math.round((vencidos.length / andamento.length) * 100) : null
+
+    // Throughput: relatórios concluídos nos últimos 90 dias → média mensal
+    const dt90 = new Date(); dt90.setDate(dt90.getDate() - 90)
+    const recentesConcl = concluidos.filter(a => a.dataEmissao && new Date(a.dataEmissao + 'T12:00:00') >= dt90)
+    const throughput = Math.round((recentesConcl.length / 3) * 10) / 10
+
+    // Tempo médio em aberto (dias desde entrada para itens em andamento)
+    const diasAberto = andamento.filter(a => a.dataEntrada).map(a => daysBetween(a.dataEntrada, now))
+    const mediaDiasAberto = diasAberto.length > 0
+      ? Math.round(diasAberto.reduce((s, v) => s + v, 0) / diasAberto.length) : null
+
+    // Backlog por responsável (em andamento)
+    const respMap: Record<string, { andamento: number; vencidos: number; label: string }> = {}
+    andamento.forEach(a => {
+      const raw = a.responsavel?.trim() || '—'
+      const key = raw.toLowerCase()
+      if (!respMap[key]) respMap[key] = { andamento: 0, vencidos: 0, label: raw }
+      respMap[key].andamento++
+      if (a.previsaoSaida && a.previsaoSaida < now) respMap[key].vencidos++
+    })
+    const backlogResp = Object.entries(respMap).sort((a, b) => b[1].andamento - a[1].andamento).slice(0, 5)
+    const maxBacklog  = Math.max(1, ...backlogResp.map(([, v]) => v.andamento))
 
     return {
-      total: agenda.length,
+      total: base.length,
       andamento: andamento.length,
       concluidos: concluidos.length,
       vencidos: vencidos.length,
@@ -1060,8 +1478,19 @@ export default function AgendaPage() {
       topClientes,
       tagMap,
       maxMonth: Math.max(1, ...months.map(m => m.count)),
+      // KPIs
+      tempoMedioGeral, tempoMedioLamp, tempoMedioLum,
+      lampDatasCount: lampDatas.length, lumDatasCount: lumDatas.length,
+      taxaPontualidade, pontualCount, conclComPrevCount: conclComPrev.length,
+      taxaAtrasoAtual,
+      throughput, recentesConclCount: recentesConcl.length,
+      mediaDiasAberto,
+      backlogResp, maxBacklog,
+      // pizza
+      lampadas: base.filter(a => a.tipo === 'lampada').length,
+      luminarias: base.filter(a => a.tipo === 'luminaria').length,
     }
-  }, [agenda])
+  }, [agenda, analisePeriodo])
 
   /* ── follow-up comercial ── */
   const followup = useMemo(() => {
@@ -1128,6 +1557,32 @@ export default function AgendaPage() {
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-6">
+
+      {/* Banner de atualização */}
+      {(updateInfo || updating) && (
+        <div className={cn(
+          'flex items-center gap-3 px-4 py-2.5 rounded-xl border mb-4 animate-fade-in',
+          updating ? 'bg-white/4 border-white/10' : 'bg-gold/8 border-gold/20',
+        )}>
+          {updating
+            ? <Loader2 size={14} className="text-gold animate-spin shrink-0" />
+            : <Download size={14} className="text-gold shrink-0" />}
+          <div className="flex-1 min-w-0">
+            {updating
+              ? <span className="text-sm text-white/60">Copiando atualização — o app fechará em instantes...</span>
+              : <>
+                  <span className="text-sm font-semibold text-gold">Nova versão disponível — {updateInfo!.version}</span>
+                  <span className="text-[11px] text-white/35 ml-2 hidden sm:inline">O app fecha e reinstala automaticamente</span>
+                </>}
+          </div>
+          {!updating && (
+            <button onClick={handleUpdate}
+              className="btn-primary text-xs px-4 py-1.5 font-bold flex items-center gap-1.5 shrink-0">
+              <Download size={11} /> Atualizar agora
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Header */}
       <div className="flex items-center gap-3 mb-5">
@@ -1236,21 +1691,22 @@ export default function AgendaPage() {
               <SortBtn k="dataEntrada" label="Entrada" />
               <SortBtn k="previsaoSaida" label="Saída" />
               <SortBtn k="protocolo" label="Proto" />
+              <SortBtn k="orcamento" label="Orç." />
             </div>
 
             <div className="flex-1" />
             <span className="text-[10px] text-white/25 font-mono">{filteredItems.length} item(s)</span>
             <button type="button" onClick={() => setShowGerarLote(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gold/30 bg-gold/8 text-gold hover:bg-gold/14 text-xs font-semibold transition-all">
-              <ArrowRight size={11} /> Gerar Lote
+              <ArrowRight size={11} /> Emitir Lote
             </button>
             <button type="button" onClick={() => setShowLote(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-teal/30 bg-teal/8 text-teal hover:bg-teal/14 text-xs font-semibold transition-all">
-              <Layers size={11} /> Lote
+              <Layers size={11} /> Cadastrar Lote
             </button>
             <button type="button" onClick={() => setEditItem(newItem())}
               className="btn-primary flex items-center gap-1.5 px-3 py-1.5 text-xs">
-              <Plus size={11} /> Novo
+              <Plus size={11} /> Cadastrar
             </button>
           </div>
 
@@ -1336,9 +1792,9 @@ export default function AgendaPage() {
                               title={['Conduzida', 'Loop', 'Anexo B'][i]}
                               className={cn(
                                 'w-5 h-5 rounded border text-[9px] font-bold flex items-center justify-center transition-all',
-                                item[k] === 'realizado'
-                                  ? 'border-green/30 bg-green/10 text-green-400'
-                                  : 'border-white/10 text-white/22 hover:border-white/25 hover:text-white/50',
+                                item[k] === 'realizado' ? 'border-green/30 bg-green/10 text-green-400' :
+                                item[k] === 'reprovado' ? 'border-red-500/30 bg-red-500/10 text-red-400' :
+                                'border-white/10 text-white/22 hover:border-white/25 hover:text-white/50',
                               )}>
                               {['C', 'L', 'B'][i]}
                             </button>
@@ -1444,7 +1900,9 @@ export default function AgendaPage() {
                     {(['statusConduzida', 'statusLoop', 'statusAnexoB'] as const).map((k, i) => (
                       <span key={k} className={cn(
                         'w-4 h-4 rounded border flex items-center justify-center text-[8px] font-bold',
-                        item[k] === 'realizado' ? 'border-green/25 bg-green/8 text-green-400' : 'border-white/8 text-white/18',
+                        item[k] === 'realizado' ? 'border-green/25 bg-green/8 text-green-400' :
+                        item[k] === 'reprovado' ? 'border-red-500/25 bg-red-500/8 text-red-400' :
+                        'border-white/8 text-white/18',
                       )}>
                         {['C', 'L', 'B'][i]}
                       </span>
@@ -1475,6 +1933,25 @@ export default function AgendaPage() {
       {tab === 'analise' && (
         <div className="space-y-6">
 
+          {/* Filtro de período */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] text-white/30 font-mono uppercase tracking-widest shrink-0">Período:</span>
+            <div className="flex gap-0.5 p-0.5 rounded-lg bg-white/4 border border-white/8">
+              {([['7', 'Semana'], ['30', '30d'], ['90', '90d'], ['180', '180d'], ['all', 'Tudo']] as const).map(([v, lbl]) => (
+                <button key={v} type="button" onClick={() => setAnalisePeriodo(v)}
+                  className={cn('px-2.5 py-1 rounded text-[10px] font-semibold transition-all',
+                    analisePeriodo === v ? 'bg-gold/15 border border-gold/25 text-gold' : 'text-white/35 hover:text-white/60')}>
+                  {lbl}
+                </button>
+              ))}
+            </div>
+            {analisePeriodo !== 'all' && (
+              <span className="text-[10px] text-white/20 font-mono">
+                {analytics.total} {analytics.total === 1 ? 'item' : 'itens'} no período
+              </span>
+            )}
+          </div>
+
           {/* cards de resumo */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             <div className="card p-4 flex flex-col gap-1">
@@ -1498,6 +1975,182 @@ export default function AgendaPage() {
               <span className="text-[10px] uppercase tracking-widest font-mono text-white/35">Vencidos</span>
             </div>
           </div>
+
+          {/* ── Indicadores de Desempenho ── */}
+          {analytics.total > 0 && (
+            <div className="card p-4 space-y-4">
+              <p className="text-[10px] text-white/30 font-mono uppercase tracking-widest">Indicadores de Desempenho</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+
+                {/* Tempo Médio de Ensaio */}
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[9px] uppercase tracking-widest font-mono text-white/30">Tempo Médio</span>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-2xl font-bold font-mono text-white">
+                      {analytics.tempoMedioGeral ?? '—'}
+                    </span>
+                    {analytics.tempoMedioGeral !== null && <span className="text-[10px] text-white/40">dias</span>}
+                  </div>
+                  <div className="space-y-0.5">
+                    {analytics.tempoMedioLamp !== null && (
+                      <div className="text-[9px] text-white/30 font-mono">
+                        Lâmp: <span className="text-white/50">{analytics.tempoMedioLamp}d</span>
+                        <span className="text-white/20"> ({analytics.lampDatasCount})</span>
+                      </div>
+                    )}
+                    {analytics.tempoMedioLum !== null && (
+                      <div className="text-[9px] text-white/30 font-mono">
+                        Lum: <span className="text-white/50">{analytics.tempoMedioLum}d</span>
+                        <span className="text-white/20"> ({analytics.lumDatasCount})</span>
+                      </div>
+                    )}
+                    {analytics.tempoMedioGeral === null && (
+                      <span className="text-[9px] text-white/20 font-mono">sem dados completos</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Taxa de Pontualidade */}
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[9px] uppercase tracking-widest font-mono text-white/30">Pontualidade</span>
+                  <div className="flex items-baseline gap-1">
+                    <span className={cn(
+                      'text-2xl font-bold font-mono',
+                      analytics.taxaPontualidade === null ? 'text-white/30' :
+                      analytics.taxaPontualidade >= 80 ? 'text-green-400' :
+                      analytics.taxaPontualidade >= 50 ? 'text-amber-400' : 'text-red-400'
+                    )}>
+                      {analytics.taxaPontualidade !== null ? `${analytics.taxaPontualidade}%` : '—'}
+                    </span>
+                  </div>
+                  {analytics.conclComPrevCount > 0
+                    ? <span className="text-[9px] text-white/25 font-mono">{analytics.pontualCount}/{analytics.conclComPrevCount} no prazo</span>
+                    : <span className="text-[9px] text-white/20 font-mono">sem concluídos c/ previsão</span>}
+                </div>
+
+                {/* Taxa de Atraso Atual */}
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[9px] uppercase tracking-widest font-mono text-white/30">Atraso Atual</span>
+                  <div className="flex items-baseline gap-1">
+                    <span className={cn(
+                      'text-2xl font-bold font-mono',
+                      analytics.taxaAtrasoAtual === null ? 'text-white/30' :
+                      analytics.taxaAtrasoAtual === 0   ? 'text-green-400' :
+                      analytics.taxaAtrasoAtual <= 20   ? 'text-amber-400' : 'text-red-400'
+                    )}>
+                      {analytics.taxaAtrasoAtual !== null ? `${analytics.taxaAtrasoAtual}%` : '—'}
+                    </span>
+                  </div>
+                  {analytics.andamento > 0
+                    ? <span className="text-[9px] text-white/25 font-mono">{analytics.vencidos}/{analytics.andamento} em andamento</span>
+                    : <span className="text-[9px] text-white/20 font-mono">nenhum em andamento</span>}
+                </div>
+
+                {/* Throughput */}
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[9px] uppercase tracking-widest font-mono text-white/30">Throughput</span>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-2xl font-bold font-mono text-white">{analytics.throughput}</span>
+                    <span className="text-[10px] text-white/40">rel/mês</span>
+                  </div>
+                  <span className="text-[9px] text-white/25 font-mono">{analytics.recentesConclCount} nos últimos 90d</span>
+                </div>
+
+                {/* Dias em Aberto */}
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[9px] uppercase tracking-widest font-mono text-white/30">Dias em Aberto</span>
+                  <div className="flex items-baseline gap-1">
+                    <span className={cn(
+                      'text-2xl font-bold font-mono',
+                      analytics.mediaDiasAberto === null ? 'text-white/30' :
+                      analytics.mediaDiasAberto > 60    ? 'text-red-400' :
+                      analytics.mediaDiasAberto > 30    ? 'text-amber-400' : 'text-white/70'
+                    )}>
+                      {analytics.mediaDiasAberto ?? '—'}
+                    </span>
+                    {analytics.mediaDiasAberto !== null && <span className="text-[10px] text-white/40">dias</span>}
+                  </div>
+                  <span className="text-[9px] text-white/25 font-mono">média (em andamento)</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Gráficos de pizza ── */}
+          {analytics.total > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+              {/* Pizza: status */}
+              <div className="card p-4 space-y-3">
+                <p className="text-[10px] text-white/30 font-mono uppercase tracking-widest">Distribuição — Status</p>
+                <div className="flex items-center gap-4">
+                  <PieChart size={88} slices={[
+                    { label: 'Concluídos', value: analytics.concluidos, color: 'rgba(74,222,128,0.7)'  },
+                    { label: 'Em dia',     value: analytics.emDia,      color: 'rgba(99,179,237,0.65)' },
+                    { label: 'Urgente',    value: analytics.urgentes,   color: 'rgba(251,191,36,0.7)'  },
+                    { label: 'Vencido',    value: analytics.vencidos,   color: 'rgba(239,68,68,0.7)'   },
+                  ]} />
+                  <div className="space-y-1.5 flex-1 min-w-0">
+                    {[
+                      { label: 'Concluídos', value: analytics.concluidos, color: 'rgba(74,222,128,0.7)'  },
+                      { label: 'Em dia',     value: analytics.emDia,      color: 'rgba(99,179,237,0.65)' },
+                      { label: 'Urgente',    value: analytics.urgentes,   color: 'rgba(251,191,36,0.7)'  },
+                      { label: 'Vencido',    value: analytics.vencidos,   color: 'rgba(239,68,68,0.7)'   },
+                    ].map(s => (
+                      <div key={s.label} className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: s.color }} />
+                        <span className="text-[10px] text-white/45 flex-1">{s.label}</span>
+                        <span className="text-[10px] font-mono text-white/50">{s.value}</span>
+                        <span className="text-[9px] font-mono text-white/25 w-8 text-right">
+                          {analytics.total > 0 ? Math.round(s.value / analytics.total * 100) : 0}%
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Pizza: tipo */}
+              <div className="card p-4 space-y-3">
+                <p className="text-[10px] text-white/30 font-mono uppercase tracking-widest">Distribuição — Tipo</p>
+                <div className="flex items-center gap-4">
+                  <PieChart size={88} slices={[
+                    { label: 'Lâmpadas',   value: analytics.lampadas,   color: 'rgba(251,191,36,0.7)' },
+                    { label: 'Luminárias', value: analytics.luminarias, color: 'rgba(45,212,191,0.65)' },
+                  ]} />
+                  <div className="space-y-1.5 flex-1 min-w-0">
+                    {[
+                      { label: 'Lâmpadas',   value: analytics.lampadas,   color: 'rgba(251,191,36,0.7)'  },
+                      { label: 'Luminárias', value: analytics.luminarias, color: 'rgba(45,212,191,0.65)' },
+                    ].map(s => (
+                      <div key={s.label} className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: s.color }} />
+                        <span className="text-[10px] text-white/45 flex-1">{s.label}</span>
+                        <span className="text-[10px] font-mono text-white/50">{s.value}</span>
+                        <span className="text-[9px] font-mono text-white/25 w-8 text-right">
+                          {analytics.total > 0 ? Math.round(s.value / analytics.total * 100) : 0}%
+                        </span>
+                      </div>
+                    ))}
+                    {analytics.concluidos > 0 && (
+                      <div className="pt-2 mt-1 border-t border-white/6 space-y-1">
+                        <p className="text-[9px] text-white/20 font-mono uppercase tracking-wide">Concluídos por tipo</p>
+                        {[
+                          { label: 'Lâmpadas',   value: analytics.lampadas   > 0 ? Math.round(analytics.lampadas   / analytics.total * analytics.concluidos) : 0 },
+                          { label: 'Luminárias', value: analytics.luminarias > 0 ? Math.round(analytics.luminarias / analytics.total * analytics.concluidos) : 0 },
+                        ].map(s => (
+                          <div key={s.label} className="flex items-center gap-2">
+                            <span className="text-[9px] text-white/30 flex-1">{s.label}</span>
+                            <span className="text-[9px] font-mono text-white/35">~{s.value}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Distribuição de status */}
           {analytics.andamento > 0 && (
@@ -1557,6 +2210,33 @@ export default function AgendaPage() {
               </div>
             )}
           </div>
+
+          {/* Backlog por Responsável */}
+          {analytics.backlogResp.length > 0 && (
+            <div className="card p-4 space-y-3">
+              <p className="text-[10px] text-white/30 font-mono uppercase tracking-widest">Backlog por Responsável — Em andamento</p>
+              <div className="space-y-2">
+                {analytics.backlogResp.map(([resp, { andamento: cnt, vencidos: venc, label }]) => (
+                  <div key={resp} className="flex items-center gap-3">
+                    <span className="text-[11px] text-white/45 font-mono w-36 shrink-0 truncate">{label}</span>
+                    <div className="flex-1 h-3 bg-white/5 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full transition-all duration-500"
+                        style={{
+                          width: `${(cnt / analytics.maxBacklog) * 100}%`,
+                          background: venc > 0 ? 'rgba(239,68,68,0.5)' : 'rgba(99,179,237,0.5)',
+                        }} />
+                    </div>
+                    <span className="text-[11px] font-mono text-white/50 w-5 text-right">{cnt}</span>
+                    {venc > 0 && (
+                      <span className="text-[10px] font-mono text-red-400/70 w-20 text-right shrink-0">
+                        {venc} vencido{venc > 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Atenção: vencidos + urgentes */}
           {(analytics.vencidosList.length > 0 || analytics.urgentesList.length > 0) && (
@@ -1624,6 +2304,25 @@ export default function AgendaPage() {
 
         const clientesEm = Array.from(new Set(allEmBase.map(a => a.cliente).filter(Boolean))).sort()
 
+        // Stats filtradas por cliente (ou globais se nenhum selecionado)
+        function statsFiltered(tipo: 'lampada' | 'luminaria') {
+          const items = fuCliente
+            ? agenda.filter(a => a.tipo === tipo && a.cliente === fuCliente)
+            : agenda.filter(a => a.tipo === tipo)
+          const em = items.filter(a => !a.numRelatorio)
+          return {
+            total: items.length,
+            concluidos: items.filter(a => !!a.numRelatorio).length,
+            andamento: em.length,
+            conduzida: em.filter(a => a.statusConduzida === 'realizado').length,
+            loop:      em.filter(a => a.statusLoop      === 'realizado').length,
+            anexoB:    em.filter(a => a.statusAnexoB    === 'realizado').length,
+            list: em,
+          }
+        }
+        const displayLamp = statsFiltered('lampada')
+        const displayLum  = statsFiltered('luminaria')
+
         const allEm = allEmBase
           .filter(a => fuTipo === 'todos' || a.tipo === fuTipo)
           .filter(a => !fuCliente || a.cliente === fuCliente)
@@ -1647,7 +2346,7 @@ export default function AgendaPage() {
             fuCliente || '',
             fuEnsaio !== 'todos' ? ({
               c_pend: 'Conduzida pendente', l_pend: 'Loop pendente', b_pend: 'Anexo B pendente',
-              algum_pend: 'Algum ensaio pendente', todos_ok: 'Todos realizados',
+              algum_pend: 'Algum ensaio pendente', todos_ok: 'Aguardando Emissão',
             } as Record<string, string>)[fuEnsaio] ?? '' : '',
           ].filter(Boolean).join(' · ')
 
@@ -1670,13 +2369,14 @@ export default function AgendaPage() {
           }
 
           const s = (v: string) =>
-            v === 'realizado'
-              ? '<span class="ok">&#10003;</span>'
-              : '<span class="pend">&#9675;</span>'
+            v === 'realizado' ? '<span class="ok">&#10003;</span>' :
+            v === 'reprovado' ? '<span class="fail">&#10007;</span>' :
+            '<span class="pend">&#9675;</span>'
 
           const rows = allEm.map((item, i) => {
             const d = daysUntil(item.previsaoSaida)
             const pc = d < 0 ? 'prazo-late' : d <= 3 ? 'prazo-warn' : ''
+            const allOk = item.statusConduzida === 'realizado' && item.statusLoop === 'realizado' && item.statusAnexoB === 'realizado'
             return `<tr class="${i % 2 === 1 ? 'alt' : ''}">
               <td class="tipo">${item.tipo === 'lampada' ? 'Lâmpada' : 'Luminária'}</td>
               <td class="mono">${item.protocolo || '—'}</td>
@@ -1685,7 +2385,7 @@ export default function AgendaPage() {
               <td class="c">${s(item.statusConduzida)}</td>
               <td class="c">${s(item.statusLoop)}</td>
               <td class="c">${s(item.statusAnexoB)}</td>
-              <td class="r ${pc}">${fmtDate(item.previsaoSaida)}</td>
+              <td class="r ${pc}">${fmtDate(item.previsaoSaida)}${allOk ? '<div style="font-size:8px;color:#16a34a;font-weight:bold;letter-spacing:.04em;font-family:Arial">AG. EMISSÃO</div>' : ''}</td>
             </tr>`
           }).join('')
 
@@ -1727,6 +2427,7 @@ td.tipo{font-size:10px;color:#555;white-space:nowrap}
 .c{text-align:center}
 .r{text-align:right;font-family:monospace;font-size:10px}
 .ok{color:#16a34a;font-weight:bold;font-size:13px}
+.fail{color:#dc2626;font-weight:bold;font-size:13px}
 .pend{color:#ccc}
 .prazo-warn{color:#d97706;font-weight:bold}
 .prazo-late{color:#dc2626;font-weight:bold}
@@ -1739,7 +2440,7 @@ td.tipo{font-size:10px;color:#555;white-space:nowrap}
   <div class="hdr-right"><div class="lab">LABELO · PUCRS</div><div class="dt">${dateLabel}</div></div>
 </div>
 ${filterLabel ? `<div class="filter-badge">Filtro: ${filterLabel}</div>` : ''}
-<div class="summary">${summaryCard('Lâmpadas', followup.lampadas)}${summaryCard('Luminárias', followup.luminarias)}</div>
+<div class="summary">${summaryCard('Lâmpadas', displayLamp)}${summaryCard('Luminárias', displayLum)}</div>
 ${allEm.length > 0 ? `
 <div class="sec-title">Em andamento — ${allEm.length} ${allEm.length === 1 ? 'item' : 'itens'}</div>
 <table>
@@ -1837,10 +2538,10 @@ ${allEm.length > 0 ? `
               </button>
             </div>
 
-            {/* Cards por tipo — sempre mostram totais globais */}
+            {/* Cards por tipo */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <TypeCard label="Lâmpadas"  icon={<Lightbulb size={15} className="text-amber-400" />} stats={followup.lampadas} />
-              <TypeCard label="Luminárias" icon={<Lamp size={15} className="text-teal-400" />}      stats={followup.luminarias} />
+              <TypeCard label="Lâmpadas"  icon={<Lightbulb size={15} className="text-amber-400" />} stats={displayLamp} />
+              <TypeCard label="Luminárias" icon={<Lamp size={15} className="text-teal-400" />}      stats={displayLum} />
             </div>
 
             {/* Filtros */}
@@ -1874,7 +2575,7 @@ ${allEm.length > 0 ? `
                   <option value="l_pend">Loop pendente</option>
                   <option value="b_pend">Anexo B pendente</option>
                   <option value="algum_pend">Algum ensaio pendente</option>
-                  <option value="todos_ok">Todos realizados</option>
+                  <option value="todos_ok">Aguardando Emissão</option>
                 </select>
 
                 {(fuCliente || fuTipo !== 'todos' || fuEnsaio !== 'todos') && (
@@ -1918,6 +2619,7 @@ ${allEm.length > 0 ? `
                       {allEm.map((item, i) => {
                         const d = daysUntil(item.previsaoSaida)
                         const prazoColor = d < 0 ? 'text-red-400' : d <= 3 ? 'text-amber-400' : 'text-white/35'
+                        const allOk = item.statusConduzida === 'realizado' && item.statusLoop === 'realizado' && item.statusAnexoB === 'realizado'
                         return (
                           <tr key={item.id}
                             className={cn('border-b border-white/4 hover:bg-white/3 cursor-pointer transition-colors', i % 2 === 1 && 'bg-white/1')}
@@ -1936,13 +2638,18 @@ ${allEm.length > 0 ? `
                               item.statusAnexoB,
                             ] as const).map((s, j) => (
                               <td key={j} className="px-3 py-2 text-center">
-                                {s === 'realizado'
-                                  ? <CheckCircle2 size={12} className="text-green-400 mx-auto" />
-                                  : <span className="text-white/20 font-mono leading-none">○</span>}
+                                {s === 'realizado' ? <CheckCircle2 size={12} className="text-green-400 mx-auto" /> :
+                                 s === 'reprovado' ? <XCircle size={12} className="text-red-400 mx-auto" /> :
+                                 <span className="text-white/20 font-mono leading-none">○</span>}
                               </td>
                             ))}
                             <td className={cn('px-3 py-2 text-right font-mono text-[11px] whitespace-nowrap', prazoColor)}>
-                              {fmtDate(item.previsaoSaida)}
+                              <div>{fmtDate(item.previsaoSaida)}</div>
+                              {allOk && (
+                                <div className="text-[9px] font-sans font-semibold text-green-400/80 tracking-wide mt-0.5 uppercase">
+                                  Ag. Emissão
+                                </div>
+                              )}
                             </td>
                           </tr>
                         )
@@ -1960,7 +2667,7 @@ ${allEm.length > 0 ? `
         )
       })()}
 
-      {editItem && <ItemModal item={editItem} onSave={handleSave} onClose={() => setEditItem(null)} clientes={clientes} />}
+      {editItem && <ItemModal item={editItem} onSave={handleSave} onClose={() => setEditItem(null)} clientes={clientes} customTags={customTags} onCustomTagsChange={handleCustomTagsChange} />}
       {showLote && <LoteModal onSave={handleSaveLote} onClose={() => setShowLote(false)} clientes={clientes} agenda={agenda} />}
       {showGerarLote && (
         <GerarLoteModal

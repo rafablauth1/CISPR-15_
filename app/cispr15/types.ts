@@ -157,6 +157,8 @@ export interface AppSettings {
   pdfCopyFolder: string
   pdfAutoSaveToEut: boolean
   senhaEmissao: string
+  updateFolder: string
+  certThumbprint: string
 }
 
 export const SETTINGS_DEFAULTS: AppSettings = {
@@ -166,6 +168,8 @@ export const SETTINGS_DEFAULTS: AppSettings = {
   pdfCopyFolder: '',
   pdfAutoSaveToEut: true,
   senhaEmissao: '',
+  updateFolder: '',
+  certThumbprint: '',
 }
 
 export interface AgendaItem {
@@ -190,9 +194,9 @@ export interface AgendaItem {
   dataEmissao: string
   numRelatorio: string
   responsavel: string
-  statusConduzida: 'pendente' | 'realizado'
-  statusLoop: 'pendente' | 'realizado'
-  statusAnexoB: 'pendente' | 'realizado'
+  statusConduzida: 'pendente' | 'realizado' | 'reprovado'
+  statusLoop: 'pendente' | 'realizado' | 'reprovado'
+  statusAnexoB: 'pendente' | 'realizado' | 'reprovado'
   observacoes: string
   pdfPath?: string
   tags?: string[]

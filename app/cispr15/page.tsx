@@ -265,6 +265,21 @@ export default function Cispr15ConfigPage() {
     flash4(`Dados pré-carregados da agenda — protocolo ${item.protocolo}`)
   }
 
+  function preencherClienteDoOrcamento(orcamento: string) {
+    const orc = orcamento.trim()
+    if (!orc) return
+    const match = relatoriosList.find(r => r.cfg.orcamento?.trim() === orc && r.clienteNome)
+    if (!match) return
+    setCfg(prev => ({
+      ...prev,
+      cliente: match.clienteNome,
+      clienteRua: match.cfg.clienteRua  || prev.clienteRua,
+      clienteCidade: match.cfg.clienteCidade || prev.clienteCidade,
+      clienteCep: match.cfg.clienteCep  || prev.clienteCep,
+    }))
+    flash4(`Cliente "${match.clienteNome}" associado ao orçamento ${orc}`)
+  }
+
   useEffect(() => {
     // skip the very first run (cfg = DEFAULTS) — wait for the load effect to finish first
     if (!cfgLoaded.current) { cfgLoaded.current = true; return }
@@ -372,14 +387,31 @@ export default function Cispr15ConfigPage() {
       applyFolderProtocolo(res.folderName)
       if (res.docxBuffer) {
         setDocx({ loading: true, html: null, filename: null })
-        const result = await api.parseDocx(res.docxBuffer)
-        if (result.html) {
-          setDocx({ loading: false, html: result.html, filename: res.docxName })
-          sessionStorage.setItem(DOCX_HTML_KEY, result.html)
-          sessionStorage.setItem(DOCX_NAME_KEY, res.docxName)
-        } else {
+        try {
+          const blob = new Blob([new Uint8Array(res.docxBuffer)], {
+            type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          })
+          const fd = new FormData()
+          fd.append('file', new File([blob], res.docxName || 'ensaio.docx', { type: blob.type }))
+          const resp = await fetch('/api/parse-docx', { method: 'POST', body: fd })
+          const result = await resp.json()
+          if (result.html) {
+            const erros = validarSecoesDocx(result.html)
+            if (erros.length > 0) {
+              alert(`DOCX com medições repetidas — corrija no Radimation e reenvie:\n\n• ${erros.join('\n• ')}`)
+              setDocx({ loading: false, html: null, filename: null })
+            } else {
+              setDocx({ loading: false, html: result.html, filename: res.docxName })
+              sessionStorage.setItem(DOCX_HTML_KEY, result.html)
+              sessionStorage.setItem(DOCX_NAME_KEY, res.docxName)
+            }
+          } else {
+            setDocx({ loading: false, html: null, filename: null })
+            alert('Erro ao processar DOCX: ' + (result.error ?? 'desconhecido'))
+          }
+        } catch (e: any) {
           setDocx({ loading: false, html: null, filename: null })
-          alert('Erro ao processar DOCX: ' + (result.error ?? 'desconhecido'))
+          alert('Erro ao processar DOCX: ' + e.message)
         }
       }
       if (res.images?.length > 0) {
@@ -605,6 +637,28 @@ export default function Cispr15ConfigPage() {
     flash4('Campos preenchidos pela IA')
   }
 
+  /* ── validação de seções do DOCX (duplicatas Radimation) ── */
+  function validarSecoesDocx(html: string): string[] {
+    try {
+      const dom = new DOMParser().parseFromString(html, 'text/html')
+      let conduzida = 0, loop = 0, anexoB = 0
+      dom.querySelectorAll('div').forEach(div => {
+        if (!(div.getAttribute('style') ?? '').includes('page-break-before')) return
+        const text = div.textContent ?? ''
+        if (/conduzida|conducted/i.test(text))        conduzida++
+        else if (/\bloop\b/i.test(text))              loop++
+        else if (/anexo\s*b|annex\s*b/i.test(text))  anexoB++
+      })
+      if (conduzida === 0 && loop === 0 && anexoB === 0) return []
+      const v = cfg.tipo === 'luminaria' ? 1 : cfg.tensaoConfig === '127' ? 1 : cfg.tensaoConfig === '127_220_277' ? 3 : 2
+      const erros: string[] = []
+      if (conduzida > v * 2) erros.push(`Conduzida (LISN + NEUTRAL): ${conduzida} seções — máx. ${v * 2} (${v} tensão × 2)`)
+      if (loop      > v * 3) erros.push(`Loop: ${loop} seções — máx. ${v * 3} (${v} tensão × 3)`)
+      if (anexoB    > v)     erros.push(`Anexo B: ${anexoB} seções — máx. ${v} (${v} tensão × 1)`)
+      return erros
+    } catch { return [] }
+  }
+
   /* ── docx ── */
   async function handleDocx(file: File) {
     setDocx({ loading: true, html: null, filename: null })
@@ -613,6 +667,12 @@ export default function Cispr15ConfigPage() {
       const res  = await fetch('/api/parse-docx', { method: 'POST', body: fd })
       const data = await res.json()
       if (data.error) throw new Error(data.error)
+      const erros = validarSecoesDocx(data.html)
+      if (erros.length > 0) {
+        alert(`DOCX com medições repetidas — corrija no Radimation e reenvie:\n\n• ${erros.join('\n• ')}`)
+        setDocx({ loading: false, html: null, filename: null })
+        return
+      }
       setDocx({ loading: false, html: data.html, filename: file.name })
       sessionStorage.setItem(DOCX_HTML_KEY, data.html)
       sessionStorage.setItem(DOCX_NAME_KEY, file.name)
@@ -634,6 +694,8 @@ export default function Cispr15ConfigPage() {
   const validationErrors = useMemo(() => {
     const errs: string[] = []
     if (!cfg.cliente.trim())       errs.push('Nome do cliente')
+    else if (!clientes.some(c => c.nome.toLowerCase() === cfg.cliente.trim().toLowerCase()))
+      errs.push('Cliente não cadastrado no banco de dados')
     if (!cfg.clienteRua.trim())    errs.push('Endereço do cliente')
     if (!cfg.clienteCidade.trim()) errs.push('Cidade')
     if (!cfg.produto.trim())       errs.push('Produto')
@@ -647,7 +709,7 @@ export default function Cispr15ConfigPage() {
     if (photos.length === 0)       errs.push('Fotos do ensaio')
     if (!docx.html)                errs.push('Arquivo .docx (Radimation)')
     return errs
-  }, [cfg, photos.length, docx.html, labelId])
+  }, [cfg, photos.length, docx.html, labelId, clientes])
 
   /* ── salvar no histórico local + rede ── */
   async function salvarRelatorioLocal(finalCfg: Cispr15Config) {
@@ -1120,6 +1182,11 @@ export default function Cispr15ConfigPage() {
             <Row label="Nome do Cliente" span2>
               <input className="input" value={cfg.cliente} onChange={set('cliente')}
                 placeholder="Ex: CEB Iluminação Pública e Serviços S.A." />
+              {cfg.cliente.trim() && !clientes.some(c => c.nome.toLowerCase() === cfg.cliente.trim().toLowerCase()) && (
+                <p className="text-[10px] text-amber-400/80 flex items-center gap-1">
+                  <AlertTriangle size={9} /> Cliente não cadastrado — use a busca acima ou a aba <strong>Clientes</strong> para cadastrá-lo primeiro.
+                </p>
+              )}
             </Row>
             <Row label="Rua – Número – Bairro" span2>
               <input className="input" value={cfg.clienteRua} onChange={set('clienteRua')}
@@ -1262,7 +1329,8 @@ export default function Cispr15ConfigPage() {
                 placeholder="Ex: Lucas Menegotto Dias" />
             </Row>
             <Row label="Orçamento LABELO">
-              <input className="input" value={cfg.orcamento} onChange={set('orcamento')} placeholder="Ex: 260921" inputMode="numeric" />
+              <input className="input" value={cfg.orcamento} onChange={set('orcamento')} placeholder="Ex: 260921" inputMode="numeric"
+                onBlur={e => preencherClienteDoOrcamento(e.target.value)} />
             </Row>
             <Row label="Protocolo LABELO">
               <input className="input" value={cfg.protocolo} onChange={set('protocolo')}

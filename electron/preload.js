@@ -48,4 +48,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Eventos do menu
   onMenuSalvarPDF:    (cb) => ipcRenderer.on('menu:salvar-pdf',     () => cb()),
   onMenuSalvarPDFEut: (cb) => ipcRenderer.on('menu:salvar-pdf-eut', () => cb()),
+
+  // Cancelar PDF
+  cancelPdf:      (eutFolderPath, pdfFilename) => ipcRenderer.invoke('relatorio:cancel-pdf', { eutFolderPath, pdfFilename }),
+
+  // Publicar PDF assinado para pasta da agenda
+  publishPdf:     (eutFolderPath, pdfFilename) => ipcRenderer.invoke('pdf:publish', { eutFolderPath, pdfFilename }),
+
+  // Auto-update
+  checkUpdate:    ()          => ipcRenderer.invoke('update:check'),
+  installUpdate:  (installer) => ipcRenderer.invoke('update:install', { installer }),
+
+  // Assinatura digital (Windows Certificate Store)
+  listCerts:      ()                             => ipcRenderer.invoke('pdf:list-certs'),
+  signPdf:        (eutFolderPath, pdfFilename)   => ipcRenderer.invoke('pdf:sign-file', { eutFolderPath, pdfFilename }),
 })

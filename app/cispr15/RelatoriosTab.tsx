@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { FileText, Trash2, FolderOpen, AlertTriangle, ChevronDown, ChevronUp, Wifi, WifiOff, Lock } from 'lucide-react'
+import { FileText, Trash2, FolderOpen, AlertTriangle, ChevronDown, ChevronUp, Wifi, WifiOff, Lock, CheckCircle2, Loader2, PenLine } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { type RelatorioSalvo, RELATORIOS_KEY, RELATORIO_DOCX_PFX } from './types'
 
@@ -20,13 +20,16 @@ interface Props {
 }
 
 export function RelatoriosTab({ onCarregar, onVerPDF }: Props) {
-  const [lista,       setLista]       = useState<RelatorioSalvo[]>([])
-  const [fromNetwork, setFromNetwork] = useState(false)
-  const [busca,       setBusca]       = useState('')
-  const [filtroAno,   setFiltroAno]   = useState('')
+  const [lista,        setLista]        = useState<RelatorioSalvo[]>([])
+  const [fromNetwork,  setFromNetwork]  = useState(false)
+  const [busca,        setBusca]        = useState('')
+  const [filtroAno,    setFiltroAno]    = useState('')
   const [filtroCliente, setFiltroCliente] = useState('')
-  const [filtroTipo,  setFiltroTipo]  = useState('')
-  const [expanded,    setExpanded]    = useState<string | null>(null)
+  const [filtroTipo,   setFiltroTipo]   = useState('')
+  const [expanded,     setExpanded]     = useState<string | null>(null)
+  const [signState,    setSignState]    = useState<Record<string, 'loading' | 'ok' | 'error'>>({})
+  const [signMsg,      setSignMsg]      = useState<Record<string, string>>({})
+  const [hasCert,      setHasCert]      = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -34,14 +37,30 @@ export function RelatoriosTab({ onCarregar, onVerPDF }: Props) {
       if (api) {
         try {
           const res = await api.getRelatorios()
-          if (res.ok && res.fromNetwork && Array.isArray(res.relatorios)) {
+          if (res.ok && Array.isArray(res.relatorios) && res.relatorios.length > 0) {
             setLista(res.relatorios)
-            setFromNetwork(true)
-            return
+            setFromNetwork(res.fromNetwork)
+          } else {
+            // Fallback: arquivo vazio ou inacessível — tenta localStorage
+            const raw = localStorage.getItem(RELATORIOS_KEY)
+            if (raw) {
+              const local: RelatorioSalvo[] = JSON.parse(raw)
+              if (local.length > 0) {
+                setLista(local)
+                // Migra para o arquivo de dados
+                api.saveRelatorios(local).catch(() => {})
+              }
+            }
           }
         } catch {}
+        // Verifica se há certificado configurado neste PC
+        try {
+          const s = await api.getSettings()
+          setHasCert(!!(s?.certThumbprint))
+        } catch {}
+        return
       }
-      // fallback para localStorage
+      // fallback para localStorage (fora do Electron)
       try {
         const raw = localStorage.getItem(RELATORIOS_KEY)
         if (raw) setLista(JSON.parse(raw))
@@ -50,14 +69,73 @@ export function RelatoriosTab({ onCarregar, onVerPDF }: Props) {
     load()
   }, [])
 
+  const san = (v: string) => (v ?? '').replace(/[/\\:*?"<>|\s]/g, '_').replace(/_+/g, '_')
+
+  async function assinarEPublicar(id: string) {
+    if (!hasCert) {
+      setSignState(p => ({ ...p, [id]: 'error' }))
+      setSignMsg(p => ({ ...p, [id]: 'Nenhum certificado configurado. Configure em Configurações → Assinatura Digital de PDF.' }))
+      return
+    }
+    const rel = lista.find(r => r.id === id)
+    if (!rel?.eutFolderPath) {
+      setSignState(p => ({ ...p, [id]: 'error' }))
+      setSignMsg(p => ({ ...p, [id]: 'Pasta EUT não associada — carregue a pasta da EUT primeiro.' }))
+      return
+    }
+    const pdfFilename = `${san(rel.numRelatorio)}_${rel.cfg.tipo}_${san(rel.cfg.fabricante)}.pdf`
+    const api = (window as any).electronAPI
+    if (!api?.signPdf || !api?.publishPdf) return
+    setSignState(p => ({ ...p, [id]: 'loading' }))
+    setSignMsg(p => ({ ...p, [id]: '' }))
+    try {
+      const signRes = await api.signPdf(rel.eutFolderPath, pdfFilename)
+      if (!signRes.ok) {
+        setSignState(p => ({ ...p, [id]: 'error' }))
+        setSignMsg(p => ({ ...p, [id]: signRes.error ?? 'Erro ao assinar' }))
+        return
+      }
+      const pubRes = await api.publishPdf(rel.eutFolderPath, pdfFilename)
+      if (pubRes.ok) {
+        setSignState(p => ({ ...p, [id]: 'ok' }))
+        setSignMsg(p => ({ ...p, [id]: 'Assinado e publicado com sucesso' }))
+      } else {
+        setSignState(p => ({ ...p, [id]: 'error' }))
+        setSignMsg(p => ({ ...p, [id]: 'Assinado, mas erro ao publicar: ' + (pubRes.error ?? '') }))
+      }
+    } catch (e: any) {
+      setSignState(p => ({ ...p, [id]: 'error' }))
+      setSignMsg(p => ({ ...p, [id]: e.message }))
+    }
+  }
+
   async function remover(id: string) {
-    if (!confirm('Remover este relatório do histórico?')) return
+    const rel = lista.find(r => r.id === id)
+    if (!confirm(`Excluir "${rel?.numRelatorio || id}"?\n\nIsso irá:\n• Marcar o número como CANCELADO na planilha Excel\n• Apagar o PDF dos diretórios\n• Remover do histórico`)) return
+
+    const api = (window as any).electronAPI
+
+    if (rel?.numRelatorio) {
+      // Cancela na planilha
+      try {
+        await fetch('/api/registrar-excel', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ numRelatorio: rel.numRelatorio }),
+        })
+      } catch {}
+
+      // Apaga PDFs
+      if (api) {
+        const pdfFilename = `${san(rel.numRelatorio)}_${rel.cfg.tipo}_${san(rel.cfg.fabricante)}.pdf`
+        try { await api.cancelPdf(rel.eutFolderPath ?? '', pdfFilename) } catch {}
+      }
+    }
+
     const updated = lista.filter(r => r.id !== id)
     setLista(updated)
     localStorage.setItem(RELATORIOS_KEY, JSON.stringify(updated))
     localStorage.removeItem(RELATORIO_DOCX_PFX + id)
-    // Tenta remover da rede também
-    const api = (window as any).electronAPI
     if (api && fromNetwork) {
       try { await api.saveRelatorios(updated) } catch {}
     }
@@ -214,6 +292,35 @@ export function RelatoriosTab({ onCarregar, onVerPDF }: Props) {
                       className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-gold/8 border border-gold/20 text-gold text-[11px] font-semibold hover:bg-gold/18 transition-all">
                       <FileText size={11} /> PDF
                     </button>
+                    {/* Assinar e Publicar — sempre visível */}
+                    {(() => {
+                      const ss = signState[r.id]
+                      const done = ss === 'ok'
+                      return (
+                        <button
+                          onClick={() => !done && ss !== 'loading' && assinarEPublicar(r.id)}
+                          disabled={ss === 'loading' || done}
+                          title={
+                            done           ? signMsg[r.id] :
+                            ss === 'error' ? signMsg[r.id] :
+                            !hasCert       ? 'Nenhum certificado configurado — clique para ver instruções' :
+                            'Assinar digitalmente e publicar o PDF'
+                          }
+                          className={cn(
+                            'flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold transition-all',
+                            done             ? 'border-teal/30 bg-teal/8 text-teal cursor-default' :
+                            ss === 'error'   ? 'border-red-400/30 bg-red-400/8 text-red-400' :
+                            ss === 'loading' ? 'border-white/10 text-white/30 pointer-events-none' :
+                            !hasCert         ? 'border-white/10 bg-white/3 text-white/30 hover:bg-white/6' :
+                            'border-blue-400/25 bg-blue-400/6 text-blue-300 hover:bg-blue-400/14',
+                          )}>
+                          {ss === 'loading' ? <Loader2 size={11} className="animate-spin" /> :
+                           done             ? <CheckCircle2 size={11} /> :
+                           <PenLine size={11} />}
+                          {ss === 'loading' ? 'Processando…' : done ? 'Publicado' : ss === 'error' ? 'Erro' : 'Assinar e Publicar'}
+                        </button>
+                      )
+                    })()}
                     {hasEmendas ? (
                       <div
                         title="Relatório com emenda — edite pela aba Emendas"
@@ -240,6 +347,15 @@ export function RelatoriosTab({ onCarregar, onVerPDF }: Props) {
                     </button>
                   </div>
                 </div>
+
+                {/* feedback assinatura */}
+                {signState[r.id] === 'error' && (
+                  <div className="px-4 pb-2 flex items-center gap-1.5 text-[10px] text-red-400/80 font-mono">
+                    <AlertTriangle size={9} /> {signMsg[r.id]}
+                  </div>
+                )}
+
+
 
                 {/* detalhe expandido */}
                 {isOpen && (
