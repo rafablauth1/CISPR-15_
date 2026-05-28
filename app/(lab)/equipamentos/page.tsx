@@ -53,9 +53,14 @@ export default function EquipamentosPage() {
           <h1 className="page-title">Equipamentos</h1>
           <p className="page-sub">Por grupo e subgrupo</p>
         </div>
-        <Link href="/checagens/nova" className="btn-primary">
-          <Plus size={13} /> Nova Checagem
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link href="/equipamentos/novo" className="btn-primary">
+            <Plus size={13} /> Novo Equipamento
+          </Link>
+          <Link href="/checagens/nova" className="btn-secondary">
+            <Plus size={13} /> Nova Checagem
+          </Link>
+        </div>
       </div>
 
       {/* Grupos */}

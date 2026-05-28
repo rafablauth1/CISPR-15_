@@ -402,6 +402,17 @@ function buildMenu(port) {
       ],
     },
     {
+      label: 'Laboratório',
+      submenu: [
+        { label: 'Dashboard',    accelerator: 'CmdOrCtrl+D', click: () => openPage(BrowserWindow.getFocusedWindow(), '/dashboard') },
+        { label: 'Equipamentos', accelerator: 'CmdOrCtrl+E', click: () => openPage(BrowserWindow.getFocusedWindow(), '/equipamentos') },
+        { label: 'Normas',  click: () => openPage(BrowserWindow.getFocusedWindow(), '/normas') },
+        { label: 'Checagens', click: () => openPage(BrowserWindow.getFocusedWindow(), '/checagens') },
+        { type: 'separator' },
+        { label: 'Grupos de Equipamentos', click: () => openPage(BrowserWindow.getFocusedWindow(), '/equipamentos/grupos') },
+      ],
+    },
+    {
       label: 'Ajuda',
       submenu: [
         { label: `CISPR 15 LABELO  v${app.getVersion()}`, enabled: false },
