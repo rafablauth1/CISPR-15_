@@ -36,7 +36,7 @@ try {
 
 const DEV_PORT  = 3000
 const PROD_PORT = 3721
-const APP_PATH  = '/cispr15'
+const APP_PATH  = '/dashboard'
 
 const ICON_PATH = app.isPackaged
   ? path.join(process.resourcesPath, 'assets', 'icon.ico')

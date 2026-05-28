@@ -3,6 +3,7 @@ import { Syne, Figtree, DM_Mono } from 'next/font/google'
 import './globals.css'
 import { ErrorBoundary } from './ErrorBoundary'
 import { ThemeProvider } from './ThemeProvider'
+import { RootClientLayout } from '@/components/RootClientLayout'
 
 const syne = Syne({
   subsets: ['latin'],
@@ -63,8 +64,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           })();
         `}} />
       </head>
-      <body className="bg-navy text-white antialiased font-body dot-grid">
-        <ErrorBoundary>{children}</ErrorBoundary>
+      <body className="bg-navy text-white antialiased font-body">
+        <ErrorBoundary>
+          <RootClientLayout>{children}</RootClientLayout>
+        </ErrorBoundary>
         <ThemeProvider />
       </body>
     </html>
