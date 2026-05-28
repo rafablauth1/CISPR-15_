@@ -1,0 +1,167 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+import { cn } from '@/lib/utils'
+import {
+  LayoutDashboard, FileText, Cpu, BookOpen,
+  ClipboardCheck, Network, Ruler, Settings,
+} from 'lucide-react'
+
+interface NavItem { href: string; icon: React.ElementType; label: string }
+interface NavGroup { label: string; items: NavItem[] }
+
+const NAV: NavGroup[] = [
+  {
+    label: 'PRINCIPAL',
+    items: [
+      { href: '/dashboard',  icon: LayoutDashboard, label: 'Dashboard' },
+      { href: '/cispr15',    icon: FileText,         label: 'Relatórios' },
+    ],
+  },
+  {
+    label: 'LABORATÓRIO',
+    items: [
+      { href: '/equipamentos', icon: Cpu,           label: 'Equipamentos' },
+      { href: '/normas',       icon: BookOpen,      label: 'Normas' },
+      { href: '/checagens',    icon: ClipboardCheck, label: 'Checagens' },
+    ],
+  },
+  {
+    label: 'CONFIGURAÇÃO',
+    items: [
+      { href: '/equipamentos/grupos', icon: Network, label: 'Grupos' },
+      { href: '/grandezas',           icon: Ruler,   label: 'Grandezas' },
+    ],
+  },
+]
+
+function NavLink({ href, icon: Icon, label, active }: NavItem & { active: boolean }) {
+  return (
+    <Link href={href} className={cn('nav-item w-full', active && 'active')}>
+      <Icon size={14} className="nav-icon flex-shrink-0" />
+      <span className="truncate">{label}</span>
+    </Link>
+  )
+}
+
+interface Props {
+  checagensVencidas?: number
+}
+
+export default function LabSidebar({ checagensVencidas = 0 }: Props) {
+  const pathname = usePathname()
+  const [collapsed, setCollapsed] = useState(false)
+
+  useEffect(() => {
+    const s = localStorage.getItem('lab_sidebar_collapsed')
+    if (s) setCollapsed(JSON.parse(s))
+  }, [])
+
+  function toggle() {
+    const next = !collapsed
+    setCollapsed(next)
+    localStorage.setItem('lab_sidebar_collapsed', JSON.stringify(next))
+  }
+
+  return (
+    <aside
+      className={cn(
+        'sticky top-0 self-start flex flex-col h-screen border-r border-white/5 flex-shrink-0 overflow-hidden transition-all duration-200',
+        collapsed ? 'w-14' : 'w-[220px]',
+      )}
+      style={{ background: '#070A10' }}
+    >
+      {/* Logo */}
+      <div className="flex items-center justify-between px-4 py-4 border-b border-white/5">
+        {!collapsed && (
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0"
+                 style={{ background: 'linear-gradient(135deg, var(--accent-2,#F5D27A), var(--accent-dim,#C49A2E))' }}>
+              <div className="w-2 h-2 rounded-sm" style={{ background: 'rgba(6,9,17,0.9)' }} />
+            </div>
+            <span className="font-display font-bold text-[13px] tracking-wide text-white">
+              LAB<span style={{ color: 'var(--accent,#E8B94B)' }}>EMC</span>
+            </span>
+          </div>
+        )}
+        <button
+          onClick={toggle}
+          className="w-6 h-6 flex items-center justify-center text-white/25 hover:text-white hover:bg-white/6 rounded-lg transition-all"
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            {collapsed
+              ? <path d="M2 3h8M2 6h8M2 9h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              : <path d="M2 3h8M2 6h5M2 9h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            }
+          </svg>
+        </button>
+      </div>
+
+      {/* Nav */}
+      <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
+        {NAV.map((group) => (
+          <div key={group.label}>
+            {!collapsed && (
+              <p className="px-2 pb-1.5 text-[8px] font-bold tracking-[1.8px] uppercase font-mono"
+                 style={{ color: 'rgba(var(--accent-rgb,232,185,75),0.45)' }}>
+                {group.label}
+              </p>
+            )}
+            <div className="space-y-0.5">
+              {group.items.map(item => {
+                const active = pathname === item.href || pathname.startsWith(item.href + '/')
+                if (collapsed) {
+                  return (
+                    <div key={item.href} className="relative group/nav">
+                      <Link href={item.href}
+                        className={cn('nav-item justify-center px-0 py-2.5 w-full', active && 'active')}>
+                        <item.icon size={14} className="nav-icon" />
+                        {item.label === 'Checagens' && checagensVencidas > 0 && (
+                          <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500" />
+                        )}
+                      </Link>
+                      <div className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-3 z-50
+                                      px-2.5 py-1.5 rounded-lg text-[11px] font-medium text-white whitespace-nowrap
+                                      opacity-0 group-hover/nav:opacity-100 transition-opacity duration-150"
+                           style={{ background: 'rgba(20,22,32,0.97)', boxShadow: '0 4px 16px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.08)' }}>
+                        {item.label}
+                      </div>
+                    </div>
+                  )
+                }
+                return (
+                  <div key={item.href} className="relative">
+                    <NavLink {...item} active={active} />
+                    {item.label === 'Checagens' && checagensVencidas > 0 && (
+                      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 badge-danger text-[9px] px-1.5 py-0.5">
+                        {checagensVencidas}
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        ))}
+      </nav>
+
+      {/* Footer */}
+      <div className="border-t border-white/5 p-2">
+        {collapsed ? (
+          <Link href="/configuracoes"
+            className={cn('nav-item justify-center px-0 py-2 w-full', pathname === '/configuracoes' && 'active')}>
+            <Settings size={13} className="nav-icon" />
+          </Link>
+        ) : (
+          <Link href="/configuracoes"
+            className={cn('nav-item w-full', pathname === '/configuracoes' && 'active')}>
+            <Settings size={13} className="nav-icon flex-shrink-0" />
+            <span className="text-[11px]">Configurações</span>
+          </Link>
+        )}
+      </div>
+    </aside>
+  )
+}
