@@ -254,10 +254,9 @@ async function createWindow() {
     },
   })
 
-  /* Barra de título nativa em dark mode para combinar com o tema escuro do app.
-     autoHideMenuBar esconde a barra de menus (aparece ao pressionar Alt). */
+  /* Barra de título nativa em dark mode para combinar com o tema escuro do app. */
   nativeTheme.themeSource = 'dark'
-  win.setAutoHideMenuBar(true)
+  win.setMenuBarVisibility(true)
 
   const HIDE_CHROME_CSS = `aside { display: none !important; } header.sticky { display: none !important; }`
   win.webContents.on('did-start-loading', () => {
