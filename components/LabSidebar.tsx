@@ -23,8 +23,8 @@ const NAV: NavGroup[] = [
   {
     label: 'LABORATÓRIO',
     items: [
-      { href: '/equipamentos', icon: Cpu,           label: 'Equipamentos' },
-      { href: '/normas',       icon: BookOpen,      label: 'Normas' },
+      { href: '/equipamentos', icon: Cpu,            label: 'Equipamentos' },
+      { href: '/normas',       icon: BookOpen,       label: 'Normas' },
       { href: '/checagens',    icon: ClipboardCheck, label: 'Checagens' },
     ],
   },
@@ -46,14 +46,17 @@ function NavLink({ href, icon: Icon, label, active }: NavItem & { active: boolea
   )
 }
 
-interface Props {
-  checagensVencidas?: number
-}
+interface Props { checagensVencidas?: number }
 
 export default function LabSidebar({ checagensVencidas = 0 }: Props) {
   const pathname = usePathname()
+
+  // Inicializa do data-sidebar attribute (já setado pelo script do <head>)
+  // Fallback para localStorage se o atributo não estiver disponível
   const [collapsed, setCollapsed] = useState(() => {
-    if (typeof window === 'undefined') return false
+    if (typeof document === 'undefined') return false
+    const attr = document.documentElement.getAttribute('data-sidebar')
+    if (attr) return attr === 'collapsed'
     try { return JSON.parse(localStorage.getItem('lab_sidebar_collapsed') ?? 'false') } catch { return false }
   })
 
@@ -61,18 +64,18 @@ export default function LabSidebar({ checagensVencidas = 0 }: Props) {
     const next = !collapsed
     setCollapsed(next)
     localStorage.setItem('lab_sidebar_collapsed', JSON.stringify(next))
+    // Atualiza o atributo no <html> para manter consistência com o CSS
+    document.documentElement.setAttribute('data-sidebar', next ? 'collapsed' : 'expanded')
   }
 
   return (
+    /* lab-sidebar: largura controlada via CSS + data-sidebar no <html> — sem flash de hidratação */
     <aside
-      className={cn(
-        'sticky top-0 self-start flex flex-col h-screen border-r border-white/5 flex-shrink-0 overflow-hidden transition-all duration-200',
-        collapsed ? 'w-14' : 'w-[220px]',
-      )}
+      className="lab-sidebar sticky top-0 self-start flex flex-col h-screen border-r border-white/5 flex-shrink-0 overflow-hidden transition-[width] duration-200"
       style={{ background: '#070A10' }}
     >
       {/* Logo */}
-      <div className="flex items-center justify-between px-4 py-4 border-b border-white/5">
+      <div className="flex items-center justify-between px-4 py-4 border-b border-white/5 min-h-[57px]">
         {!collapsed && (
           <div className="flex items-center gap-2">
             <div className="w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0"
@@ -84,22 +87,19 @@ export default function LabSidebar({ checagensVencidas = 0 }: Props) {
             </span>
           </div>
         )}
-        <button
-          onClick={toggle}
-          className="w-6 h-6 flex items-center justify-center text-white/25 hover:text-white hover:bg-white/6 rounded-lg transition-all"
-        >
+        <button onClick={toggle}
+          className="w-6 h-6 flex items-center justify-center text-white/25 hover:text-white hover:bg-white/6 rounded-lg transition-all flex-shrink-0">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
             {collapsed
               ? <path d="M2 3h8M2 6h8M2 9h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-              : <path d="M2 3h8M2 6h5M2 9h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-            }
+              : <path d="M2 3h8M2 6h5M2 9h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>}
           </svg>
         </button>
       </div>
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
-        {NAV.map((group) => (
+        {NAV.map(group => (
           <div key={group.label}>
             {!collapsed && (
               <p className="px-2 pb-1.5 text-[8px] font-bold tracking-[1.8px] uppercase font-mono"

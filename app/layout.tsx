@@ -47,6 +47,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             } catch(e){}
           })();
         `}} />
+        {/* Sidebar: aplica largura imediatamente para evitar flash de hidratação */}
+        <script dangerouslySetInnerHTML={{ __html: `
+          (function(){
+            try {
+              var c = JSON.parse(localStorage.getItem('lab_sidebar_collapsed') || 'false');
+              document.documentElement.setAttribute('data-sidebar', c ? 'collapsed' : 'expanded');
+            } catch(e){}
+          })();
+        `}} />
         {/* Restaura o foco da janela Electron após confirm/alert nativos fecharem */}
         <script dangerouslySetInnerHTML={{ __html: `
           (function(){

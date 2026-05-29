@@ -318,6 +318,10 @@
   .animate-slide-up { animation: slideUp 0.22s ease both; }
 }
 
+/* ── Sidebar width via data attribute (evita flash de hidratação) ── */
+.lab-sidebar          { width: 220px; }
+[data-sidebar="collapsed"] .lab-sidebar { width: 56px; }
+
 /* ── Dot grid background ── */
 .dot-grid {
   background-image: radial-gradient(circle, rgba(255,255,255,0.035) 1px, transparent 1px);
