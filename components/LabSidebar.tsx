@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
@@ -52,12 +52,10 @@ interface Props {
 
 export default function LabSidebar({ checagensVencidas = 0 }: Props) {
   const pathname = usePathname()
-  const [collapsed, setCollapsed] = useState(false)
-
-  useEffect(() => {
-    const s = localStorage.getItem('lab_sidebar_collapsed')
-    if (s) setCollapsed(JSON.parse(s))
-  }, [])
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false
+    try { return JSON.parse(localStorage.getItem('lab_sidebar_collapsed') ?? 'false') } catch { return false }
+  })
 
   function toggle() {
     const next = !collapsed
