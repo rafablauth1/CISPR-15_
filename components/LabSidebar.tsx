@@ -54,7 +54,8 @@ export default function LabSidebar({ checagensVencidas = 0 }: Props) {
   // Inicializa do data-sidebar attribute (já setado pelo script do <head>)
   // Fallback para localStorage se o atributo não estiver disponível
   const [collapsed, setCollapsed] = useState(() => {
-    if (typeof document === 'undefined') return false
+    if (typeof window === 'undefined') return false
+    // Lê do atributo setado pelo script do <head> (antes da hidratação)
     const attr = document.documentElement.getAttribute('data-sidebar')
     if (attr) return attr === 'collapsed'
     try { return JSON.parse(localStorage.getItem('lab_sidebar_collapsed') ?? 'false') } catch { return false }

@@ -65,7 +65,10 @@ function WinBtn({
 }
 
 export function TitleBar() {
-  const [visible,   setVisible]   = useState(false)
+  // Detecta Electron imediatamente (sem useEffect) para evitar layout shift
+  const [visible, setVisible] = useState(() =>
+    typeof window !== 'undefined' && !!(window as any).electronAPI?.minimizeWindow
+  )
   const [maximized, setMaximized] = useState(false)
   const dragging   = useRef(false)
   const startPos   = useRef({ screenX: 0, screenY: 0 })
@@ -74,6 +77,7 @@ export function TitleBar() {
 
   useEffect(() => {
     if (!api?.minimizeWindow) return
+    // Confirma visibilidade e carrega estado do maximize
     setVisible(true)
     api.isMaximized?.().then((m: boolean) => setMaximized(!!m)).catch(() => {})
 

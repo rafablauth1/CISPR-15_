@@ -152,12 +152,12 @@ function TblHeader({ modo }: { modo: Modo }) {
         <th>Grandeza</th>
         <th className="w-20">Unid.</th>
         {modo === 'direta-gera' && <>
-          <th className="w-32">VR — Ref. gera</th>
-          <th className="w-32">MM — Instrumento lê</th>
+          <th className="w-32">VR — Padrão (fonte)</th>
+          <th className="w-32">MM — Instrumento (indicador)</th>
         </>}
         {modo === 'direta-mede' && <>
-          <th className="w-32">VN — Ajustado no inst.</th>
-          <th className="w-32">VR — Ref. mede</th>
+          <th className="w-32">VN — Instrumento (fonte)</th>
+          <th className="w-32">VR — Padrão (indicador)</th>
         </>}
         {modo === 'indireta' && <>
           <th className="w-28">Leit. Referência</th>
@@ -474,7 +474,7 @@ export default function NovaChecagemPage() {
                 <input type="radio" name="tipoComp" value={t} checked={tipoComp===t} onChange={()=>setTipoComp(t)} className="accent-gold"/>
                 <span className="text-sm font-semibold text-white/80">{t==='direta'?'Direta':'Indireta'}</span>
                 <span className="text-[11px] text-white/35">
-                  {t==='direta' ? '— um gera, outro mede' : '— caixa preta gera, ambos medem'}
+                  {t==='direta' ? '— padrão ou instrumento como fonte do mensurando' : '— fonte auxiliar; padrão e instrumento indicam simultaneamente'}
                 </span>
               </label>
             ))}
@@ -483,20 +483,20 @@ export default function NovaChecagemPage() {
           {/* Papel da referência (só para direta) */}
           {tipoComp === 'direta' && (
             <div className="pl-4 border-l-2 border-gold/30">
-              <p className="text-[10px] font-mono text-white/35 mb-2 uppercase tracking-wider">Papel da referência:</p>
+              <p className="text-[10px] font-mono text-white/35 mb-2 uppercase tracking-wider">Função do padrão de referência:</p>
               <div className="flex gap-6">
                 <label className="flex items-start gap-2 cursor-pointer group">
                   <input type="radio" name="papelRef" value="gerador" checked={papelRef==='gerador'} onChange={()=>setPapelRef('gerador')} className="accent-gold mt-0.5"/>
                   <div>
-                    <p className="text-sm text-white/80 font-medium group-hover:text-white">Referência gera</p>
-                    <p className="text-[11px] text-white/35">Ajusta na ref → instrumento lê. Erro = MM − VR</p>
+                    <p className="text-sm text-white/80 font-medium group-hover:text-white">Padrão como fonte</p>
+                    <p className="text-[11px] text-white/35">Padrão fornece o mensurando (VR) → instrumento indica (MM). Erro = MM − VR</p>
                   </div>
                 </label>
                 <label className="flex items-start gap-2 cursor-pointer group">
                   <input type="radio" name="papelRef" value="medidor" checked={papelRef==='medidor'} onChange={()=>setPapelRef('medidor')} className="accent-gold mt-0.5"/>
                   <div>
-                    <p className="text-sm text-white/80 font-medium group-hover:text-white">Referência mede</p>
-                    <p className="text-[11px] text-white/35">Ajusta no instrumento → ref mede. Erro = VN − VR</p>
+                    <p className="text-sm text-white/80 font-medium group-hover:text-white">Padrão como receptor</p>
+                    <p className="text-[11px] text-white/35">Instrumento fornece o mensurando (VN) → padrão indica (VR). Erro = VN − VR</p>
                   </div>
                 </label>
               </div>
@@ -505,8 +505,9 @@ export default function NovaChecagemPage() {
 
           {tipoComp === 'indireta' && (
             <div className="pl-4 border-l-2 border-teal/30 text-[11px] text-white/40">
-              Caixa preta gera um sinal fixo → referência lê (VR) e instrumento checado lê (MM) simultaneamente.<br/>
-              Erro = MM − Valor corrigido (VR + correção do certificado)
+              Fonte auxiliar (artefato de transferência) fornece o mensurando →
+              padrão indica (VR) e instrumento checado indica (MM) simultaneamente.<br/>
+              Erro indicação = MM − Valor convencional verdadeiro (VR + correção do certificado)
             </div>
           )}
 
