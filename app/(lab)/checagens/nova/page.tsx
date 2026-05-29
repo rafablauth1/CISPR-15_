@@ -9,8 +9,9 @@ import { extrairTextoArquivo } from '@/lib/useOCR'
 import type { EquipamentoEMC } from '@/lib/equipamentos/tipos'
 import type { ItemChecagem, TipoComparacao, PapelReferencia, ResultadoGeral } from '@/lib/checagens/tipos'
 import { TEMPLATES } from '@/lib/checagens/templates'
+import { parsearGrandezasIT, parsearMetadadosIT } from '@/lib/checagens/parser-it'
 
-type Tab = 'manual' | 'excel' | 'ocr'
+type Tab = 'manual' | 'excel' | 'ocr' | 'it'
 
 const LABORATORIOS = [
   { grupo: 'Calibração', items: ['Alta Frequência e Telecomunicações','Eletricidade','Eletroacústica','Força, Torque e Dureza','Fotometria','Instrumentos Ópticos','Temperatura e Umidade Relativa','Tempo e Frequência','Volume'] },
@@ -62,6 +63,91 @@ function fmtErro(e: number | null, criterioMax?: number) {
   const text = (e >= 0 ? '+' : '') + (Math.abs(e) < 0.001 ? e.toExponential(2) : e.toPrecision(4))
   const ok: boolean | null = criterioMax !== undefined ? Math.abs(e) <= criterioMax : null
   return { text, ok }
+}
+
+/* ── Componente: Parser de IT ── */
+function ITParser({ onAplicar }: {
+  onAplicar: (itens: ItemChecagem[], meta: { tag: string; periodicidade: number | null; norma: string }) => void
+}) {
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [texto,     setTexto]     = useState('')
+  const [loading,   setLoading]   = useState(false)
+  const [detectado, setDetectado] = useState<ItemChecagem[]>([])
+  const [err,       setErr]       = useState('')
+
+  async function handleFile(file: File) {
+    setLoading(true); setErr('')
+    try {
+      const t = await extrairTextoArquivo(file)
+      setTexto(t); analisar(t)
+    } catch(e:unknown) { setErr(String(e)) }
+    finally { setLoading(false) }
+  }
+
+  function analisar(t: string) {
+    const itens = parsearGrandezasIT(t)
+    setDetectado(itens)
+    setErr(itens.length === 0 ? 'Nenhuma grandeza identificada. Verifique o texto.' : '')
+  }
+
+  const meta = texto ? parsearMetadadosIT(texto) : { tag:'', periodicidade:null as null, norma:'' }
+
+  return (
+    <div className="card p-5 mb-4 space-y-4">
+      <p className="form-section">Importar via IT — Instrução de Trabalho</p>
+      <p className="text-[11px] text-white/40">
+        Cole o texto da IT ou carregue o arquivo. O sistema detecta grandezas
+        (tensão alternada, corrente DC, frequência, etc.) e cria os pontos automaticamente.
+      </p>
+      <div className="flex items-center gap-3">
+        <input ref={fileRef} type="file" accept=".pdf,image/*,.txt" className="hidden"
+          onChange={e=>e.target.files?.[0]&&handleFile(e.target.files[0])}/>
+        <button type="button" onClick={()=>fileRef.current?.click()} className="btn-secondary text-xs">
+          {loading?<Loader2 size={12} className="animate-spin"/>:<Upload size={12}/>}
+          {loading?'Lendo…':'Carregar arquivo'}
+        </button>
+        <span className="text-[10px] text-white/25">ou cole o texto abaixo</span>
+      </div>
+      <textarea
+        className="input font-mono text-xs h-40 resize-none"
+        placeholder={'Cole aqui o texto da IT...\nex: "Verificar tensão alternada, corrente alternada e frequência de rede"'}
+        value={texto}
+        onChange={e=>{ setTexto(e.target.value); if(e.target.value.trim()) analisar(e.target.value) }}
+      />
+      {err && <p className="text-[12px] text-amber-400">{err}</p>}
+      {detectado.length > 0 && (
+        <>
+          <div className="border border-white/8 rounded-xl overflow-hidden">
+            <div className="px-3 py-2 bg-white/3 flex items-center justify-between">
+              <p className="text-[10px] font-mono uppercase tracking-wider text-white/40">
+                {detectado.length} ponto(s) detectado(s)
+                {meta.tag && <> · TAG: <span className="text-gold">{meta.tag}</span></>}
+                {meta.periodicidade && <> · {meta.periodicidade} meses</>}
+              </p>
+            </div>
+            <table className="w-full">
+              <thead className="tbl-head"><tr><th>Pt.</th><th>Grandeza</th><th>Unid.</th><th>VN sugerido</th></tr></thead>
+              <tbody>
+                {detectado.map(i=>(
+                  <tr key={i.id} className="tbl-row">
+                    <td className="font-mono text-[11px] text-white/40 text-center">{i.ponto}</td>
+                    <td className="text-white/80">{i.grandeza}</td>
+                    <td className="font-mono text-[11px]">{i.unidade}</td>
+                    <td className="font-mono text-[11px]" style={{color:'var(--teal,#22D3C8)'}}>{i.valorNominal}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex justify-end">
+            <button type="button" onClick={()=>onAplicar(detectado, meta)} className="btn-primary">
+              <Save size={13}/> Aplicar e ir para tabela
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  )
 }
 
 /* ── Linha da tabela ── */
@@ -372,11 +458,11 @@ export default function NovaChecagemPage() {
           <h1 className="page-title">Registro de Checagem Intermediária</h1>
         </div>
         <div className="flex items-center gap-2">
-          {(['manual','excel','ocr'] as Tab[]).map(t => (
+          {(['manual','it','excel','ocr'] as Tab[]).map(t => (
             <button key={t} type="button" onClick={()=>setTab(t)}
               className={cn('px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all',
                 tab===t?'bg-[#141B28] text-white border border-white/10':'text-white/35 hover:text-white/60')}>
-              {t==='manual'?'Manual':t==='excel'?'Excel':'OCR'}
+              {t==='manual'?'Manual':t==='it'?'IT / Instrução':t==='excel'?'Excel':'OCR'}
             </button>
           ))}
         </div>
@@ -588,6 +674,15 @@ export default function NovaChecagemPage() {
           </div>
         </div>
       )}
+
+      {/* ── Tab IT / Instrução de Trabalho ── */}
+      {tab==='it'&&<ITParser onAplicar={(novosItens, meta) => {
+        setItens(novosItens)
+        if (meta.tag && !padraoTag) setPadraoTag(meta.tag)
+        if (meta.periodicidade) setPeriodicidade(meta.periodicidade)
+        if (meta.norma && !normaRef) setNormaRef(meta.norma)
+        setTab('manual')
+      }}/>}
 
       {/* ── Tab Excel ── */}
       {tab==='excel'&&(
