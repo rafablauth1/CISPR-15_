@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft, Plus, Trash2, X, Save, Upload, ScanText, Loader2, FileText } from 'lucide-react'
-import { fmt, fileToBase64 } from '@/lib/utils'
+import { fmt } from '@/lib/utils'
+import { extrairTextoArquivo } from '@/lib/useOCR'
 import type { EquipamentoEMC } from '@/lib/equipamentos/tipos'
 import type { GrandezaMetrologica } from '@/lib/metrologia/tipos'
 import type { Checagem } from '@/lib/checagens/tipos'
@@ -87,11 +88,7 @@ function CertificadoModal({ equipamentoId, equipamentoTag, onSalvo, onFechar }: 
   async function handleOCR(file: File) {
     setOcrLoading(true)
     try {
-      const b64 = await fileToBase64(file)
-      const res = await fetch('/api/importacao/ocr', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ imagemBase64:b64 }) })
-      const d = await res.json()
-      if (d.error) throw new Error(d.error)
-      const texto = d.texto ?? ''
+      const texto = await extrairTextoArquivo(file)
       setOcrText(texto)
       // Auto-preenche campos
       const meta = parsearMetadadosCertificado(texto)

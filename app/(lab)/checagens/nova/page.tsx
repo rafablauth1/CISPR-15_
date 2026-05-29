@@ -4,7 +4,8 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus, Trash2, Loader2, Upload, ScanText, Save, FileSearch } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { addM, fileToBase64 } from '@/lib/utils'
+import { addM } from '@/lib/utils'
+import { extrairTextoArquivo } from '@/lib/useOCR'
 import type { EquipamentoEMC } from '@/lib/equipamentos/tipos'
 import type { ItemChecagem, TipoComparacao, PapelReferencia, ResultadoGeral } from '@/lib/checagens/tipos'
 import { TEMPLATES } from '@/lib/checagens/templates'
@@ -307,11 +308,8 @@ export default function NovaChecagemPage() {
   async function handleCertPDF(file: File) {
     setCertLoading(true)
     try {
-      const b64 = await fileToBase64(file)
-      const res = await fetch('/api/importacao/ocr', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ imagemBase64:b64 }) })
-      const d = await res.json()
-      if (d.error) throw new Error(d.error)
-      setCertOCR(d.texto??'')
+      const texto = await extrairTextoArquivo(file)
+      setCertOCR(texto)
     } catch(e:unknown) { alert('Erro OCR certificado: '+String(e)) }
     finally { setCertLoading(false) }
   }
@@ -358,11 +356,8 @@ export default function NovaChecagemPage() {
   async function handleOCR(file: File) {
     setLoading(true)
     try {
-      const b64 = await fileToBase64(file)
-      const res = await fetch('/api/importacao/ocr', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ imagemBase64:b64 }) })
-      const d = await res.json()
-      if (d.error) throw new Error(d.error)
-      setOcrTexto(d.texto??'')
+      const texto = await extrairTextoArquivo(file)
+      setOcrTexto(texto)
     } catch(e:unknown) { alert('Erro OCR: '+String(e)) }
     finally { setLoading(false) }
   }
