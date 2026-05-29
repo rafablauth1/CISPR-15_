@@ -1,12 +1,12 @@
-import { NextResponse } from 'next/server'
-import { lerJSON } from '@/lib/dados'
+import { NextRequest, NextResponse } from 'next/server'
+import { lerJSON, escreverJSON } from '@/lib/dados'
 
 const GRUPOS_DEFAULT = [
   { id: 'geradores', nome: 'Geradores', descricao: 'Geradores de sinal e fontes de alimentação calibradas', cor: 'blue',
     subgrupos: [
-      { id: 'gerador-sinal-rf',    nome: 'Sinal / RF', numero: '1.1' },
-      { id: 'gerador-funcoes',     nome: 'Funções',    numero: '1.2' },
-      { id: 'fonte-alimentacao-dc', nome: 'Fonte DC',  numero: '1.3' },
+      { id: 'gerador-sinal-rf',     nome: 'Sinal / RF', numero: '1.1' },
+      { id: 'gerador-funcoes',      nome: 'Funções',    numero: '1.2' },
+      { id: 'fonte-alimentacao-dc', nome: 'Fonte DC',   numero: '1.3' },
     ] },
   { id: 'medidores', nome: 'Medidores', descricao: 'Analisadores de espectro, receptores EMI e instrumentos de medição', cor: 'gold',
     subgrupos: [
@@ -37,6 +37,26 @@ const GRUPOS_DEFAULT = [
     ] },
 ]
 
+function slugify(s: string) {
+  return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+}
+
 export async function GET() {
   return NextResponse.json(lerJSON('grupos.json', GRUPOS_DEFAULT))
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json()
+    const grupos = lerJSON<typeof GRUPOS_DEFAULT>('grupos.json', GRUPOS_DEFAULT)
+    const id = body.id || slugify(body.nome || 'grupo')
+    if (grupos.find(g => g.id === id)) {
+      return NextResponse.json({ error: 'ID já existe' }, { status: 409 })
+    }
+    const novo = { id, nome: body.nome, descricao: body.descricao || '', cor: body.cor || 'gray', subgrupos: body.subgrupos || [] }
+    escreverJSON('grupos.json', [...grupos, novo])
+    return NextResponse.json(novo, { status: 201 })
+  } catch (e: unknown) {
+    return NextResponse.json({ error: String(e) }, { status: 500 })
+  }
 }
