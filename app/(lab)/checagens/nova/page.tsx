@@ -225,7 +225,7 @@ export default function NovaChecagemPage() {
   const [resultadoGeral, setResultadoGeral] = useState<ResultadoGeral>('pendente')
   const [data,           setData]          = useState(new Date().toISOString().slice(0,10))
   const [responsavel,    setResponsavel]   = useState('')
-  const [periodicidade,  setPeriodicidade] = useState(90)
+  const [periodicidade,  setPeriodicidade] = useState(3)   // em meses
   const [normaRef,       setNormaRef]      = useState('')
   const [obs,            setObs]           = useState('')
   const [itens,          setItens]         = useState<ItemChecagem[]>(Array.from({length:10},(_,i)=>emptyItem(i+1)))
@@ -233,6 +233,8 @@ export default function NovaChecagemPage() {
   const [ocrTexto,       setOcrTexto]      = useState('')
   const [certOCR,        setCertOCR]       = useState('')
   const [certLoading,    setCertLoading]   = useState(false)
+  const [certPadrao,     setCertPadrao]    = useState<import('@/lib/certificados/tipos').Certificado|null>(null)
+  const [certPadraoMsg,  setCertPadraoMsg] = useState('')
   const [loading,        setLoading]       = useState(false)
   const [salvando,       setSalvando]      = useState(false)
 
@@ -247,7 +249,7 @@ export default function NovaChecagemPage() {
     setNomeInstrumento(eq.nome)
     const tpl = TEMPLATES[eq.subgrupoId]
     if (tpl) {
-      setPeriodicidade(tpl.periodicidadePadrao)
+      setPeriodicidade(Math.round(tpl.periodicidadePadrao / 30))
       setItens(tpl.itens.map((t,i) => ({ ...emptyItem(i+1), grandeza:t.descricao, unidade:t.unidade, criterioMin:t.criterioMin, criterioMax:t.criterioMax })))
     }
   }
@@ -257,6 +259,35 @@ export default function NovaChecagemPage() {
   function addItem() { setItens(p=>[...p, emptyItem(p.length+1)]) }
   function removeItem(id: string) { setItens(p=>p.filter(i=>i.id!==id).map((i,idx)=>({...i,ponto:idx+1}))) }
   function updateItem(id: string, item: ItemChecagem) { setItens(p=>p.map(i=>i.id===id?item:i)) }
+
+  // Ao informar TAG do padrão, busca o certificado mais recente válido
+  async function handlePadraoTagChange(tag: string) {
+    setPadraoTag(tag)
+    setCertPadrao(null); setCertPadraoMsg('')
+    if (!tag.trim()) return
+    try {
+      const certs = await fetch(`/api/certificados?tag=${encodeURIComponent(tag)}`).then(r=>r.json())
+      if (!Array.isArray(certs) || certs.length === 0) { setCertPadraoMsg('Nenhum certificado encontrado para este TAG.'); return }
+      // Pega o mais recente
+      const mais = certs.sort((a: {dataEmissao:string}, b: {dataEmissao:string}) => b.dataEmissao.localeCompare(a.dataEmissao))[0]
+      setCertPadrao(mais)
+      setCertPadraoMsg(`✓ Certificado ${mais.numero} (${mais.laboratorio}) — ${mais.itens.length} ponto(s)`)
+    } catch { setCertPadraoMsg('Erro ao buscar certificado.') }
+  }
+
+  // Aplica correções do certificado do padrão à tabela de itens
+  function aplicarCorrecoesDoCertPadrao() {
+    if (!certPadrao?.itens?.length) return
+    setItens(prev => prev.map((item, i) => {
+      const linha = certPadrao.itens[i]
+      if (!linha) return item
+      const correcaoPadrao = linha.correcao
+      const vr = parseN(item.valorReferencia)
+      const c  = parseN(correcaoPadrao)
+      const valorCorrigido = vr !== null && c !== null ? String((vr+c).toPrecision(6).replace(/\.?0+$/,'')) : undefined
+      return { ...item, correcaoPadrao, valorCorrigido }
+    }))
+  }
 
   const aplicarCorrecoes = useCallback(() => {
     if (!certOCR) return
@@ -289,7 +320,7 @@ export default function NovaChecagemPage() {
     const eq = equips.find(e=>e.id===equipId)
     if (!eq) { alert('Selecione um equipamento.'); return }
     setSalvando(true)
-    const proximaChecagem = addM(data, Math.round(periodicidade/30))
+    const proximaChecagem = addM(data, periodicidade)   // periodicidade já em meses
     const { validarChecagem } = await import('@/lib/checagens/validacao')
     const status = validarChecagem(itensFinal, proximaChecagem, resultadoGeral)
     try {
@@ -402,7 +433,17 @@ export default function NovaChecagemPage() {
         <div className="grid grid-cols-3 gap-4 mb-5">
           <div>
             <label className="text-[10px] font-mono tracking-[2px] uppercase text-white/40 block mb-1">TAG do padrão</label>
-            <input className="input font-mono" value={padraoTag} onChange={e=>setPadraoTag(e.target.value)} placeholder="ex: 1528EMC"/>
+            <input className="input font-mono" value={padraoTag}
+              onChange={e=>handlePadraoTagChange(e.target.value)} placeholder="ex: 1528EMC"/>
+            {certPadraoMsg && (
+              <p className={`text-[10px] mt-1 ${certPadrao?'text-green-400':'text-amber-400'}`}>{certPadraoMsg}</p>
+            )}
+            {certPadrao && (
+              <button type="button" onClick={aplicarCorrecoesDoCertPadrao}
+                className="mt-1.5 btn-primary text-[11px] py-1">
+                <FileSearch size={11}/> Aplicar correções do certificado
+              </button>
+            )}
           </div>
           <div>
             <label className="text-[10px] font-mono tracking-[2px] uppercase text-white/40 block mb-1">Data da checagem</label>
@@ -413,8 +454,8 @@ export default function NovaChecagemPage() {
             <input className="input" value={responsavel} onChange={e=>setResponsavel(e.target.value)} placeholder="Nome do técnico"/>
           </div>
           <div>
-            <label className="text-[10px] font-mono tracking-[2px] uppercase text-white/40 block mb-1">Periodicidade (dias)</label>
-            <input type="number" className="input" value={periodicidade} onChange={e=>setPeriodicidade(Number(e.target.value))}/>
+            <label className="text-[10px] font-mono tracking-[2px] uppercase text-white/40 block mb-1">Periodicidade (meses)</label>
+            <input type="number" min={1} max={60} className="input" value={periodicidade} onChange={e=>setPeriodicidade(Number(e.target.value))}/>
           </div>
           <div>
             <label className="text-[10px] font-mono tracking-[2px] uppercase text-white/40 block mb-1">Norma de referência</label>
