@@ -1,8 +1,18 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Plus, Pencil, Trash2, X, Save, GripVertical } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, Save, GripVertical, Zap, Gauge, Waves, Radio, SlidersHorizontal, Thermometer } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { GRUPO_CORES } from '@/lib/grupos-icons'
+
+const ICONES: Record<string, React.ElementType> = {
+  'geradores':            Zap,
+  'medidores':            Gauge,
+  'redes-impedancia':     Waves,
+  'antenas':              Radio,
+  'atenuacao':            SlidersHorizontal,
+  'grandezas-ambientais': Thermometer,
+}
 
 interface Subgrupo { id: string; nome: string; numero: string }
 interface Grupo    { id: string; nome: string; descricao: string; cor: string; subgrupos: Subgrupo[] }
@@ -17,7 +27,7 @@ const CORES = [
   { id: 'teal',   hex: '#22D3C8', label: 'Teal' },
 ]
 
-function cor(id: string) { return CORES.find(c => c.id === id)?.hex ?? '#94A3B8' }
+function cor(id: string) { return GRUPO_CORES[id] ?? CORES.find(c => c.id === id)?.hex ?? '#94A3B8' }
 
 function slugify(s: string) {
   return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')
@@ -212,14 +222,15 @@ export default function GruposEditorPage() {
       ) : (
         <div className="space-y-3">
           {grupos.map(g => {
-            const c = cor(g.cor)
+            const c    = cor(g.cor)
+            const Icon = ICONES[g.id] ?? Gauge
             return (
               <div key={g.id} className="card p-5">
                 {/* Cabeçalho do grupo */}
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
                        style={{ background: `${c}18`, border: `1px solid ${c}28` }}>
-                    <div className="w-3 h-3 rounded-sm" style={{ background: c }}/>
+                    <Icon size={17} style={{ color: c }}/>
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">

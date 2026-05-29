@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Plus, ChevronRight } from 'lucide-react'
+import { Plus, ChevronRight, Zap, Gauge, Waves, Radio, SlidersHorizontal, Thermometer } from 'lucide-react'
 import { fmt } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { EquipamentoEMC, GrupoId } from '@/lib/equipamentos/tipos'
+import { GRUPO_CORES } from '@/lib/grupos-icons'
 
 interface Grupo {
   id: GrupoId
@@ -14,13 +15,13 @@ interface Grupo {
   subgrupos: { id: string; nome: string; numero: string }[]
 }
 
-const COR_ICON: Record<string, string> = {
-  blue:   '#4F8EF7',
-  gold:   '#E8B94B',
-  purple: '#A855F7',
-  green:  '#22C55E',
-  coral:  '#F87171',
-  gray:   '#94A3B8',
+const ICONES: Record<string, React.ElementType> = {
+  'geradores':            Zap,
+  'medidores':            Gauge,
+  'redes-impedancia':     Waves,
+  'antenas':              Radio,
+  'atenuacao':            SlidersHorizontal,
+  'grandezas-ambientais': Thermometer,
 }
 
 function StatusPill({ status }: { status: string }) {
@@ -55,10 +56,10 @@ export default function EquipamentosPage() {
         </div>
         <div className="flex items-center gap-2">
           <Link href="/equipamentos/novo" className="btn-primary">
-            <Plus size={13} /> Novo Equipamento
+            <Plus size={13}/> Novo Equipamento
           </Link>
           <Link href="/checagens/nova" className="btn-secondary">
-            <Plus size={13} /> Nova Checagem
+            <Plus size={13}/> Nova Checagem
           </Link>
         </div>
       </div>
@@ -69,14 +70,15 @@ export default function EquipamentosPage() {
           <h2 className="font-display font-semibold text-[13px] text-white/60 uppercase tracking-widest mb-3">Grupos</h2>
           <div className="grid grid-cols-3 gap-4 mb-8">
             {grupos.map(g => {
-              const cor = COR_ICON[g.cor] ?? '#94A3B8'
+              const cor   = GRUPO_CORES[g.cor] ?? '#94A3B8'
+              const Icon  = ICONES[g.id] ?? Gauge
               const total = equipsByGrupo(g.id).length
               return (
-                <div key={g.id} className="card p-4">
+                <div key={g.id} className="card p-4 hover:border-white/15 transition-colors">
                   <div className="flex items-center gap-3 mb-3">
-                    <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
                          style={{ background: `${cor}18`, border: `1px solid ${cor}28` }}>
-                      <div className="w-3 h-3 rounded-sm" style={{ background: cor }} />
+                      <Icon size={18} style={{ color: cor }}/>
                     </div>
                     <div className="min-w-0">
                       <p className="font-semibold text-[13px] text-white truncate">{g.nome}</p>
@@ -85,7 +87,8 @@ export default function EquipamentosPage() {
                   </div>
                   <div className="flex flex-wrap gap-1">
                     {g.subgrupos.map(s => (
-                      <span key={s.id} className="badge" style={{ background: `${cor}12`, color: cor, border: `1px solid ${cor}22`, fontSize: 9 }}>
+                      <span key={s.id} className="badge font-mono"
+                        style={{ background: `${cor}12`, color: cor, border: `1px solid ${cor}22`, fontSize: 9 }}>
                         {s.numero} {s.nome}
                       </span>
                     ))}
@@ -94,7 +97,7 @@ export default function EquipamentosPage() {
               )
             })}
           </div>
-          <hr className="border-white/6 mb-8" />
+          <hr className="border-white/6 mb-8"/>
         </>
       )}
 
@@ -115,6 +118,7 @@ export default function EquipamentosPage() {
               <tr>
                 <th>Tag</th>
                 <th>Nome</th>
+                <th>Grupo</th>
                 <th>Subgrupo</th>
                 <th>Próx. Calibração</th>
                 <th>Status</th>
@@ -122,23 +126,31 @@ export default function EquipamentosPage() {
               </tr>
             </thead>
             <tbody>
-              {equips.map(e => (
-                <tr key={e.id} className="tbl-row">
-                  <td><span className="tag-chip">{e.tag}</span></td>
-                  <td className="font-medium text-white/80">{e.nome}</td>
-                  <td>
-                    <span className="text-[10px] text-white/40 font-mono">{e.subgrupoId}</span>
-                  </td>
-                  <td className="font-mono text-[11px]">{fmt(e.proximaCalibracao)}</td>
-                  <td><StatusPill status={e.status} /></td>
-                  <td>
-                    <Link href={`/equipamentos/${e.id}`}
-                      className="text-white/25 hover:text-white transition-colors">
-                      <ChevronRight size={14} />
-                    </Link>
-                  </td>
-                </tr>
-              ))}
+              {equips.map(e => {
+                const Icon = ICONES[e.grupoId] ?? Gauge
+                const g    = grupos.find(g => g.id === e.grupoId)
+                const cor  = GRUPO_CORES[g?.cor ?? 'gray']
+                return (
+                  <tr key={e.id} className="tbl-row">
+                    <td><span className="tag-chip">{e.tag}</span></td>
+                    <td className="font-medium text-white/80">{e.nome}</td>
+                    <td>
+                      <span className="inline-flex items-center gap-1.5">
+                        <Icon size={12} style={{ color: cor }}/>
+                        <span className="text-[11px] text-white/50">{g?.nome ?? e.grupoId}</span>
+                      </span>
+                    </td>
+                    <td><span className="text-[10px] text-white/40 font-mono">{e.subgrupoId}</span></td>
+                    <td className="font-mono text-[11px]">{fmt(e.proximaCalibracao)}</td>
+                    <td><StatusPill status={e.status}/></td>
+                    <td>
+                      <Link href={`/equipamentos/${e.id}`} className="text-white/25 hover:text-white transition-colors">
+                        <ChevronRight size={14}/>
+                      </Link>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
