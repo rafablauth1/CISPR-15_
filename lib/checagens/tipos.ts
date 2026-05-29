@@ -3,24 +3,28 @@ import type { GrupoId, SubgrupoId } from '@/lib/equipamentos/tipos'
 export type StatusChecagem  = 'aprovado' | 'atencao' | 'reprovado'
 export type FonteImportacao = 'manual' | 'excel' | 'ocr'
 export type TipoComparacao  = 'direta' | 'indireta'
+export type PapelReferencia = 'gerador' | 'medidor'  // só para comparação direta
 export type ResultadoGeral  = 'satisfatorio' | 'insatisfatorio' | 'pendente'
 
 export interface ItemChecagem {
   id: string
   ponto: number
-  grandeza: string           // "Grandeza a ser verificada"
+  grandeza: string
   unidade: string
-  // Comparação direta (colunas VR / MM)
-  valorReferencia: string    // VR — valor do padrão (UST)
-  valorMedido: string        // MM — valor lido no instrumento (UMP)
-  // Comparação indireta (colunas extras)
-  valorTransferencia?: string
+  // Direta (ref=gerador): VR = valor gerado pela ref, MM = leitura do instrumento
+  // Direta (ref=medidor): VN = nominal ajustado no instrumento, VR = leitura da ref
+  // Indireta: VR = leitura da referência, MM = leitura do instrumento checado
+  valorNominal?: string      // Direta ref=medidor: o que foi ajustado no instrumento
+  valorReferencia: string    // O que a referência diz (gera ou lê)
+  valorMedido: string        // O que o instrumento checado diz (lê ou gera)
+  // Indireto — correção do certificado da referência
   correcaoPadrao?: string
-  valorCorrigido?: string
-  // Resultado do ponto
+  valorCorrigido?: string    // valorReferencia + correcaoPadrao
+  // Legado
+  valorTransferencia?: string
+  // Resultado
   resultado: 'ok' | 'nok' | 'na'
   observacoes?: string
-  // Opcionais (norma de referência)
   criterioMin?: number
   criterioMax?: number
   normaId?: string
@@ -43,6 +47,7 @@ export interface Checagem {
   data: string                   // data da checagem
   responsavel: string
   tipoComparacao: TipoComparacao
+  papelReferencia: PapelReferencia   // direta: ref gera ou ref mede?
   // Padrão(ões) utilizado(s) (TAG dos padrões usados)
   padraoTag: string
   // Periodicidade
