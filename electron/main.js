@@ -516,34 +516,62 @@ async function applyUpdate(downloadUrl, version) {
   win?.setProgressBar(-1)
   win?.webContents.send('update:progress', -1)
 
-  // Script PowerShell: extrai zip e copia sobre a pasta atual
-  const scriptPath = path.join(tmpDir, 'cispr15-do-update.ps1')
-  const vbsPath    = path.join(tmpDir, 'cispr15-run-update.vbs')
-  const escPs  = s => s.replace(/'/g, "''")
-  const escVbs = s => s.replace(/"/g, '""')
+  const vbsPath = path.join(tmpDir, 'cispr15-run-update.vbs')
+  const q = s => s.replace(/"/g, '""')   // escapa aspas para VBScript
 
-  const script = `
-$log = '${escPs(logPath)}'
-function Log($msg) { Add-Content -Path $log -Value "$(Get-Date -f 'HH:mm:ss') $msg" }
-Log 'Aguardando app fechar...'
-Start-Sleep -Milliseconds 3000
-Log 'Extraindo zip...'
-Remove-Item -Path '${escPs(extractDir)}' -Recurse -Force -ErrorAction SilentlyContinue
-Expand-Archive -Path '${escPs(zipPath)}' -DestinationPath '${escPs(extractDir)}' -Force
-Log 'Copiando arquivos...'
-robocopy '${escPs(extractDir)}' '${escPs(appDir)}' /MIR /R:3 /W:2 | Out-Null
-Log 'Limpando temporarios...'
-Remove-Item -Path '${escPs(zipPath)}' -Force -ErrorAction SilentlyContinue
-Remove-Item -Path '${escPs(extractDir)}' -Recurse -Force -ErrorAction SilentlyContinue
-Log 'Reiniciando app...'
-Start-Process -FilePath '${escPs(exePath)}'
-Log 'Concluido.'
+  // VBScript autossuficiente: extrai zip + copia + reinicia, sem PowerShell
+  const vbs = `
+Dim fso, wsh, sh, logPath
+logPath = "${q(logPath)}"
+Set fso = CreateObject("Scripting.FileSystemObject")
+Set wsh = CreateObject("WScript.Shell")
+Set sh  = CreateObject("Shell.Application")
+
+Sub Log(msg)
+  Dim f : Set f = fso.OpenTextFile(logPath, 8, True) : f.WriteLine Now & " " & msg : f.Close
+End Sub
+
+Log "Iniciando update v${version}"
+WScript.Sleep 3000
+
+Log "Extraindo zip..."
+If fso.FolderExists("${q(extractDir)}") Then fso.DeleteFolder "${q(extractDir)}", True
+fso.CreateFolder "${q(extractDir)}"
+
+' Tenta PowerShell primeiro (mais rapido)
+Dim rc
+rc = wsh.Run("powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ""Expand-Archive -Path '${q(zipPath)}' -DestinationPath '${q(extractDir)}' -Force""", 0, True)
+Log "Expand-Archive rc=" & rc
+
+If rc <> 0 Then
+  Log "PowerShell falhou - usando Shell.Application"
+  Dim zipNS, destNS
+  Set zipNS  = sh.NameSpace("${q(zipPath)}")
+  Set destNS = sh.NameSpace("${q(extractDir)}")
+  If Not IsNull(zipNS) And Not IsNull(destNS) Then
+    destNS.CopyHere zipNS.Items(), 4
+    WScript.Sleep 5000
+    Log "Shell.Application feito"
+  Else
+    Log "ERRO: zip ou destino nao encontrado"
+  End If
+End If
+
+Log "Copiando arquivos..."
+rc = wsh.Run("robocopy ""${q(extractDir)}"" ""${q(appDir)}"" /MIR /R:3 /W:2", 0, True)
+Log "Robocopy rc=" & rc
+
+Log "Limpando..."
+On Error Resume Next
+fso.DeleteFile "${q(zipPath)}", True
+fso.DeleteFolder "${q(extractDir)}", True
+On Error GoTo 0
+
+Log "Reiniciando app..."
+wsh.Run """${q(exePath)}""", 1, False
+Log "Concluido."
 `
-  // VBScript lança o PS oculto sem restrição de política de execução
-  const vbs = `Set sh = CreateObject("WScript.Shell")
-sh.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ""${escVbs(scriptPath)}""", 0, False`
 
-  fs.writeFileSync(scriptPath, script, 'utf8')
   fs.writeFileSync(vbsPath, vbs, 'utf8')
 
   const { response } = await dialog.showMessageBox({
@@ -557,13 +585,18 @@ sh.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ""${escVbs(scrip
 
   if (response !== 0) return
 
-  // wscript.exe não tem restrição de política — lança o VBS que chama o PS
-  const child = spawn('C:\\Windows\\System32\\wscript.exe', [vbsPath], {
-    detached: true,
-    stdio: 'ignore',
-  })
-  child.unref()
-  app.quit()
+  // shell.openPath usa ShellExecute do Windows — independente do processo Electron
+  const openErr = await shell.openPath(vbsPath)
+  if (openErr) {
+    dialog.showMessageBox({
+      type: 'error',
+      title: 'Erro ao iniciar atualização',
+      message: openErr,
+      buttons: ['OK'],
+    })
+    return
+  }
+  setTimeout(() => app.quit(), 800)
 }
 
 async function runUpdateCheck(manual) {
