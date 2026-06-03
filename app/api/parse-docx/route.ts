@@ -2,50 +2,64 @@ import { NextRequest, NextResponse } from 'next/server'
 import mammoth from 'mammoth'
 import * as cheerio from 'cheerio'
 import { execFileSync } from 'child_process'
-import { writeFileSync, readFileSync, existsSync, unlinkSync } from 'fs'
+import { writeFileSync, readFileSync, existsSync, unlinkSync, mkdirSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
 
-/* ─── converte WMF/EMF → PNG usando PowerShell + System.Drawing (Windows GDI+) */
-function convertWmfToPng(wmfBuf: Buffer): Buffer | null {
-  const id      = randomUUID()
-  const wmfPath = join(tmpdir(), `${id}.wmf`)
-  const pngPath = join(tmpdir(), `${id}.png`)
-  const psPath  = join(tmpdir(), `${id}.ps1`)
+/* diretório temp garantidamente gravável (userData injetado pelo Electron) */
+function getWmfTmpDir(): string {
+  const base = process.env.CISPR_USER_DATA
+    ? join(process.env.CISPR_USER_DATA, 'wmf-tmp')
+    : join(tmpdir(), 'cispr15-wmf-tmp')
+  mkdirSync(base, { recursive: true })
+  return base
+}
 
-  const wmfEsc = wmfPath.replace(/'/g, "''")
-  const pngEsc = pngPath.replace(/'/g, "''")
+/* ─── converte WMF/EMF → PNG usando PowerShell + Metafile (Windows GDI+) ─── */
+function convertWmfToPng(wmfBuf: Buffer): Buffer | null {
+  const id      = randomUUID().replace(/-/g, '')
+  const tmpDir  = getWmfTmpDir()
+  const wmfPath = join(tmpDir, `${id}.wmf`)
+  const pngPath = join(tmpDir, `${id}.png`)
+  const psPath  = join(tmpDir, `${id}.ps1`)
+
+  const esc = (s: string) => s.replace(/\\/g, '\\\\').replace(/'/g, "''")
 
   const script = `
 Add-Type -AssemblyName System.Drawing
-$img = [System.Drawing.Image]::FromFile('${wmfEsc}')
-$bmp = New-Object System.Drawing.Bitmap($img.Width, $img.Height)
-$g   = [System.Drawing.Graphics]::FromImage($bmp)
-$g.Clear([System.Drawing.Color]::White)
-$g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
-$g.DrawImage($img, 0, 0, $img.Width, $img.Height)
-$g.Dispose()
-$bmp.Save('${pngEsc}', [System.Drawing.Imaging.ImageFormat]::Png)
-$bmp.Dispose()
-$img.Dispose()
+try {
+  $mf = New-Object System.Drawing.Imaging.Metafile('${esc(wmfPath)}')
+  $w  = if ($mf.Width  -gt 10) { $mf.Width  } else { 800 }
+  $h  = if ($mf.Height -gt 10) { $mf.Height } else { 600 }
+  $bmp = New-Object System.Drawing.Bitmap($w, $h)
+  $g   = [System.Drawing.Graphics]::FromImage($bmp)
+  $g.Clear([System.Drawing.Color]::White)
+  $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+  $g.DrawImage($mf, 0, 0, $w, $h)
+  $g.Dispose()
+  $bmp.Save('${esc(pngPath)}', [System.Drawing.Imaging.ImageFormat]::Png)
+  $bmp.Dispose()
+  $mf.Dispose()
+} catch {
+  Write-Error $_.Exception.Message
+  exit 1
+}
 `
+
+  const PS = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
 
   let pngBuf: Buffer | null = null
   try {
     writeFileSync(wmfPath, wmfBuf)
     writeFileSync(psPath, script, 'utf8')
 
-    const ps = existsSync('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
-      ? 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
-      : 'powershell'
-    execFileSync(ps, [
-      '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', psPath,
-    ], { timeout: 20000, stdio: 'pipe' })
+    execFileSync(PS, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', psPath],
+      { timeout: 20000, stdio: 'pipe' })
 
     if (existsSync(pngPath)) pngBuf = readFileSync(pngPath)
-  } catch (err) {
-    console.error('[wmf→png] falhou:', err)
+  } catch (err: any) {
+    console.error('[wmf→png] falhou:', err?.stderr?.toString() || err?.message || err)
   } finally {
     for (const p of [wmfPath, psPath, pngPath]) {
       try { unlinkSync(p) } catch {}
