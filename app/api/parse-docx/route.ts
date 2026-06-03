@@ -36,7 +36,10 @@ $img.Dispose()
     writeFileSync(wmfPath, wmfBuf)
     writeFileSync(psPath, script, 'utf8')
 
-    execFileSync('powershell', [
+    const ps = existsSync('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
+      ? 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
+      : 'powershell'
+    execFileSync(ps, [
       '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', psPath,
     ], { timeout: 20000, stdio: 'pipe' })
 
