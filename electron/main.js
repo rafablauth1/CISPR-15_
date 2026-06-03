@@ -297,6 +297,52 @@ async function createWindow() {
   win.loadURL('http://127.0.0.1:' + port + APP_PATH)
 }
 
+/* ─── servidor auxiliar WMF→PNG (processo principal — tem window station) ─── */
+
+const WMF_PORT  = 3722
+const PS_EXE_WMF = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
+
+function startWmfServer() {
+  const wmfTmp = 'C:\\Windows\\Temp\\cispr15-wmf'
+  try { fs.mkdirSync(wmfTmp, { recursive: true }) } catch {}
+
+  const server = http.createServer((req, res) => {
+    if (req.method !== 'POST' || req.url !== '/wmf-to-png') {
+      res.writeHead(404); res.end(); return
+    }
+    const chunks = []
+    req.on('data', c => chunks.push(c))
+    req.on('end', () => {
+      const wmfBuf = Buffer.concat(chunks)
+      const id     = require('crypto').randomUUID().replace(/-/g, '')
+      const wmfPath = path.join(wmfTmp, `${id}.wmf`)
+      const pngPath = path.join(wmfTmp, `${id}.png`)
+      const psPath  = path.join(wmfTmp, `${id}.ps1`)
+      const script  = `﻿Add-Type -AssemblyName System.Drawing\ntry {\n  $mf = New-Object System.Drawing.Imaging.Metafile('${wmfPath}')\n  $w = if ($mf.Width -gt 10) { $mf.Width } else { 800 }\n  $h = if ($mf.Height -gt 10) { $mf.Height } else { 600 }\n  $bmp = New-Object System.Drawing.Bitmap($w, $h)\n  $g = [System.Drawing.Graphics]::FromImage($bmp)\n  $g.Clear([System.Drawing.Color]::White)\n  $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality\n  $g.DrawImage($mf, 0, 0, $w, $h)\n  $g.Dispose()\n  $bmp.Save('${pngPath}', [System.Drawing.Imaging.ImageFormat]::Png)\n  $bmp.Dispose()\n  $mf.Dispose()\n} catch {\n  Write-Error $_.Exception.Message\n  exit 1\n}\n`
+      try {
+        fs.writeFileSync(wmfPath, wmfBuf)
+        fs.writeFileSync(psPath, script, 'utf8')
+        const { execFileSync } = require('child_process')
+        execFileSync(PS_EXE_WMF, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', psPath],
+          { timeout: 20000, stdio: 'pipe' })
+        if (fs.existsSync(pngPath)) {
+          const png = fs.readFileSync(pngPath)
+          res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': png.length })
+          res.end(png)
+        } else {
+          res.writeHead(500); res.end('no output')
+        }
+      } catch (err) {
+        const msg = err?.stderr?.toString()?.trim() || err?.message || String(err)
+        res.writeHead(500); res.end(msg)
+      } finally {
+        for (const p of [wmfPath, psPath, pngPath]) { try { fs.unlinkSync(p) } catch {} }
+      }
+    })
+  })
+  server.listen(WMF_PORT, '127.0.0.1')
+}
+
 /* ─── servidor Next.js ────────────────────────────────────────────────────── */
 
 let serverProcess = null
@@ -661,6 +707,7 @@ app.whenReady().then(() => {
     try { fs.mkdirSync(dir, { recursive: true }) } catch {}
   }
   Menu.setApplicationMenu(buildMenu())
+  startWmfServer()
   createWindow()
   setupAutoUpdater()
 })

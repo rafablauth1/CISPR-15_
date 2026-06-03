@@ -1,74 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server'
 import mammoth from 'mammoth'
 import * as cheerio from 'cheerio'
-import { execFileSync } from 'child_process'
-import { writeFileSync, readFileSync, existsSync, unlinkSync, mkdirSync } from 'fs'
-import { tmpdir } from 'os'
-import { join } from 'path'
-import { randomUUID } from 'crypto'
+import { request as httpRequest } from 'http'
 
-/* Usa C:\Windows\Temp\cispr15-wmf — caminho ASCII puro, sem acentos/espaços,
-   evita falha silenciosa quando o perfil do usuário tem caracteres especiais */
-function getWmfTmpDir(): string {
-  const base = 'C:\\Windows\\Temp\\cispr15-wmf'
-  mkdirSync(base, { recursive: true })
-  return base
-}
-
-/* ─── converte WMF/EMF → PNG usando PowerShell + Metafile (Windows GDI+) ─── */
-function convertWmfToPng(wmfBuf: Buffer): { buf: Buffer | null; error: string | null } {
-  const id      = randomUUID().replace(/-/g, '')
-  const tmpDir  = getWmfTmpDir()
-  const wmfPath = join(tmpDir, `${id}.wmf`)
-  const pngPath = join(tmpDir, `${id}.png`)
-  const psPath  = join(tmpDir, `${id}.ps1`)
-
-  /* caminhos ASCII — sem escaping especial necessário em PS single-quoted strings */
-  const script = `
-Add-Type -AssemblyName System.Drawing
-try {
-  $mf = New-Object System.Drawing.Imaging.Metafile('${wmfPath}')
-  $w  = if ($mf.Width  -gt 10) { $mf.Width  } else { 800 }
-  $h  = if ($mf.Height -gt 10) { $mf.Height } else { 600 }
-  $bmp = New-Object System.Drawing.Bitmap($w, $h)
-  $g   = [System.Drawing.Graphics]::FromImage($bmp)
-  $g.Clear([System.Drawing.Color]::White)
-  $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
-  $g.DrawImage($mf, 0, 0, $w, $h)
-  $g.Dispose()
-  $bmp.Save('${pngPath}', [System.Drawing.Imaging.ImageFormat]::Png)
-  $bmp.Dispose()
-  $mf.Dispose()
-} catch {
-  Write-Error $_.Exception.Message
-  exit 1
-}
-`
-
-  const PS = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
-
-  let pngBuf: Buffer | null = null
-  let convErr: string | null = null
-  try {
-    writeFileSync(wmfPath, wmfBuf)
-    /* BOM para que PowerShell 5.1 leia como UTF-8 corretamente */
-    writeFileSync(psPath, '﻿' + script, 'utf8')
-
-    execFileSync(PS, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', psPath],
-      { timeout: 20000, stdio: 'pipe' })
-
-    if (existsSync(pngPath)) pngBuf = readFileSync(pngPath)
-  } catch (err: any) {
-    const stderr = err?.stderr?.toString('utf8')?.trim() || ''
-    const msg    = err?.message?.trim() || String(err)
-    convErr = stderr || msg
-    console.error('[wmf→png] falhou:', convErr)
-  } finally {
-    for (const p of [wmfPath, psPath, pngPath]) {
-      try { unlinkSync(p) } catch {}
-    }
-  }
-  return { buf: pngBuf, error: convErr }
+/* Converte WMF/EMF chamando o servidor auxiliar no processo principal do Electron.
+   O processo principal tem window station completa — GDI+ funciona em qualquer PC. */
+function convertWmfToPng(wmfBuf: Buffer): Promise<{ buf: Buffer | null; error: string | null }> {
+  return new Promise(resolve => {
+    const req = httpRequest(
+      { hostname: '127.0.0.1', port: 3722, path: '/wmf-to-png', method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': wmfBuf.length } },
+      res => {
+        const chunks: Buffer[] = []
+        res.on('data', c => chunks.push(c))
+        res.on('end', () => {
+          const body = Buffer.concat(chunks)
+          if (res.statusCode === 200) {
+            resolve({ buf: body, error: null })
+          } else {
+            const msg = body.toString('utf8').trim() || `HTTP ${res.statusCode}`
+            console.error('[wmf→png] servidor retornou erro:', msg)
+            resolve({ buf: null, error: msg })
+          }
+        })
+      }
+    )
+    req.on('error', err => {
+      console.error('[wmf→png] falha na conexão com servidor WMF:', err.message)
+      resolve({ buf: null, error: err.message })
+    })
+    req.write(wmfBuf)
+    req.end()
+  })
 }
 
 /* ─── SVG placeholder — fallback quando a conversão falha ────────────────── */
@@ -288,7 +251,7 @@ export async function POST(req: NextRequest) {
 
           if (isVector || buf.length === 0) {
             console.log(`[parse-docx] img ${idx} é ${type} — convertendo via PowerShell…`)
-            const { buf: png, error: convErr } = convertWmfToPng(buf)
+            const { buf: png, error: convErr } = await convertWmfToPng(buf)
 
             if (png) {
               console.log(`[parse-docx] img ${idx} convertida: ${png.length} bytes PNG`)
