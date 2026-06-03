@@ -496,12 +496,15 @@ async function checkUpdate() {
   return { upToDate: false, current, latest, downloadUrl: asset.browser_download_url }
 }
 
+const PS_EXE = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
+
 async function applyUpdate(downloadUrl, version) {
   const tmpDir     = os.tmpdir()
   const zipPath    = path.join(tmpDir, `cispr15-update-${version}.zip`)
   const extractDir = path.join(tmpDir, `cispr15-update-extracted`)
-  const appDir     = path.dirname(app.getPath('exe'))
-  const exeName    = path.basename(app.getPath('exe'))
+  const exePath    = app.getPath('exe')
+  const appDir     = path.dirname(exePath)
+  const logPath    = path.join(tmpDir, 'cispr15-update.log')
 
   const win = BrowserWindow.getAllWindows()[0]
 
@@ -517,13 +520,21 @@ async function applyUpdate(downloadUrl, version) {
   const scriptPath = path.join(tmpDir, 'cispr15-do-update.ps1')
   const esc = s => s.replace(/'/g, "''")
   const script = `
-Start-Sleep -Milliseconds 1500
+$log = '${esc(logPath)}'
+function Log($msg) { Add-Content -Path $log -Value "$(Get-Date -f 'HH:mm:ss') $msg" }
+Log 'Aguardando app fechar...'
+Start-Sleep -Milliseconds 3000
+Log 'Extraindo zip...'
 Remove-Item -Path '${esc(extractDir)}' -Recurse -Force -ErrorAction SilentlyContinue
 Expand-Archive -Path '${esc(zipPath)}' -DestinationPath '${esc(extractDir)}' -Force
-robocopy '${esc(extractDir)}' '${esc(appDir)}' /MIR /R:3 /W:1 | Out-Null
+Log 'Copiando arquivos...'
+robocopy '${esc(extractDir)}' '${esc(appDir)}' /MIR /R:3 /W:2 | Out-Null
+Log 'Limpando temporarios...'
 Remove-Item -Path '${esc(zipPath)}' -Force -ErrorAction SilentlyContinue
 Remove-Item -Path '${esc(extractDir)}' -Recurse -Force -ErrorAction SilentlyContinue
-Start-Process (Join-Path '${esc(appDir)}' '${esc(exeName)}')
+Log 'Reiniciando app...'
+Start-Process -FilePath '${esc(exePath)}'
+Log 'Concluido.'
 `
   fs.writeFileSync(scriptPath, script, 'utf8')
 
@@ -538,7 +549,7 @@ Start-Process (Join-Path '${esc(appDir)}' '${esc(exeName)}')
 
   if (response !== 0) return
 
-  const child = spawn('powershell', ['-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', scriptPath], {
+  const child = spawn(PS_EXE, ['-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', scriptPath], {
     detached: true,
     stdio: 'ignore',
   })
