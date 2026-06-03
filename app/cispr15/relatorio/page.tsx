@@ -170,6 +170,7 @@ export default function Cispr15RelatorioPage() {
   const [eutFolder,  setEutFolder]  = useState<string | null>(null)
   const [cfg,          setCfg]         = useState<Cispr15Config | null>(null)
   const [docx,         setDocx]        = useState<DocxState>({ loading: false, html: null, filename: null })
+  const [wmfErrors,    setWmfErrors]   = useState<string[]>([])
   const [perResult,    setPerResult]   = useState<PerResultState>(emptyPerResult())
   const [photos,       setPhotos]      = useState<Photo[]>([])
   const [photoWidth,   setPhotoWidth]  = useState(160)
@@ -353,6 +354,7 @@ export default function Cispr15RelatorioPage() {
       const data = await res.json()
       if (data.error) throw new Error(data.error)
       setDocx({ loading: false, html: data.html, filename: file.name })
+      setWmfErrors(data.wmfErrors ?? [])
       sessionStorage.setItem(DOCX_HTML_KEY, data.html)
       sessionStorage.setItem(DOCX_NAME_KEY, file.name)
     } catch (err: any) {
@@ -1181,6 +1183,14 @@ export default function Cispr15RelatorioPage() {
             <PageHeader cfg={cfg} numDisplay={displayNum} />
             {i === 0 && (
               <>
+                {wmfErrors.length > 0 && (
+                  <div className="upload-zone no-print mb-2 px-3 py-2 rounded-lg border border-amber-400 bg-amber-50 text-amber-900">
+                    <p className="text-[11px] font-semibold mb-1">Falha na conversão de gráficos WMF — copie e envie ao suporte:</p>
+                    {wmfErrors.map((e, i) => (
+                      <pre key={i} className="text-[10px] font-mono whitespace-pre-wrap break-all">{e}</pre>
+                    ))}
+                  </div>
+                )}
                 <div className="upload-zone no-print flex items-center justify-between px-3 py-2 mb-2 rounded-lg border border-green-200 bg-green-50">
                   <span className="text-green-700 text-[10px] font-mono truncate">{docx.filename}</span>
                   <button

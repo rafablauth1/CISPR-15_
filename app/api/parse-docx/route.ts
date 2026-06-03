@@ -50,6 +50,7 @@ try {
   const PS = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
 
   let pngBuf: Buffer | null = null
+  let convErr: string | null = null
   try {
     writeFileSync(wmfPath, wmfBuf)
     writeFileSync(psPath, script, 'utf8')
@@ -59,13 +60,16 @@ try {
 
     if (existsSync(pngPath)) pngBuf = readFileSync(pngPath)
   } catch (err: any) {
-    console.error('[wmf→png] falhou:', err?.stderr?.toString() || err?.message || err)
+    const stderr = err?.stderr?.toString('utf8')?.trim() || ''
+    const msg    = err?.message?.trim() || String(err)
+    convErr = stderr || msg
+    console.error('[wmf→png] falhou:', convErr)
   } finally {
     for (const p of [wmfPath, psPath, pngPath]) {
       try { unlinkSync(p) } catch {}
     }
   }
-  return pngBuf
+  return { buf: pngBuf, error: convErr }
 }
 
 /* ─── SVG placeholder — fallback quando a conversão falha ────────────────── */
@@ -260,6 +264,7 @@ function injectPageBreaks(html: string): string {
 /* ─── handler ─────────────────────────────────────────────────────────────── */
 export async function POST(req: NextRequest) {
   let imgCounter = 0
+  const wmfErrors: string[] = []
 
   try {
     const form = await req.formData()
@@ -284,7 +289,7 @@ export async function POST(req: NextRequest) {
 
           if (isVector || buf.length === 0) {
             console.log(`[parse-docx] img ${idx} é ${type} — convertendo via PowerShell…`)
-            const png = convertWmfToPng(buf)
+            const { buf: png, error: convErr } = convertWmfToPng(buf)
 
             if (png) {
               console.log(`[parse-docx] img ${idx} convertida: ${png.length} bytes PNG`)
@@ -294,6 +299,7 @@ export async function POST(req: NextRequest) {
               }
             }
 
+            if (convErr) wmfErrors.push(`Gráfico ${idx}: ${convErr}`)
             console.warn(`[parse-docx] img ${idx} — conversão falhou, usando placeholder`)
             return {
               src:   `data:image/svg+xml;base64,${wmfPlaceholder(idx, type)}`,
@@ -315,7 +321,11 @@ export async function POST(req: NextRequest) {
 
     const processed = postProcessTables(result.value)
     const html = injectPageBreaks(processed)
-    return NextResponse.json({ html, warnings: result.messages.map((m: any) => m.message) })
+    return NextResponse.json({
+      html,
+      warnings: result.messages.map((m: any) => m.message),
+      wmfErrors: wmfErrors.length > 0 ? wmfErrors : undefined,
+    })
   } catch (err: any) {
     console.error('[parse-docx]', err)
     return NextResponse.json({ error: err.message || 'Erro ao processar DOCX' }, { status: 500 })
