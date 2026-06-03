@@ -1,13 +1,13 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, Menu, nativeImage, nativeTheme } = require('electron')
 const path    = require('path')
 const http    = require('http')
+const https   = require('https')
 const fs      = require('fs')
 const os      = require('os')
 const { execFile, spawn } = require('child_process')
 const XLSX    = require('xlsx')
 const mammoth = require('mammoth')
 const { listSigningCerts, signPDF } = require('./pdf-signer')
-const { autoUpdater } = require('electron-updater')
 
 /* ─── PowerShell script para Windows OCR ─────────────────────────────────── */
 const PS_OCR_SCRIPT = `
@@ -426,11 +426,7 @@ function buildMenu(port) {
               dialog.showMessageBox({ type: 'info', message: 'Verificação de atualizações disponível apenas na versão instalada.' })
               return
             }
-            manualUpdateCheck = true
-            autoUpdater.checkForUpdates().catch((err) => {
-              manualUpdateCheck = false
-              dialog.showMessageBox({ type: 'error', title: 'Erro', message: 'Não foi possível verificar atualizações.', detail: String(err?.message ?? err), buttons: ['OK'] })
-            })
+            runUpdateCheck(true)
           },
         },
       ],
@@ -438,82 +434,167 @@ function buildMenu(port) {
   ])
 }
 
-/* ─── auto-update ─────────────────────────────────────────────────────────── */
+/* ─── auto-update customizado (zip, sem installer) ────────────────────────── */
 
-let manualUpdateCheck = false
+let updateInProgress = false
 
-function notifyUpdateProgress(pct) {
+function httpsGetFollow(url, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const go = (u) => {
+      https.get(u, { headers: { 'User-Agent': 'CISPR15-LABELO', ...headers } }, res => {
+        if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
+          return go(res.headers.location)
+        }
+        let body = ''
+        res.on('data', c => body += c)
+        res.on('end', () => resolve({ statusCode: res.statusCode, body }))
+      }).on('error', reject)
+    }
+    go(url)
+  })
+}
+
+function downloadFileHttps(url, dest, onProgress) {
+  return new Promise((resolve, reject) => {
+    const go = (u) => {
+      https.get(u, { headers: { 'User-Agent': 'CISPR15-LABELO' } }, res => {
+        if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
+          return go(res.headers.location)
+        }
+        const total = parseInt(res.headers['content-length'] || '0', 10)
+        let received = 0
+        const stream = fs.createWriteStream(dest)
+        res.on('data', chunk => {
+          received += chunk.length
+          stream.write(chunk)
+          if (total > 0 && onProgress) onProgress(Math.round(received / total * 100))
+        })
+        res.on('end', () => { stream.end(); resolve() })
+        res.on('error', reject)
+      }).on('error', reject)
+    }
+    go(url)
+  })
+}
+
+async function checkUpdate() {
+  const { body } = await httpsGetFollow('https://api.github.com/repos/rafablauth1/CISPR-15_/releases/latest')
+  const release = JSON.parse(body)
+  const latest  = release.tag_name.replace(/^v/, '')
+  const current = app.getVersion()
+
+  const newer = latest.split('.').map(Number).reduce((acc, n, i) => {
+    if (acc !== 0) return acc
+    return n - (current.split('.').map(Number)[i] ?? 0)
+  }, 0) > 0
+
+  if (!newer) return { upToDate: true, current }
+
+  const asset = release.assets.find(a => a.name.endsWith('-win.zip'))
+  if (!asset) return { upToDate: true, current }
+
+  return { upToDate: false, current, latest, downloadUrl: asset.browser_download_url }
+}
+
+async function applyUpdate(downloadUrl, version) {
+  const tmpDir     = os.tmpdir()
+  const zipPath    = path.join(tmpDir, `cispr15-update-${version}.zip`)
+  const extractDir = path.join(tmpDir, `cispr15-update-extracted`)
+  const appDir     = path.dirname(app.getPath('exe'))
+  const exeName    = path.basename(app.getPath('exe'))
+
   const win = BrowserWindow.getAllWindows()[0]
-  win?.webContents.send('update:progress', pct)
+
+  // Download
+  await downloadFileHttps(downloadUrl, zipPath, pct => {
+    win?.setProgressBar(pct / 100)
+    win?.webContents.send('update:progress', pct)
+  })
+  win?.setProgressBar(-1)
+  win?.webContents.send('update:progress', -1)
+
+  // Script que roda após o app fechar: extrai zip e copia sobre a pasta atual
+  const scriptPath = path.join(tmpDir, 'cispr15-do-update.ps1')
+  const esc = s => s.replace(/'/g, "''")
+  const script = `
+Start-Sleep -Milliseconds 1500
+Remove-Item -Path '${esc(extractDir)}' -Recurse -Force -ErrorAction SilentlyContinue
+Expand-Archive -Path '${esc(zipPath)}' -DestinationPath '${esc(extractDir)}' -Force
+robocopy '${esc(extractDir)}' '${esc(appDir)}' /MIR /R:3 /W:1 | Out-Null
+Remove-Item -Path '${esc(zipPath)}' -Force -ErrorAction SilentlyContinue
+Remove-Item -Path '${esc(extractDir)}' -Recurse -Force -ErrorAction SilentlyContinue
+Start-Process (Join-Path '${esc(appDir)}' '${esc(exeName)}')
+`
+  fs.writeFileSync(scriptPath, script, 'utf8')
+
+  const { response } = await dialog.showMessageBox({
+    type: 'info',
+    title: 'Atualização concluída',
+    message: `Download concluído! (v${version})`,
+    detail: 'O app vai fechar e reiniciar com a versão atualizada.',
+    buttons: ['Reiniciar agora', 'Mais tarde'],
+    defaultId: 0,
+  })
+
+  if (response !== 0) return
+
+  const child = spawn('powershell', ['-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', scriptPath], {
+    detached: true,
+    stdio: 'ignore',
+  })
+  child.unref()
+  app.quit()
+}
+
+async function runUpdateCheck(manual) {
+  if (updateInProgress) return
+  updateInProgress = true
+  try {
+    const result = await checkUpdate()
+
+    if (result.upToDate) {
+      if (manual) {
+        dialog.showMessageBox({
+          type: 'info',
+          title: 'Sem atualizações',
+          message: `Você já está na versão mais recente (v${result.current}).`,
+          buttons: ['OK'],
+        })
+      }
+      return
+    }
+
+    const { response } = await dialog.showMessageBox({
+      type: 'info',
+      title: 'Atualização disponível',
+      message: `Nova versão disponível: v${result.latest}`,
+      detail: 'Deseja baixar e instalar agora?',
+      buttons: ['Baixar agora', 'Mais tarde'],
+      defaultId: 0,
+    })
+
+    if (response !== 0) return
+
+    await applyUpdate(result.downloadUrl, result.latest)
+  } catch (err) {
+    console.error('Update error:', err.message)
+    if (manual) {
+      dialog.showMessageBox({
+        type: 'error',
+        title: 'Erro ao verificar',
+        message: 'Não foi possível verificar atualizações.',
+        detail: err.message,
+        buttons: ['OK'],
+      })
+    }
+  } finally {
+    updateInProgress = false
+  }
 }
 
 function setupAutoUpdater() {
   if (!app.isPackaged) return
-
-  autoUpdater.autoDownload = false
-  autoUpdater.autoInstallOnAppQuit = true
-
-  autoUpdater.on('update-not-available', () => {
-    if (!manualUpdateCheck) return
-    manualUpdateCheck = false
-    dialog.showMessageBox({
-      type: 'info',
-      title: 'Sem atualizações',
-      message: `Você já está na versão mais recente (v${app.getVersion()}).`,
-      buttons: ['OK'],
-    })
-  })
-
-  autoUpdater.on('update-available', (info) => {
-    manualUpdateCheck = false
-    dialog.showMessageBox({
-      type: 'info',
-      title: 'Atualização disponível',
-      message: `Nova versão disponível: v${info.version}`,
-      detail: 'Deseja baixar e instalar agora?',
-      buttons: ['Baixar agora', 'Mais tarde'],
-      defaultId: 0,
-    }).then(({ response }) => {
-      if (response === 0) autoUpdater.downloadUpdate()
-    })
-  })
-
-  autoUpdater.on('download-progress', ({ percent }) => {
-    const pct = Math.round(percent)
-    notifyUpdateProgress(pct)
-    const win = BrowserWindow.getAllWindows()[0]
-    win?.setProgressBar(pct / 100)
-  })
-
-  autoUpdater.on('update-downloaded', () => {
-    const win = BrowserWindow.getAllWindows()[0]
-    win?.setProgressBar(-1)
-    notifyUpdateProgress(-1)
-    dialog.showMessageBox({
-      type: 'info',
-      title: 'Atualização concluída',
-      message: 'Download concluído! O app vai reiniciar para aplicar.',
-      buttons: ['Reiniciar agora', 'Mais tarde'],
-      defaultId: 0,
-    }).then(({ response }) => {
-      if (response === 0) autoUpdater.quitAndInstall()
-    })
-  })
-
-  autoUpdater.on('error', (err) => {
-    console.error('Updater error:', err.message)
-    if (!manualUpdateCheck) return
-    manualUpdateCheck = false
-    dialog.showMessageBox({
-      type: 'error',
-      title: 'Erro ao verificar',
-      message: 'Não foi possível verificar atualizações.',
-      detail: err.message,
-      buttons: ['OK'],
-    })
-  })
-
-  setTimeout(() => autoUpdater.checkForUpdates(), 4000)
+  setTimeout(() => runUpdateCheck(false), 4000)
 }
 
 /* ─── ciclo de vida ───────────────────────────────────────────────────────── */
