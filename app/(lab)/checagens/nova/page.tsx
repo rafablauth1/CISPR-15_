@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Trash2, Loader2, Upload, ScanText, Save, FileSearch } from 'lucide-react'
+import { Plus, Trash2, Loader2, Upload, ScanText, Save, FileSearch, Grid3x3 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { addM } from '@/lib/utils'
 import { extrairTextoArquivo } from '@/lib/useOCR'
@@ -10,6 +10,8 @@ import type { EquipamentoEMC } from '@/lib/equipamentos/tipos'
 import type { ItemChecagem, TipoComparacao, PapelReferencia, ResultadoGeral } from '@/lib/checagens/tipos'
 import { TEMPLATES } from '@/lib/checagens/templates'
 import { parsearGrandezasIT, parsearMetadadosIT } from '@/lib/checagens/parser-it'
+import { Grade2DCertificado } from '@/components/Grade2DCertificado'
+import { interpolarBilinear, type PontoCalibracao2D } from '@/lib/interpolacao'
 
 type Tab = 'manual' | 'excel' | 'ocr' | 'it'
 
@@ -151,9 +153,10 @@ function ITParser({ onAplicar }: {
 }
 
 /* ── Linha da tabela ── */
-function ItemRow({ item, modo, onChange, onDelete }: {
+function ItemRow({ item, modo, onChange, onDelete, grade2DAtiva, eixo1Nome, eixo2Nome }: {
   item: ItemChecagem; modo: Modo
   onChange: (i: ItemChecagem) => void; onDelete: () => void
+  grade2DAtiva?: boolean; eixo1Nome?: string; eixo2Nome?: string
 }) {
   function set(k: keyof ItemChecagem, v: string | number) {
     const next = { ...item, [k]: v }
@@ -200,6 +203,24 @@ function ItemRow({ item, modo, onChange, onDelete }: {
         <td className="w-28"><input className={cn(inp,'font-mono')} value={item.valorMedido} onChange={e => set('valorMedido', e.target.value)} placeholder="Leit. Instrumento"/></td>
       </>}
 
+      {/* Colunas de interpolação 2D — só quando grade ativa */}
+      {grade2DAtiva && <>
+        <td className="w-28">
+          <input className={cn(inp,'font-mono')} type="number" value={item.eixo1Valor??''}
+            onChange={e => set('eixo1Valor', e.target.value)}
+            placeholder={eixo1Nome??'Eixo 1'}/>
+        </td>
+        <td className="w-28">
+          <input className={cn(inp,'font-mono')} type="number" value={item.eixo2Valor??''}
+            onChange={e => set('eixo2Valor', e.target.value)}
+            placeholder={eixo2Nome??'Eixo 2'}/>
+        </td>
+        <td className="w-28">
+          <input className={cn(inp,'font-mono text-teal/70')} readOnly
+            value={item.correcaoPadrao??''} placeholder="auto"/>
+        </td>
+      </>}
+
       {/* Erro calculado */}
       <td className="w-24 text-center">
         <span className={cn('font-mono text-[11px] px-1.5 py-0.5 rounded',
@@ -231,7 +252,12 @@ function ItemRow({ item, modo, onChange, onDelete }: {
 }
 
 /* ── Cabeçalho dinâmico da tabela ── */
-function TblHeader({ modo }: { modo: Modo }) {
+function TblHeader({ modo, grade2DAtiva, eixo1Nome, eixo1Unidade, eixo2Nome, eixo2Unidade }: {
+  modo: Modo
+  grade2DAtiva?: boolean
+  eixo1Nome?: string; eixo1Unidade?: string
+  eixo2Nome?: string; eixo2Unidade?: string
+}) {
   return (
     <thead className="tbl-head">
       <tr>
@@ -252,6 +278,11 @@ function TblHeader({ modo }: { modo: Modo }) {
           <th className="w-28">Val. corrigido</th>
           <th className="w-28">Leit. Instrumento</th>
         </>}
+        {grade2DAtiva && <>
+          <th className="w-28">{eixo1Nome||'Eixo 1'} ({eixo1Unidade||'—'})</th>
+          <th className="w-28">{eixo2Nome||'Eixo 2'} ({eixo2Unidade||'—'})</th>
+          <th className="w-28 text-teal">Corr. interp.</th>
+        </>}
         <th className="w-24 text-center">
           {modo === 'direta-gera'  && 'Erro (MM−VR)'}
           {modo === 'direta-mede'  && 'Erro (VN−VR)'}
@@ -265,6 +296,9 @@ function TblHeader({ modo }: { modo: Modo }) {
     </thead>
   )
 }
+
+/* ── Cabeçalho sem grade 2D (fechamento do bloco indireta) ── */
+// Nota: o bloco acima foi atualizado para incluir colunas grade2D antes de Erro/Critério
 
 /* ── Parser de correções de certificado ── */
 function parsearCorrecoesDeCertificado(texto: string): number[] {
@@ -324,6 +358,13 @@ export default function NovaChecagemPage() {
   const [certPadraoMsg,  setCertPadraoMsg] = useState('')
   const [loading,        setLoading]       = useState(false)
   const [salvando,       setSalvando]      = useState(false)
+  // Grade 2D de correção (interpolação bilinear)
+  const [grade2DAtiva,   setGrade2DAtiva]  = useState(false)
+  const [grade2DPontos,  setGrade2DPontos] = useState<PontoCalibracao2D[]>([])
+  const [grade2DEixo1Nome,    setGrade2DEixo1Nome]    = useState('Frequência')
+  const [grade2DEixo1Unidade, setGrade2DEixo1Unidade] = useState('MHz')
+  const [grade2DEixo2Nome,    setGrade2DEixo2Nome]    = useState('Nível')
+  const [grade2DEixo2Unidade, setGrade2DEixo2Unidade] = useState('dBm')
 
   useEffect(() => {
     fetch('/api/equipamentos').then(r=>r.json()).then(e=>setEquips(Array.isArray(e)?e:[])).catch(()=>{})
@@ -345,7 +386,20 @@ export default function NovaChecagemPage() {
 
   function addItem() { setItens(p=>[...p, emptyItem(p.length+1)]) }
   function removeItem(id: string) { setItens(p=>p.filter(i=>i.id!==id).map((i,idx)=>({...i,ponto:idx+1}))) }
-  function updateItem(id: string, item: ItemChecagem) { setItens(p=>p.map(i=>i.id===id?item:i)) }
+  function updateItem(id: string, item: ItemChecagem) {
+    // Se a grade 2D está ativa e eixo1/eixo2 foram alterados, recalcula correção por interpolação
+    if (grade2DAtiva && grade2DPontos.length > 0) {
+      const e1 = parseFloat(item.eixo1Valor ?? '')
+      const e2 = parseFloat(item.eixo2Valor ?? '')
+      if (!isNaN(e1) && !isNaN(e2)) {
+        const corr = interpolarBilinear(e1, e2, grade2DPontos)
+        if (corr !== null) {
+          item = { ...item, correcaoPadrao: (corr >= 0 ? '+' : '') + corr.toPrecision(4) }
+        }
+      }
+    }
+    setItens(p=>p.map(i=>i.id===id?item:i))
+  }
 
   // Ao informar TAG do padrão, busca o certificado mais recente válido
   async function handlePadraoTagChange(tag: string) {
@@ -358,7 +412,18 @@ export default function NovaChecagemPage() {
       // Pega o mais recente
       const mais = certs.sort((a: {dataEmissao:string}, b: {dataEmissao:string}) => b.dataEmissao.localeCompare(a.dataEmissao))[0]
       setCertPadrao(mais)
-      setCertPadraoMsg(`✓ Certificado ${mais.numero} (${mais.laboratorio}) — ${mais.itens.length} ponto(s)`)
+      const g = mais.grade2D
+      if (g && g.pontos?.length) {
+        setGrade2DPontos(g.pontos)
+        setGrade2DEixo1Nome(g.eixo1Nome)
+        setGrade2DEixo1Unidade(g.eixo1Unidade)
+        setGrade2DEixo2Nome(g.eixo2Nome)
+        setGrade2DEixo2Unidade(g.eixo2Unidade)
+        setGrade2DAtiva(true)
+        setCertPadraoMsg(`✓ Certificado ${mais.numero} — grade 2D carregada (${g.pontos.length} pontos, ${g.eixo1Nome} × ${g.eixo2Nome})`)
+      } else {
+        setCertPadraoMsg(`✓ Certificado ${mais.numero} (${mais.laboratorio}) — ${mais.itens.length} ponto(s)`)
+      }
     } catch { setCertPadraoMsg('Erro ao buscar certificado.') }
   }
 
@@ -643,6 +708,40 @@ export default function NovaChecagemPage() {
         )}
       </div>
 
+      {/* ── Grade 2D de correção ── */}
+      {tab === 'manual' && (
+        <div className="mb-4">
+          <div className="flex items-center gap-3 mb-3">
+            <button type="button"
+              onClick={() => setGrade2DAtiva(v => !v)}
+              className={cn('btn-secondary text-xs py-1.5 flex items-center gap-2',
+                grade2DAtiva && 'border-teal/40 text-teal')}>
+              <Grid3x3 size={13}/>
+              {grade2DAtiva ? 'Interpolação 2D ativa' : 'Ativar interpolação 2D'}
+            </button>
+            {grade2DAtiva && (
+              <span className="text-[11px] text-white/35">
+                Insira os dois eixos por ponto → correção calculada automaticamente
+              </span>
+            )}
+          </div>
+          {grade2DAtiva && (
+            <Grade2DCertificado
+              eixo1Nome={grade2DEixo1Nome}    eixo1Unidade={grade2DEixo1Unidade}
+              eixo2Nome={grade2DEixo2Nome}    eixo2Unidade={grade2DEixo2Unidade}
+              pontos={grade2DPontos}
+              onChange={setGrade2DPontos}
+              onEixoChange={(campo, val) => {
+                if (campo === 'eixo1Nome')    setGrade2DEixo1Nome(val)
+                if (campo === 'eixo1Unidade') setGrade2DEixo1Unidade(val)
+                if (campo === 'eixo2Nome')    setGrade2DEixo2Nome(val)
+                if (campo === 'eixo2Unidade') setGrade2DEixo2Unidade(val)
+              }}
+            />
+          )}
+        </div>
+      )}
+
       {/* ── Tab Manual ── */}
       {tab === 'manual' && (
         <div className="card overflow-hidden mb-4">
@@ -651,11 +750,15 @@ export default function NovaChecagemPage() {
             <button type="button" onClick={addItem} className="btn-ghost text-xs"><Plus size={12}/> Linha</button>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full" style={{ minWidth: modo==='indireta'?900:650 }}>
-              <TblHeader modo={modo}/>
+            <table className="w-full" style={{ minWidth: grade2DAtiva ? 1100 : modo==='indireta' ? 900 : 650 }}>
+              <TblHeader modo={modo} grade2DAtiva={grade2DAtiva}
+                eixo1Nome={grade2DEixo1Nome} eixo1Unidade={grade2DEixo1Unidade}
+                eixo2Nome={grade2DEixo2Nome} eixo2Unidade={grade2DEixo2Unidade}/>
               <tbody>
                 {itens.map(item=>(
                   <ItemRow key={item.id} item={item} modo={modo}
+                    grade2DAtiva={grade2DAtiva}
+                    eixo1Nome={grade2DEixo1Nome} eixo2Nome={grade2DEixo2Nome}
                     onChange={i=>updateItem(item.id,i)}
                     onDelete={()=>removeItem(item.id)}/>
                 ))}

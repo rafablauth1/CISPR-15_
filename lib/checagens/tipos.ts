@@ -22,6 +22,9 @@ export interface ItemChecagem {
   valorCorrigido?: string    // valorReferencia + correcaoPadrao
   // Legado
   valorTransferencia?: string
+  // Interpolação 2D — valores dos eixos para buscar correção na grade do certificado
+  eixo1Valor?: string   // ex: frequência em MHz
+  eixo2Valor?: string   // ex: nível em dBm
   // Resultado
   resultado: 'ok' | 'nok' | 'na'
   observacoes?: string
