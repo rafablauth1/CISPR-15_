@@ -7,11 +7,10 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
 
-/* diretório temp garantidamente gravável (userData injetado pelo Electron) */
+/* Usa C:\Windows\Temp\cispr15-wmf — caminho ASCII puro, sem acentos/espaços,
+   evita falha silenciosa quando o perfil do usuário tem caracteres especiais */
 function getWmfTmpDir(): string {
-  const base = process.env.CISPR_USER_DATA
-    ? join(process.env.CISPR_USER_DATA, 'wmf-tmp')
-    : join(tmpdir(), 'cispr15-wmf-tmp')
+  const base = 'C:\\Windows\\Temp\\cispr15-wmf'
   mkdirSync(base, { recursive: true })
   return base
 }
@@ -24,12 +23,11 @@ function convertWmfToPng(wmfBuf: Buffer): { buf: Buffer | null; error: string | 
   const pngPath = join(tmpDir, `${id}.png`)
   const psPath  = join(tmpDir, `${id}.ps1`)
 
-  const esc = (s: string) => s.replace(/\\/g, '\\\\').replace(/'/g, "''")
-
+  /* caminhos ASCII — sem escaping especial necessário em PS single-quoted strings */
   const script = `
 Add-Type -AssemblyName System.Drawing
 try {
-  $mf = New-Object System.Drawing.Imaging.Metafile('${esc(wmfPath)}')
+  $mf = New-Object System.Drawing.Imaging.Metafile('${wmfPath}')
   $w  = if ($mf.Width  -gt 10) { $mf.Width  } else { 800 }
   $h  = if ($mf.Height -gt 10) { $mf.Height } else { 600 }
   $bmp = New-Object System.Drawing.Bitmap($w, $h)
@@ -38,7 +36,7 @@ try {
   $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
   $g.DrawImage($mf, 0, 0, $w, $h)
   $g.Dispose()
-  $bmp.Save('${esc(pngPath)}', [System.Drawing.Imaging.ImageFormat]::Png)
+  $bmp.Save('${pngPath}', [System.Drawing.Imaging.ImageFormat]::Png)
   $bmp.Dispose()
   $mf.Dispose()
 } catch {
@@ -53,7 +51,8 @@ try {
   let convErr: string | null = null
   try {
     writeFileSync(wmfPath, wmfBuf)
-    writeFileSync(psPath, script, 'utf8')
+    /* BOM para que PowerShell 5.1 leia como UTF-8 corretamente */
+    writeFileSync(psPath, '﻿' + script, 'utf8')
 
     execFileSync(PS, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', psPath],
       { timeout: 20000, stdio: 'pipe' })
