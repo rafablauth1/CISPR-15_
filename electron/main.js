@@ -7,6 +7,7 @@ const { execFile, spawn } = require('child_process')
 const XLSX    = require('xlsx')
 const mammoth = require('mammoth')
 const { listSigningCerts, signPDF } = require('./pdf-signer')
+const { autoUpdater } = require('electron-updater')
 
 /* ─── PowerShell script para Windows OCR ─────────────────────────────────── */
 const PS_OCR_SCRIPT = `
@@ -258,6 +259,7 @@ async function createWindow() {
   nativeTheme.themeSource = 'dark'
   win.setMenuBarVisibility(true)
 
+
   const HIDE_CHROME_CSS = `aside { display: none !important; } header.sticky { display: none !important; }`
   win.webContents.on('did-start-loading', () => {
     win.webContents.insertCSS(HIDE_CHROME_CSS).catch(() => {})
@@ -416,9 +418,63 @@ function buildMenu(port) {
       label: 'Ajuda',
       submenu: [
         { label: `CISPR 15 LABELO  v${app.getVersion()}`, enabled: false },
+        { type: 'separator' },
+        {
+          label: 'Verificar atualizações',
+          click: () => {
+            if (!app.isPackaged) {
+              dialog.showMessageBox({ type: 'info', message: 'Verificação de atualizações disponível apenas na versão instalada.' })
+              return
+            }
+            autoUpdater.checkForUpdates().catch(() => {
+              dialog.showMessageBox({ type: 'info', message: 'Não foi possível verificar atualizações. Verifique a conexão.' })
+            })
+          },
+        },
       ],
     },
   ])
+}
+
+/* ─── auto-update ─────────────────────────────────────────────────────────── */
+
+function setupAutoUpdater() {
+  if (!app.isPackaged) return
+
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = true
+
+  autoUpdater.on('update-available', (info) => {
+    dialog.showMessageBox({
+      type: 'info',
+      title: 'Atualização disponível',
+      message: `Nova versão disponível: v${info.version}`,
+      detail: 'Deseja baixar e instalar agora?',
+      buttons: ['Baixar agora', 'Mais tarde'],
+      defaultId: 0,
+    }).then(({ response }) => {
+      if (response === 0) autoUpdater.downloadUpdate()
+    })
+  })
+
+  autoUpdater.on('update-downloaded', () => {
+    dialog.showMessageBox({
+      type: 'info',
+      title: 'Pronto para instalar',
+      message: 'Atualização baixada com sucesso.',
+      detail: 'O app vai reiniciar para aplicar a atualização.',
+      buttons: ['Reiniciar agora', 'Mais tarde'],
+      defaultId: 0,
+    }).then(({ response }) => {
+      if (response === 0) autoUpdater.quitAndInstall()
+    })
+  })
+
+  autoUpdater.on('error', (err) => {
+    console.error('Updater error:', err.message)
+  })
+
+  setTimeout(() => autoUpdater.checkForUpdates(), 4000)
 }
 
 /* ─── ciclo de vida ───────────────────────────────────────────────────────── */
@@ -433,6 +489,7 @@ app.whenReady().then(() => {
   }
   Menu.setApplicationMenu(buildMenu())
   createWindow()
+  setupAutoUpdater()
 })
 
 app.on('window-all-closed', () => {
