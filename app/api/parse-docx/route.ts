@@ -17,7 +17,7 @@ function getWmfTmpDir(): string {
 }
 
 /* ─── converte WMF/EMF → PNG usando PowerShell + Metafile (Windows GDI+) ─── */
-function convertWmfToPng(wmfBuf: Buffer): Buffer | null {
+function convertWmfToPng(wmfBuf: Buffer): { buf: Buffer | null; error: string | null } {
   const id      = randomUUID().replace(/-/g, '')
   const tmpDir  = getWmfTmpDir()
   const wmfPath = join(tmpDir, `${id}.wmf`)
