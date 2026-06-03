@@ -426,8 +426,10 @@ function buildMenu(port) {
               dialog.showMessageBox({ type: 'info', message: 'Verificação de atualizações disponível apenas na versão instalada.' })
               return
             }
-            autoUpdater.checkForUpdates().catch(() => {
-              dialog.showMessageBox({ type: 'info', message: 'Não foi possível verificar atualizações. Verifique a conexão.' })
+            manualUpdateCheck = true
+            autoUpdater.checkForUpdates().catch((err) => {
+              manualUpdateCheck = false
+              dialog.showMessageBox({ type: 'error', title: 'Erro', message: 'Não foi possível verificar atualizações.', detail: String(err?.message ?? err), buttons: ['OK'] })
             })
           },
         },
@@ -438,13 +440,32 @@ function buildMenu(port) {
 
 /* ─── auto-update ─────────────────────────────────────────────────────────── */
 
+let manualUpdateCheck = false
+
+function notifyUpdateProgress(pct) {
+  const win = BrowserWindow.getAllWindows()[0]
+  win?.webContents.send('update:progress', pct)
+}
+
 function setupAutoUpdater() {
   if (!app.isPackaged) return
 
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = true
 
+  autoUpdater.on('update-not-available', () => {
+    if (!manualUpdateCheck) return
+    manualUpdateCheck = false
+    dialog.showMessageBox({
+      type: 'info',
+      title: 'Sem atualizações',
+      message: `Você já está na versão mais recente (v${app.getVersion()}).`,
+      buttons: ['OK'],
+    })
+  })
+
   autoUpdater.on('update-available', (info) => {
+    manualUpdateCheck = false
     dialog.showMessageBox({
       type: 'info',
       title: 'Atualização disponível',
@@ -457,12 +478,21 @@ function setupAutoUpdater() {
     })
   })
 
+  autoUpdater.on('download-progress', ({ percent }) => {
+    const pct = Math.round(percent)
+    notifyUpdateProgress(pct)
+    const win = BrowserWindow.getAllWindows()[0]
+    win?.setProgressBar(pct / 100)
+  })
+
   autoUpdater.on('update-downloaded', () => {
+    const win = BrowserWindow.getAllWindows()[0]
+    win?.setProgressBar(-1)
+    notifyUpdateProgress(-1)
     dialog.showMessageBox({
       type: 'info',
-      title: 'Pronto para instalar',
-      message: 'Atualização baixada com sucesso.',
-      detail: 'O app vai reiniciar para aplicar a atualização.',
+      title: 'Atualização concluída',
+      message: 'Download concluído! O app vai reiniciar para aplicar.',
       buttons: ['Reiniciar agora', 'Mais tarde'],
       defaultId: 0,
     }).then(({ response }) => {
@@ -472,6 +502,15 @@ function setupAutoUpdater() {
 
   autoUpdater.on('error', (err) => {
     console.error('Updater error:', err.message)
+    if (!manualUpdateCheck) return
+    manualUpdateCheck = false
+    dialog.showMessageBox({
+      type: 'error',
+      title: 'Erro ao verificar',
+      message: 'Não foi possível verificar atualizações.',
+      detail: err.message,
+      buttons: ['OK'],
+    })
   })
 
   setTimeout(() => autoUpdater.checkForUpdates(), 4000)
