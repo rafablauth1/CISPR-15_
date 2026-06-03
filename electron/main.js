@@ -516,27 +516,35 @@ async function applyUpdate(downloadUrl, version) {
   win?.setProgressBar(-1)
   win?.webContents.send('update:progress', -1)
 
-  // Script que roda após o app fechar: extrai zip e copia sobre a pasta atual
+  // Script PowerShell: extrai zip e copia sobre a pasta atual
   const scriptPath = path.join(tmpDir, 'cispr15-do-update.ps1')
-  const esc = s => s.replace(/'/g, "''")
+  const vbsPath    = path.join(tmpDir, 'cispr15-run-update.vbs')
+  const escPs  = s => s.replace(/'/g, "''")
+  const escVbs = s => s.replace(/"/g, '""')
+
   const script = `
-$log = '${esc(logPath)}'
+$log = '${escPs(logPath)}'
 function Log($msg) { Add-Content -Path $log -Value "$(Get-Date -f 'HH:mm:ss') $msg" }
 Log 'Aguardando app fechar...'
 Start-Sleep -Milliseconds 3000
 Log 'Extraindo zip...'
-Remove-Item -Path '${esc(extractDir)}' -Recurse -Force -ErrorAction SilentlyContinue
-Expand-Archive -Path '${esc(zipPath)}' -DestinationPath '${esc(extractDir)}' -Force
+Remove-Item -Path '${escPs(extractDir)}' -Recurse -Force -ErrorAction SilentlyContinue
+Expand-Archive -Path '${escPs(zipPath)}' -DestinationPath '${escPs(extractDir)}' -Force
 Log 'Copiando arquivos...'
-robocopy '${esc(extractDir)}' '${esc(appDir)}' /MIR /R:3 /W:2 | Out-Null
+robocopy '${escPs(extractDir)}' '${escPs(appDir)}' /MIR /R:3 /W:2 | Out-Null
 Log 'Limpando temporarios...'
-Remove-Item -Path '${esc(zipPath)}' -Force -ErrorAction SilentlyContinue
-Remove-Item -Path '${esc(extractDir)}' -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path '${escPs(zipPath)}' -Force -ErrorAction SilentlyContinue
+Remove-Item -Path '${escPs(extractDir)}' -Recurse -Force -ErrorAction SilentlyContinue
 Log 'Reiniciando app...'
-Start-Process -FilePath '${esc(exePath)}'
+Start-Process -FilePath '${escPs(exePath)}'
 Log 'Concluido.'
 `
+  // VBScript lança o PS oculto sem restrição de política de execução
+  const vbs = `Set sh = CreateObject("WScript.Shell")
+sh.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -File ""${escVbs(scriptPath)}""", 0, False`
+
   fs.writeFileSync(scriptPath, script, 'utf8')
+  fs.writeFileSync(vbsPath, vbs, 'utf8')
 
   const { response } = await dialog.showMessageBox({
     type: 'info',
@@ -549,7 +557,8 @@ Log 'Concluido.'
 
   if (response !== 0) return
 
-  const child = spawn(PS_EXE, ['-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', scriptPath], {
+  // wscript.exe não tem restrição de política — lança o VBS que chama o PS
+  const child = spawn('C:\\Windows\\System32\\wscript.exe', [vbsPath], {
     detached: true,
     stdio: 'ignore',
   })
