@@ -111,7 +111,8 @@
     "publish": {
       "provider": "github",
       "owner": "rafablauth1",
-      "repo": "CISPR-15_"
+      "repo": "CISPR-15_",
+      "releaseType": "release"
     }
   }
 }
