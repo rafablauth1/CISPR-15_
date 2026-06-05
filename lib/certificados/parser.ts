@@ -17,19 +17,78 @@ export function parsearCertificado(texto: string): LinhaCertificado[] {
   const linhas = texto.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
   const resultado: LinhaCertificado[] = []
 
-  // ── Estratégia 1: detectar tabela com cabeçalho típico ──────────────────
-  // Procura padrões como: Ponto | Nominal | Indicado | Correção | Incerteza
+  // ── Estratégia 1: formato tabulado com marcadores Python (# GRANDEZA / # PARAM / # HEADERS) ──
+  const hasMarkers = linhas.some(l => l.startsWith('# GRANDEZA:') || l.startsWith('# PARAM:') || l.startsWith('# HEADERS:'))
+  if (hasMarkers) {
+    let curGrandeza = ''
+    let curParam    = ''
+    let vrIdx = -1, mmIdx = -1, imIdx = -1
+    let freqBased   = false   // col[0] é frequência (ex: (MHz)) → usar como nominal
+    let ponto = 0
+
+    const parseNum2 = (s: string) => {
+      // Remove operadores de comparação (≥13,8 → 13,8) e caracteres especiais
+      const t = s.trim().replace(/\s+/g,'').replace(/^[≥>≤<≈~]/,'')
+      if (!t || t==='-' || t==='—' || t==='∞') return NaN
+      if (t.includes(',')) return parseFloat(t.replace(/\./g,'').replace(',','.'))
+      return parseFloat(t)
+    }
+
+    for (const linha of linhas) {
+      if (linha.startsWith('# GRANDEZA:')) { curGrandeza = linha.slice('# GRANDEZA:'.length).trim(); continue }
+      if (linha.startsWith('# PARAM:'))    { curParam    = linha.slice('# PARAM:'.length).trim();    continue }
+      if (linha.startsWith('# HEADERS:')) {
+        const cols = linha.slice('# HEADERS:'.length).trim().split('\t').map(s => s.trim())
+        mmIdx = cols.findIndex(c => /\bUMP\b/i.test(c))
+        vrIdx = mmIdx > 0 ? cols.slice(0, mmIdx).reduceRight((f,c,i) => f>=0?f:/\bUST\b/i.test(c)?i:-1, -1) : -1
+        imIdx = mmIdx >= 0 && mmIdx+1 < cols.length ? mmIdx+1 : -1
+        // fallback se não detectou col VR/MM
+        if (vrIdx < 0 || mmIdx < 0) { vrIdx = 1; mmIdx = 2; imIdx = 3 }
+        // col[0] é unidade de frequência (MHz/GHz/kHz/Hz) → dados baseados em frequência
+        freqBased = cols.length > 0 && /^\([a-zA-Z]*[hH]z\)$/i.test(cols[0].trim())
+        continue
+      }
+      if (linha.startsWith('#')) continue
+      if (!linha.includes('\t')) continue
+
+      const cols = linha.split('\t')
+      const freqNum = freqBased ? parseNum2(cols[0] ?? '') : NaN
+      const vr = parseNum2(cols[vrIdx] ?? '')
+      const mm = parseNum2(cols[mmIdx] ?? '')
+      if (freqBased ? (!isFinite(freqNum) || !isFinite(mm)) : (!isFinite(vr) || !isFinite(mm))) continue
+
+      ponto++
+      // Quando baseado em frequência: nominal=freq, correcao=UMP (valor medido na freq)
+      // Caso típico: nominal=VR, correcao=VR-MM
+      const nominalNum = freqBased ? freqNum : vr
+      const correcaoNum = freqBased ? mm : parseFloat((vr - mm).toPrecision(10))
+      const im = imIdx >= 0 ? parseNum2(cols[imIdx] ?? '') : NaN
+      resultado.push({
+        ponto,
+        grandeza: curGrandeza || curParam,
+        unidade: '',
+        valorNominal: String(nominalNum),
+        valorIndicado: String(mm),
+        correcao: fmtCorrecao(correcaoNum),
+        incertezaExpandida: isFinite(im) ? `±${im}` : '',
+        fatorCobertura: 2,
+      })
+    }
+    if (resultado.length > 0) return resultado
+  }
+
+  // ── Estratégia 2: detectar tabela com cabeçalho típico ──────────────────
   let dentroTabela = false
   let colCorrecao  = -1
   let colNominal   = -1
   let colIndicado  = -1
   let colIncerteza = -1
+  let curGrandeza2 = ''
   let ponto = 0
 
   for (const linha of linhas) {
     const norm = linha.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 
-    // Detecta cabeçalho da tabela
     if (!dentroTabela && (norm.includes('corre') || norm.includes('correction'))) {
       const colunas = linha.split(/\s{2,}|\t/).map(c => c.trim())
       colCorrecao  = colunas.findIndex(c => /corre/i.test(c.normalize('NFD').replace(/[̀-ͯ]/g, '')))
@@ -41,14 +100,11 @@ export function parsearCertificado(texto: string): LinhaCertificado[] {
 
     if (dentroTabela) {
       const colunas = linha.split(/\s{2,}|\t/).map(c => c.trim())
-      // Verifica se linha tem valores numéricos suficientes
       const nums = colunas.map(parseNum)
       const numCount = nums.filter(n => n !== null).length
       if (numCount < 2) {
-        // Linha sem números: pode ser fim da tabela ou grandeza
-        if (/[a-zA-ZÀ-ÿ]{4}/.test(linha) && !norm.includes('unid') && numCount === 0) {
-          // Nova grandeza - mantém contexto
-        }
+        if (/[a-zA-ZÀ-ÿ]{4}/.test(linha) && !norm.includes('unid') && numCount === 0)
+          curGrandeza2 = linha
         continue
       }
 
@@ -57,15 +113,13 @@ export function parsearCertificado(texto: string): LinhaCertificado[] {
       const nominalVal  = colNominal  >= 0 ? parseNum(colunas[colNominal]  ?? '') : null
       const indicadoVal = colIndicado >= 0 ? parseNum(colunas[colIndicado] ?? '') : null
       const incerteza   = colIncerteza >= 0 ? (colunas[colIncerteza] ?? '') : ''
-
-      // Se não achou a correção pela coluna, tenta calcular: Nominal - Indicado
       const correcao = correcaoVal ?? (
         nominalVal !== null && indicadoVal !== null ? nominalVal - indicadoVal : null
       )
 
       resultado.push({
         ponto,
-        grandeza: '',
+        grandeza: curGrandeza2,
         unidade: '',
         valorNominal:  nominalVal !== null ? String(nominalVal) : (colunas[colNominal] ?? ''),
         valorIndicado: indicadoVal !== null ? String(indicadoVal) : (colunas[colIndicado] ?? ''),
@@ -124,20 +178,20 @@ export function parsearMetadadosCertificado(texto: string): {
   for (const linha of linhas) {
     const norm = linha.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 
-    if (!numero && (norm.includes('certificado') || norm.includes('certificate') || norm.includes('n°') || norm.includes('n.'))) {
-      const m = linha.match(/[A-Z]\d{3,6}[-/]\d{2,4}|[A-Z]{1,3}\s*\d{4,6}[-/]\d{2,4}|\d{5,8}[-/]\d{4}/)
-      if (m) numero = m[0]
+    if (!numero && (norm.includes('certificado') || norm.includes('certificate') || norm.includes('n°') || norm.includes('n.') || norm.includes('nr') || norm.includes('n.'))) {
+      const m = linha.match(/[A-Z]{1,4}\s*\d{3,6}[-/]\d{2,4}|[A-Z]{1,3}\s*\d{4,6}[-/]\d{2,4}|\d{5,8}[-/]\d{4}|\d{4,8}[/-][A-Z]{2,4}/)
+      if (m) numero = m[0].replace(/\s+/g, '')
     }
 
-    if (!laboratorio && (norm.includes('laborat') || norm.includes('lab ') || norm.includes('rnbc'))) {
-      const parts = linha.split(/[:–-]/).map(s => s.trim()).filter(s => s.length > 3)
-      if (parts.length > 1) laboratorio = parts[parts.length - 1].trim()
-      else if (parts[0].length > 3) laboratorio = parts[0]
+    if (!laboratorio && (norm.includes('laborat') || norm.includes('lab ') || norm.includes('rnbc') || norm.includes('labelo'))) {
+      // Pega o primeiro segmento antes de " - " ou ":" (ex: "LABELO - Laboratórios...")
+      const parts = linha.split(/\s[-–]\s|:\s/).map(s => s.trim()).filter(s => s.length > 2)
+      laboratorio = parts[0]
     }
 
     if (!dataEmissao) {
       const dateM = linha.match(/(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})/)
-      if (dateM && (norm.includes('emiss') || norm.includes('data') || norm.includes('date'))) {
+      if (dateM && (norm.includes('emiss') || norm.includes('data') || norm.includes('date') || norm.includes('period') || norm.includes('calibr'))) {
         const [, d, m, y] = dateM
         dataEmissao = `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`
       }
