@@ -9,6 +9,14 @@ export interface LinhaCertificado {
   fatorCobertura: number
 }
 
+/** Ponto de correção em grade 2D (ex: frequência × nível) */
+export interface PontoCorrecao2D {
+  eixo1: number        // ex: 50 (MHz)
+  eixo2: number        // ex: -40 (dBm)
+  correcao: number     // ex: +0.12 (dB)
+  incerteza?: number   // U (k=2)
+}
+
 export interface Certificado {
   id: string
   equipamentoId: string
@@ -19,6 +27,14 @@ export interface Certificado {
   dataValidade?: string        // YYYY-MM-DD (12 ou 24 meses)
   normaRastreabilidade?: string
   itens: LinhaCertificado[]
+  // Grade de correções 2D (opcional — para equipamentos com dois eixos)
+  grade2D?: {
+    eixo1Nome: string      // ex: "Frequência"
+    eixo1Unidade: string   // ex: "MHz"
+    eixo2Nome: string      // ex: "Nível"
+    eixo2Unidade: string   // ex: "dBm"
+    pontos: PontoCorrecao2D[]
+  }
   obs?: string
   criadoEm: string
 }
