@@ -7,16 +7,26 @@ import { fileToBase64 } from '@/lib/utils'
  * Usa o OCR nativo do Windows via Electron IPC (rápido).
  * Não usa Tesseract.js — é lento demais para uso interativo.
  */
+type ElectronAPI = {
+  recognizeOcr?: (imgs: { base64: string }[]) => Promise<{ ok: boolean; texts: string[] }>
+  extractPdfText?: (base64: string) => Promise<{ ok: boolean; text: string; error?: string }>
+}
+
+function getElectronAPI(): ElectronAPI | null {
+  if (typeof window === 'undefined') return null
+  return (window as Window & typeof globalThis & { electronAPI?: ElectronAPI }).electronAPI ?? null
+}
+
 export async function extrairTextoArquivo(file: File): Promise<string> {
   const base64 = await fileToBase64(file)
+  const api = getElectronAPI()
 
-  const api = typeof window !== 'undefined'
-    ? (window as Window & typeof globalThis & {
-        electronAPI?: {
-          recognizeOcr?: (imgs: { base64: string }[]) => Promise<{ ok: boolean; texts: string[] }>
-        }
-      }).electronAPI
-    : null
+  if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+    if (!api?.extractPdfText) throw new Error('Extração de PDF não disponível.')
+    const res = await api.extractPdfText(base64)
+    if (!res?.ok || !res.text?.trim()) throw new Error(res?.error ?? 'Nenhum texto extraído do PDF.')
+    return res.text
+  }
 
   if (api?.recognizeOcr) {
     const res = await api.recognizeOcr([{ base64 }])

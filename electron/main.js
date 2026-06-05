@@ -763,6 +763,19 @@ ipcMain.handle('shell:open-path', async (_, { path: p }) => {
   catch (err) { return { ok: false, error: String(err) } }
 })
 
+/* ─── IPC: extração de texto de PDF (pdf-parse, sem Python) ──────────────── */
+
+ipcMain.handle('pdf:extract-text', async (_, { base64 }) => {
+  try {
+    const pdfBuffer = Buffer.from(base64, 'base64')
+    const pdfParse  = require('pdf-parse')
+    const data      = await pdfParse(pdfBuffer)
+    return { ok: true, text: data.text || '' }
+  } catch (err) {
+    return { ok: false, error: String(err) }
+  }
+})
+
 /* ─── IPC: Dados de rede (clientes / relatórios) ─────────────────────────── */
 
 ipcMain.handle('data:get-clientes', () => {

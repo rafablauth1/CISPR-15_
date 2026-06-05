@@ -36,6 +36,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveAgenda:      (agenda)    => ipcRenderer.invoke('data:save-agenda',      { agenda }),
   // OCR local (Windows.Media.Ocr)
   recognizeOcr:    (images)  => ipcRenderer.invoke('ocr:recognize', { images }),
+  // Extração de texto de PDF (pdf-parse via main process)
+  extractPdfText:  (base64)  => ipcRenderer.invoke('pdf:extract-text', { base64 }),
 
   // Follow-up PDF direto
   saveFollowupPdf: (html, filename, landscape) => ipcRenderer.invoke('pdf:followup', { html, filename, landscape }),
