@@ -768,8 +768,10 @@ ipcMain.handle('shell:open-path', async (_, { path: p }) => {
 ipcMain.handle('pdf:extract-text', async (_, { base64 }) => {
   try {
     const pdfBuffer = Buffer.from(base64, 'base64')
-    const pdfParse  = require('pdf-parse')
-    const data      = await pdfParse(pdfBuffer)
+    // pdf-parse tem bug no Electron (index.js carrega arquivos de teste) — usar lib diretamente
+    const pdfParse  = require('pdf-parse/lib/pdf-parse.js')
+    const fn        = typeof pdfParse === 'function' ? pdfParse : pdfParse.default
+    const data      = await fn(pdfBuffer)
     return { ok: true, text: data.text || '' }
   } catch (err) {
     return { ok: false, error: String(err) }
