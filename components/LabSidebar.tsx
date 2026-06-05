@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, FileText, Cpu, BookOpen,
-  ClipboardCheck, Network, Ruler, Settings,
+  ClipboardCheck, Network, Ruler, Settings, Award, FlaskConical,
 } from 'lucide-react'
 
 interface NavItem { href: string; icon: React.ElementType; label: string }
@@ -16,16 +16,18 @@ const NAV: NavGroup[] = [
   {
     label: 'PRINCIPAL',
     items: [
-      { href: '/dashboard',  icon: LayoutDashboard, label: 'Dashboard' },
-      { href: '/cispr15',    icon: FileText,         label: 'Relatórios' },
+      { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+      { href: '/cispr15',   icon: FileText,         label: 'Relatórios' },
     ],
   },
   {
     label: 'LABORATÓRIO',
     items: [
-      { href: '/equipamentos', icon: Cpu,            label: 'Equipamentos' },
-      { href: '/normas',       icon: BookOpen,       label: 'Normas' },
-      { href: '/checagens',    icon: ClipboardCheck, label: 'Checagens' },
+      { href: '/equipamentos',  icon: Cpu,            label: 'Equipamentos' },
+      { href: '/normas',        icon: BookOpen,       label: 'Normas' },
+      { href: '/checagens',      icon: ClipboardCheck, label: 'Checagens' },
+      { href: '/procedimentos',  icon: FlaskConical,   label: 'Procedimentos' },
+      { href: '/certificados',  icon: Award,           label: 'Certificados' },
     ],
   },
   {
