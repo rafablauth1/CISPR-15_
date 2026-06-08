@@ -32,6 +32,7 @@ function InnerTopbar() {
 
   return (
     <div
+      className="no-print"
       style={{
         height: 44,
         flexShrink: 0,

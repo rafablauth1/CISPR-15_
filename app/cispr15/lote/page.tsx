@@ -442,6 +442,8 @@ export default function LotePage() {
   const [emitidos,    setEmitidos]    = useState<Record<number, string>>({}) // index → numRelatorio
   const [equipamentos,setEquipamentos] = useState<EquipamentoSalvo[]>([])
   const [emitModal,   setEmitModal]   = useState<{ conformes: number; reprovadosNomes: string[] } | null>(null)
+  const [importMae,   setImportMae]   = useState<{ loading: boolean; msg: string } | null>(null)
+  const maeRef = useRef<HTMLInputElement>(null)
   const [gateOpen,    setGateOpen]    = useState(false)
   const [gateInput,   setGateInput]   = useState('')
   const [gateError,   setGateError]   = useState(false)
@@ -505,6 +507,61 @@ export default function LotePage() {
         const compact = { ...next, amostras: next.amostras.map(a => ({ ...a, docxHtml: null })) }
         localStorage.setItem(LOTE_KEY, JSON.stringify(compact))
       } catch { alert('Armazenamento cheio — reduza o número de fotos.') }
+    }
+  }
+
+  /* Importa uma pasta-mãe contendo subpastas (uma por protocolo). Casa cada
+     subpasta com a amostra do lote pelo protocolo e preenche docx + fotos. */
+  async function handlePastaMae(files: FileList) {
+    if (!lote) return
+    const isImage = (f: File) => f.type.startsWith('image/') || /\.(jpe?g|png|gif|bmp|webp|tiff?)$/i.test(f.name)
+    setImportMae({ loading: true, msg: '' })
+    try {
+      // Agrupa arquivos pela 1ª subpasta do caminho relativo
+      const grupos: Record<string, File[]> = {}
+      for (const f of Array.from(files)) {
+        const rel = ((f as any).webkitRelativePath as string) || f.name
+        const parts = rel.split('/')
+        // parts[0] = pasta-mãe; parts[1] = subpasta (protocolo) quando há subpastas
+        const sub = parts.length >= 3 ? parts[1] : parts.length === 2 ? parts[1] : '__root__'
+        ;(grupos[sub] ??= []).push(f)
+      }
+
+      let casados = 0
+      const naoCasados: string[] = []
+      const novas = await Promise.all(lote.amostras.map(async (am) => {
+        const proto = (am.protocolo || '').replace(/\D/g, '')
+        if (!proto) { naoCasados.push(`amostra sem protocolo`); return am }
+        const subKey = Object.keys(grupos).find(k => k.replace(/\D/g, '').includes(proto))
+        if (!subKey) { naoCasados.push(proto); return am }
+
+        const groupFiles = grupos[subKey]
+        const docxFile = groupFiles.find(f => f.name.toLowerCase().endsWith('.docx') && !f.name.startsWith('~'))
+        const imageFiles = groupFiles.filter(isImage).sort((a, b) => getNum(a.name) - getNum(b.name))
+
+        let updated = { ...am }
+        if (docxFile) {
+          try {
+            const fd = new FormData(); fd.append('file', docxFile)
+            const data = await fetch('/api/parse-docx', { method: 'POST', body: fd }).then(r => r.json())
+            if (!data.error) updated = { ...updated, docxHtml: data.html, docxFilename: docxFile.name }
+          } catch {}
+        }
+        if (imageFiles.length > 0) {
+          const photos: { name: string; base64: string }[] = []
+          for (const f of imageFiles) { try { photos.push(await resizeToBase64(f)) } catch {} }
+          updated = { ...updated, photos }
+        }
+        if (docxFile || imageFiles.length > 0) casados++
+        return updated
+      }))
+
+      saveLote({ ...lote, amostras: novas })
+      const msg = `${casados} amostra(s) preenchida(s)` +
+        (naoCasados.length ? ` · ${naoCasados.length} sem pasta correspondente` : '')
+      setImportMae({ loading: false, msg })
+    } catch (e: any) {
+      setImportMae({ loading: false, msg: 'Erro: ' + (e?.message || String(e)) })
     }
   }
 
@@ -792,7 +849,31 @@ export default function LotePage() {
             {lote.cliente || <span className="text-white/20 italic">não definido</span>}
           </p>
         </div>
+
+        {/* Importar pasta-mãe: casa subpastas com os protocolos das amostras */}
+        <div className="flex flex-col gap-2">
+          <Label>Pasta-mãe</Label>
+          <label className={cn(
+            'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border cursor-pointer transition-all',
+            importMae?.loading
+              ? 'border-blue-300/30 bg-blue-500/8 text-blue-400 pointer-events-none'
+              : 'border-gold/40 bg-gold/8 text-gold hover:bg-gold/14',
+          )}>
+            {importMae?.loading ? <Loader2 size={12} className="animate-spin" /> : <FolderOpen size={12} />}
+            {importMae?.loading ? 'Importando…' : 'Importar Pasta'}
+            <input ref={maeRef} type="file" className="hidden"
+              disabled={importMae?.loading}
+              {...{ webkitdirectory: '' } as any}
+              onChange={e => { if (e.target.files?.length) handlePastaMae(e.target.files); e.target.value = '' }} />
+          </label>
+        </div>
       </div>
+
+      {importMae?.msg && (
+        <div className="mb-4 px-3 py-2 rounded-lg bg-white/4 border border-white/8 text-[12px] text-white/60 flex items-center gap-2">
+          <CheckCircle2 size={13} className="text-green-400 shrink-0" /> {importMae.msg}
+        </div>
+      )}
 
       {/* Lista de amostras */}
       <div className="space-y-3">
