@@ -602,15 +602,17 @@ export default function Cispr15RelatorioPage() {
                página física extra em branco */
             height: 295mm; min-height: 295mm; max-height: 295mm; overflow: hidden;
             box-shadow: none; margin: 0;
-            page-break-before: always; page-break-after: avoid;
+            page-break-before: always;
             font-family: Arial, Helvetica, sans-serif;
             font-size: 11pt; color: #000; line-height: 1.4;
             position: relative; box-sizing: border-box;
-            display: flex; flex-direction: column;
+            display: block;
           }
-          .doc-page-inner { flex: 1; overflow: hidden; }
+          /* reserva espaço do rodapé absoluto (18mm) no fim do conteúdo */
+          .doc-page-inner { overflow: hidden; padding-bottom: 18mm; }
           .doc-page-first { page-break-before: avoid; }
-          /* footer posicionado via flexbox — cada página tem o seu próprio */
+          /* rodapé fixo no fundo da página — nunca clipa nem vaza */
+          .page-footer { position: absolute; bottom: 0; left: 0; right: 0; }
           .page-num-label { display: inline !important; }
           .upload-zone { display: none !important; }
           .doc-content th {
@@ -656,23 +658,22 @@ export default function Cispr15RelatorioPage() {
           .doc-page {
             margin: 0 !important;
             box-shadow: none !important;
-            /* altura fixa 295mm + overflow hidden: rodapé nunca vaza para página extra */
+            /* altura fixa 295mm + overflow hidden: nada vaza para página extra */
             height: 295mm !important; min-height: 295mm !important; max-height: 295mm !important;
             overflow: hidden !important;
             page-break-before: always !important;
             break-before: page !important;
-            page-break-after: avoid !important;
-            break-after: avoid !important;
             position: relative !important;
-            display: flex !important;
-            flex-direction: column !important;
+            display: block !important;
           }
           .doc-page-first {
             page-break-before: avoid !important;
             break-before: avoid !important;
           }
-          .doc-page-inner { flex: 1 !important; overflow: hidden !important; padding-top: 8mm !important; padding-bottom: 8mm !important; }
-          /* footer posicionado via flexbox — cada página tem o seu próprio */
+          /* reserva 18mm no fim do conteúdo para o rodapé absoluto */
+          .doc-page-inner { overflow: hidden !important; padding-top: 8mm !important; padding-bottom: 18mm !important; }
+          /* rodapé fixo no fundo de cada página — nunca clipa nem vaza */
+          .page-footer { position: absolute !important; bottom: 0 !important; left: 0 !important; right: 0 !important; }
           .page-num-label { display: inline !important; }
           /* Células de tabela compactas */
           .doc-page table td, .doc-page table th { padding: 1px 4px !important; }
