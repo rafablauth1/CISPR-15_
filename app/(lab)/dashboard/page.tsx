@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react'
 import Link from 'next/link'
 import {
   Cpu, BookOpen, ClipboardCheck, AlertTriangle, ChevronRight, ArrowRight,
-  Calendar, FileText, Settings, ShieldCheck,
+  Calendar, FileText, Settings, ShieldCheck, Clock, GitBranch,
 } from 'lucide-react'
 import { fmt, diasAte } from '@/lib/utils'
 import { RELATORIOS_KEY, AGENDA_KEY } from '@/app/cispr15/types'
@@ -30,6 +30,24 @@ function getMes(s?: string): number | null {
   if (m) return parseInt(m[2])
   return null
 }
+/* Converte dd/mm/yyyy ou yyyy-mm-dd em Date */
+function parseData(s?: string): Date | null {
+  if (!s) return null
+  let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/)
+  if (m) return new Date(+m[3], +m[2] - 1, +m[1])
+  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3])
+  const d = new Date(s)
+  return isNaN(d.getTime()) ? null : d
+}
+/* Dias entre duas datas (b - a), ou null */
+function diasEntre(a?: string, b?: string): number | null {
+  const da = parseData(a), db = parseData(b)
+  if (!da || !db) return null
+  return Math.round((db.getTime() - da.getTime()) / 86400000)
+}
+
+const PRAZO_ATRASO_DIAS = 30  // limite de dias do fim do ensaio até a emissão
 
 function StatusBadge({ status }: { status: string }) {
   if (status === 'reprovado') return <span className="badge-danger">VENCIDA</span>
@@ -37,9 +55,11 @@ function StatusBadge({ status }: { status: string }) {
   return <span className="badge-success">EM DIA</span>
 }
 
-function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label: string; value: number; color: string }) {
-  return (
-    <div className="stat-card">
+function StatCard({ icon, label, value, color, sub, href }: {
+  icon: React.ReactNode; label: string; value: number | string; color: string; sub?: string; href?: string
+}) {
+  const inner = (
+    <>
       <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
            style={{ background: `${color}18`, border: `1px solid ${color}28` }}>
         <span style={{ color }}>{icon}</span>
@@ -47,9 +67,19 @@ function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label:
       <div className="min-w-0">
         <p className="font-mono text-[8.5px] tracking-[2px] uppercase text-white/35">{label}</p>
         <p className="font-display font-bold text-2xl text-white leading-tight">{value}</p>
+        {sub && <p className="text-[9px] text-white/30 font-mono mt-0.5">{sub}</p>}
       </div>
-    </div>
+    </>
   )
+  if (href) {
+    return (
+      <Link href={href} className="stat-card group hover:border-white/15 transition-colors relative">
+        {inner}
+        <ArrowRight size={12} className="absolute top-3 right-3 text-white/15 group-hover:text-white/50 transition-colors" />
+      </Link>
+    )
+  }
+  return <div className="stat-card">{inner}</div>
 }
 
 function AreaCard({ href, icon, title, desc, color }: {
@@ -126,16 +156,33 @@ export default function DashboardPage() {
     return MESES.map((label, i) => ({ label, value: counts[i] }))
   }, [relatoriosAno])
 
-  // Conformidade dos relatórios do ano
-  const conf = useMemo(() => {
-    let conforme = 0, reprovado = 0, pendente = 0
+  // Emendas = não conformidades dos relatórios do ano
+  const emendaStats = useMemo(() => {
+    let totalEmendas = 0, comEmenda = 0
     for (const r of relatoriosAno) {
-      const c = r.currentCfg?.conformidade ?? r.cfg?.conformidade ?? 'pendente'
-      if (c === 'conforme') conforme++
-      else if (c === 'reprovado') reprovado++
-      else pendente++
+      const n = r.emendas?.length ?? 0
+      totalEmendas += n
+      if (n > 0) comEmenda++
     }
-    return { conforme, reprovado, pendente }
+    const pct = relatoriosAno.length ? Math.round((comEmenda / relatoriosAno.length) * 100) : 0
+    return { totalEmendas, comEmenda, semEmenda: relatoriosAno.length - comEmenda, pct }
+  }, [relatoriosAno])
+
+  // Tempo de saída (fim do ensaio → emissão) e atrasos
+  const tempoStats = useMemo(() => {
+    const dias: number[] = []
+    let atrasos = 0
+    for (const r of relatoriosAno) {
+      const cfg = r.currentCfg ?? r.cfg ?? {}
+      const inicio = cfg.periodoFim || cfg.periodoInicio
+      const d = diasEntre(inicio, r.dataEmissao)
+      if (d !== null && d >= 0) {
+        dias.push(d)
+        if (d > PRAZO_ATRASO_DIAS) atrasos++
+      }
+    }
+    const media = dias.length ? Math.round(dias.reduce((s, x) => s + x, 0) / dias.length) : null
+    return { media, atrasos, amostra: dias.length }
   }, [relatoriosAno])
 
   const vencidas  = checagens.filter(c => c.status === 'reprovado').length
@@ -178,12 +225,22 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Stat cards — um pouco de cada área */}
+      {/* Métricas de relatórios — clicáveis (drill-down) */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+        <StatCard href="/cispr15" icon={<FileText size={18} />} label={`Relatórios ${ano}`} value={relatoriosAno.length} color="#9B8CFF" />
+        <StatCard href="/cispr15" icon={<GitBranch size={18} />} label="Emendas (não conf.)" value={emendaStats.totalEmendas}
+          sub={`${emendaStats.pct}% dos relatórios`} color="#F87171" />
+        <StatCard icon={<Clock size={18} />} label="Tempo médio de saída"
+          value={tempoStats.media !== null ? `${tempoStats.media}d` : '—'} sub={`base: ${tempoStats.amostra} relatórios`} color="#34D399" />
+        <StatCard icon={<AlertTriangle size={18} />} label={`Atrasos (>${PRAZO_ATRASO_DIAS}d)`} value={tempoStats.atrasos} color="#F59E0B" />
+      </div>
+
+      {/* Métricas de qualidade/agenda — clicáveis */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <StatCard icon={<FileText size={18} />}       label={`Relatórios ${ano}`}  value={relatoriosAno.length} color="#9B8CFF" />
-        <StatCard icon={<Calendar size={18} />}       label="Agenda pendente"      value={agendaPendentes}      color="#4F8EF7" />
-        <StatCard icon={<ClipboardCheck size={18} />} label="Checagens vencendo"   value={pendentes}            color="#F59E0B" />
-        <StatCard icon={<AlertTriangle size={18} />}  label="Checagens vencidas"   value={vencidas}             color="#F87171" />
+        <StatCard href="/agenda"       icon={<Calendar size={18} />}       label="Agenda pendente"    value={agendaPendentes} color="#4F8EF7" />
+        <StatCard href="/checagens"    icon={<ClipboardCheck size={18} />} label="Checagens vencendo" value={pendentes}       color="#F59E0B" />
+        <StatCard href="/checagens"    icon={<AlertTriangle size={18} />}  label="Checagens vencidas" value={vencidas}        color="#F87171" />
+        <StatCard href="/equipamentos" icon={<Cpu size={18} />}            label="Equipamentos"       value={equips.length}   color="#4F8EF7" />
       </div>
 
       {/* Gráficos */}
@@ -192,14 +249,13 @@ export default function DashboardPage() {
           <BarChart data={porMes} color="#9B8CFF" />
         </ChartCard>
 
-        <ChartCard title={`Conformidade · ${ano}`}>
+        <ChartCard title={`Emendas — não conformidades · ${ano}`}>
           <DonutChart
-            centerTop={relatoriosAno.length}
-            centerSub="relatórios"
+            centerTop={`${emendaStats.pct}%`}
+            centerSub="com emenda"
             segments={[
-              { label: 'Conforme',  value: conf.conforme,  color: '#34D399' },
-              { label: 'Reprovado', value: conf.reprovado, color: '#F87171' },
-              { label: 'Pendente',  value: conf.pendente,  color: '#94A3B8' },
+              { label: 'Sem emenda', value: emendaStats.semEmenda, color: '#34D399' },
+              { label: 'Com emenda', value: emendaStats.comEmenda, color: '#F87171' },
             ]}
           />
         </ChartCard>
@@ -227,12 +283,6 @@ export default function DashboardPage() {
         <AreaCard href="/cispr15"       icon={<FileText size={18} />}    title="Formulários"   desc="Emissão de relatórios CISPR 15"             color="#9B8CFF" />
         <AreaCard href="/checagens"     icon={<ShieldCheck size={18} />} title="Qualidade"     desc="Checagens, equipamentos e normas"           color="#34D399" />
         <AreaCard href="/configuracoes" icon={<Settings size={18} />}    title="Configurações" desc="Pastas, senhas e parâmetros"                color="#94A3B8" />
-      </div>
-
-      {/* Resumo Qualidade */}
-      <div className="grid grid-cols-2 gap-4 mb-6">
-        <StatCard icon={<Cpu size={18} />}      label="Equipamentos"  value={equips.length} color="#4F8EF7" />
-        <StatCard icon={<BookOpen size={18} />} label="Normas ativas" value={normas.length} color="#E8B94B" />
       </div>
 
       {/* Próximas checagens */}

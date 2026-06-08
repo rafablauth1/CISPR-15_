@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Trash2, Loader2, Upload, ScanText, Save, FileSearch, Grid3x3 } from 'lucide-react'
+import { Plus, Trash2, Loader2, Upload, ScanText, Save, FileSearch, Grid3x3, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { addM } from '@/lib/utils'
 import { extrairTextoArquivo } from '@/lib/useOCR'
@@ -178,7 +178,14 @@ function ItemRow({ item, modo, onChange, onDelete, grade2DAtiva, eixo1Nome, eixo
   return (
     <tr className={cn('tbl-row group/row', rowCls)}>
       <td className="w-10 text-center font-mono text-[11px] text-white/40">{item.ponto}</td>
-      <td><input className={inp} value={item.grandeza} onChange={e => set('grandeza', e.target.value)} placeholder="ex: Tensão DC"/></td>
+      <td>
+        <input className={inp} value={item.grandeza} onChange={e => set('grandeza', e.target.value)} placeholder="ex: Tensão DC"/>
+        {item.mediaCalibracao && (
+          <p className="text-[8px] text-teal/60 font-mono mt-0.5 px-1" title="Média medida na calibração (base da checagem)">
+            cal.: {item.mediaCalibracao}
+          </p>
+        )}
+      </td>
       <td className="w-20"><input className={cn(inp,'font-mono')} value={item.unidade} onChange={e => set('unidade', e.target.value)} placeholder="V"/></td>
 
       {modo === 'direta-gera' && <>
@@ -356,6 +363,9 @@ export default function NovaChecagemPage() {
   const [certLoading,    setCertLoading]   = useState(false)
   const [certPadrao,     setCertPadrao]    = useState<import('@/lib/certificados/tipos').Certificado|null>(null)
   const [certPadraoMsg,  setCertPadraoMsg] = useState('')
+  // Importação de pontos do certificado (clicar nos pontos → vira ponto de checagem)
+  const [showCertImport, setShowCertImport] = useState(false)
+  const [certSel,        setCertSel]        = useState<Set<number>>(new Set())
   const [loading,        setLoading]       = useState(false)
   const [salvando,       setSalvando]      = useState(false)
   // Grade 2D de correção (interpolação bilinear)
@@ -439,6 +449,34 @@ export default function NovaChecagemPage() {
       const valorCorrigido = vr !== null && c !== null ? String((vr+c).toPrecision(6).replace(/\.?0+$/,'')) : undefined
       return { ...item, correcaoPadrao, valorCorrigido }
     }))
+  }
+
+  function toggleCertSel(i: number) {
+    setCertSel(prev => {
+      const n = new Set(prev)
+      if (n.has(i)) n.delete(i); else n.add(i)
+      return n
+    })
+  }
+
+  // Importa os pontos selecionados do certificado como pontos de checagem.
+  // VR ← valorNominal; Média (base medida na calibração) ← valorIndicado; correção ← correcao.
+  function importarPontosDoCert() {
+    if (!certPadrao?.itens?.length) return
+    const selecionados = certPadrao.itens.filter((_, i) => certSel.has(i))
+    if (!selecionados.length) { alert('Selecione ao menos um ponto do certificado.'); return }
+    const novos = selecionados.map((linha, idx) => ({
+      ...emptyItem(idx + 1),
+      grandeza:        linha.grandeza || '',
+      unidade:         linha.unidade || '',
+      valorReferencia: linha.valorNominal || '',   // VR
+      mediaCalibracao: linha.valorIndicado || '',  // Média medida na calibração (base)
+      correcaoPadrao:  linha.correcao || '',
+    }))
+    setItens(novos)
+    setShowCertImport(false)
+    setCertSel(new Set())
+    setTab('manual')
   }
 
   const aplicarCorrecoes = useCallback(() => {
@@ -585,10 +623,18 @@ export default function NovaChecagemPage() {
               <p className={`text-[10px] mt-1 ${certPadrao?'text-green-400':'text-amber-400'}`}>{certPadraoMsg}</p>
             )}
             {certPadrao && (
-              <button type="button" onClick={aplicarCorrecoesDoCertPadrao}
-                className="mt-1.5 btn-primary text-[11px] py-1">
-                <FileSearch size={11}/> Aplicar correções do certificado
-              </button>
+              <div className="flex flex-col gap-1.5 mt-1.5">
+                <button type="button" onClick={aplicarCorrecoesDoCertPadrao}
+                  className="btn-primary text-[11px] py-1">
+                  <FileSearch size={11}/> Aplicar correções do certificado
+                </button>
+                {certPadrao.itens?.length > 0 && (
+                  <button type="button" onClick={() => { setCertSel(new Set(certPadrao.itens.map((_, i) => i))); setShowCertImport(true) }}
+                    className="btn-secondary text-[11px] py-1">
+                    <FileSearch size={11}/> Importar pontos do certificado ({certPadrao.itens.length})
+                  </button>
+                )}
+              </div>
             )}
           </div>
           <div>
@@ -850,6 +896,75 @@ export default function NovaChecagemPage() {
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {/* ── Modal: importar pontos do certificado ── */}
+      {showCertImport && certPadrao && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+             style={{ background: 'rgba(0,0,0,0.6)' }}
+             onClick={() => setShowCertImport(false)}>
+          <div className="card w-full max-w-2xl max-h-[80vh] flex flex-col overflow-hidden"
+               style={{ background: '#0E1320' }}
+               onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between p-4 border-b border-white/8">
+              <div>
+                <p className="form-section !pt-0 !pb-0">Importar pontos do certificado</p>
+                <p className="text-[11px] text-white/40 mt-0.5">
+                  {certPadrao.numero} · {certPadrao.laboratorio} — clique nos pontos que deseja checar
+                </p>
+              </div>
+              <button type="button" onClick={() => setShowCertImport(false)} className="text-white/30 hover:text-white transition-colors">
+                <X size={16}/>
+              </button>
+            </div>
+            <div className="flex items-center justify-between px-4 py-2 border-b border-white/6">
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => setCertSel(new Set(certPadrao.itens.map((_, i) => i)))}
+                  className="text-[11px] text-white/50 hover:text-white transition-colors">Todos</button>
+                <span className="text-white/15">·</span>
+                <button type="button" onClick={() => setCertSel(new Set())}
+                  className="text-[11px] text-white/50 hover:text-white transition-colors">Nenhum</button>
+              </div>
+              <span className="text-[11px] font-mono text-gold">{certSel.size} selecionado(s)</span>
+            </div>
+            <div className="overflow-auto flex-1">
+              <table className="w-full">
+                <thead className="tbl-head sticky top-0 z-10" style={{ background: '#0E1320' }}>
+                  <tr>
+                    <th className="w-8"></th><th>Pt.</th><th>Grandeza</th>
+                    <th>VR (nominal)</th><th>Média (indicado)</th><th>Correção</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {certPadrao.itens.map((l, i) => {
+                    const sel = certSel.has(i)
+                    return (
+                      <tr key={i} onClick={() => toggleCertSel(i)}
+                          className={cn('tbl-row cursor-pointer', sel && 'bg-gold/8')}>
+                        <td className="w-8 text-center">
+                          <input type="checkbox" checked={sel} readOnly className="accent-gold pointer-events-none"/>
+                        </td>
+                        <td className="font-mono text-[11px] text-white/40">{l.ponto}</td>
+                        <td className="text-white/70 text-[12px]">
+                          {l.grandeza} <span className="text-white/30 font-mono text-[10px]">{l.unidade}</span>
+                        </td>
+                        <td className="font-mono text-[11px]">{l.valorNominal}</td>
+                        <td className="font-mono text-[11px] text-teal/80">{l.valorIndicado}</td>
+                        <td className="font-mono text-[11px] text-white/50">{l.correcao}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex items-center justify-end gap-2 p-4 border-t border-white/8">
+              <button type="button" onClick={() => setShowCertImport(false)} className="btn-secondary text-sm">Cancelar</button>
+              <button type="button" onClick={importarPontosDoCert} className="btn-primary text-sm" disabled={certSel.size === 0}>
+                Importar {certSel.size} ponto(s)
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

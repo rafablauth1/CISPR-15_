@@ -20,6 +20,8 @@ export interface ItemChecagem {
   // Indireto — correção do certificado da referência
   correcaoPadrao?: string
   valorCorrigido?: string    // valorReferencia + correcaoPadrao
+  // Importado do certificado: média (valor indicado) medida na calibração — base da checagem
+  mediaCalibracao?: string
   // Legado
   valorTransferencia?: string
   // Interpolação 2D — valores dos eixos para buscar correção na grade do certificado

@@ -33,6 +33,8 @@ function StatusPill({ status }: { status: string }) {
 export default function EquipamentosPage() {
   const [equips, setEquips] = useState<EquipamentoEMC[]>([])
   const [grupos, setGrupos] = useState<Grupo[]>([])
+  // Filtro ativo: por grupo (card) ou subgrupo (badge)
+  const [filtro, setFiltro] = useState<{ tipo: 'grupo' | 'subgrupo'; id: string; label: string } | null>(null)
 
   useEffect(() => {
     Promise.all([
@@ -45,6 +47,21 @@ export default function EquipamentosPage() {
   }, [])
 
   const equipsByGrupo = (grupoId: string) => equips.filter(e => e.grupoId === grupoId)
+
+  // Clica no card → filtra por grupo; clica de novo no mesmo → limpa
+  function toggleGrupo(id: string, label: string) {
+    setFiltro(f => (f?.tipo === 'grupo' && f.id === id) ? null : { tipo: 'grupo', id, label })
+  }
+  // Clica na badge → filtra por subgrupo
+  function toggleSubgrupo(id: string, label: string) {
+    setFiltro(f => (f?.tipo === 'subgrupo' && f.id === id) ? null : { tipo: 'subgrupo', id, label })
+  }
+
+  const equipsFiltrados = !filtro
+    ? equips
+    : filtro.tipo === 'grupo'
+      ? equips.filter(e => e.grupoId === filtro.id)
+      : equips.filter(e => e.subgrupoId === filtro.id)
 
   return (
     <div>
@@ -70,12 +87,17 @@ export default function EquipamentosPage() {
           <h2 className="font-display font-semibold text-[13px] text-white/60 uppercase tracking-widest mb-3">Grupos</h2>
           <div className="grid grid-cols-3 gap-4 mb-8">
             {grupos.map(g => {
-              const cor   = GRUPO_CORES[g.cor] ?? '#94A3B8'
-              const Icon  = ICONES[g.id] ?? Gauge
-              const total = equipsByGrupo(g.id).length
+              const cor       = GRUPO_CORES[g.cor] ?? '#94A3B8'
+              const Icon      = ICONES[g.id] ?? Gauge
+              const total     = equipsByGrupo(g.id).length
+              const grupoAtivo = filtro?.tipo === 'grupo' && filtro.id === g.id
               return (
-                <div key={g.id} className="card p-4 hover:border-white/15 transition-colors">
-                  <div className="flex items-center gap-3 mb-3">
+                <div key={g.id}
+                  className={cn('card p-4 transition-all', grupoAtivo ? 'ring-1' : 'hover:border-white/15')}
+                  style={grupoAtivo ? { borderColor: `${cor}66`, boxShadow: `0 0 0 1px ${cor}66`, background: `${cor}0A` } : undefined}>
+                  {/* Cabeçalho clicável → filtra por grupo */}
+                  <button type="button" onClick={() => toggleGrupo(g.id, g.nome)}
+                    className="w-full flex items-center gap-3 mb-3 text-left">
                     <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
                          style={{ background: `${cor}18`, border: `1px solid ${cor}28` }}>
                       <Icon size={18} style={{ color: cor }}/>
@@ -84,14 +106,25 @@ export default function EquipamentosPage() {
                       <p className="font-semibold text-[13px] text-white truncate">{g.nome}</p>
                       <p className="text-[10px] text-white/35 font-mono">{total} equipamento{total !== 1 ? 's' : ''}</p>
                     </div>
-                  </div>
+                  </button>
+                  {/* Badges de subgrupo clicáveis → filtram por subgrupo */}
                   <div className="flex flex-wrap gap-1">
-                    {g.subgrupos.map(s => (
-                      <span key={s.id} className="badge font-mono"
-                        style={{ background: `${cor}12`, color: cor, border: `1px solid ${cor}22`, fontSize: 9 }}>
-                        {s.numero} {s.nome}
-                      </span>
-                    ))}
+                    {g.subgrupos.map(s => {
+                      const subAtivo = filtro?.tipo === 'subgrupo' && filtro.id === s.id
+                      return (
+                        <button key={s.id} type="button"
+                          onClick={() => toggleSubgrupo(s.id, `${g.nome} · ${s.nome}`)}
+                          className="badge font-mono transition-all hover:brightness-125"
+                          style={{
+                            background: subAtivo ? `${cor}30` : `${cor}12`,
+                            color: cor,
+                            border: `1px solid ${cor}${subAtivo ? '66' : '22'}`,
+                            fontSize: 9,
+                          }}>
+                          {s.numero} {s.nome}
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
               )
@@ -102,15 +135,28 @@ export default function EquipamentosPage() {
       )}
 
       {/* Lista */}
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="font-display font-semibold text-[13px] text-white/60 uppercase tracking-widest">
-          Todos os equipamentos
-        </h2>
-        <span className="text-[11px] text-white/30 font-mono">{equips.length} total</span>
+      <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <h2 className="font-display font-semibold text-[13px] text-white/60 uppercase tracking-widest">
+            {filtro ? 'Filtrado' : 'Todos os equipamentos'}
+          </h2>
+          {filtro && (
+            <button type="button" onClick={() => setFiltro(null)}
+              className="flex items-center gap-1.5 text-[11px] font-mono text-white/50 hover:text-white px-2 py-0.5 rounded-lg border border-white/10 hover:border-white/25 transition-all">
+              {filtro.label}
+              <span className="text-white/40">✕</span>
+            </button>
+          )}
+        </div>
+        <span className="text-[11px] text-white/30 font-mono">
+          {filtro ? `${equipsFiltrados.length} de ${equips.length}` : `${equips.length} total`}
+        </span>
       </div>
 
       {equips.length === 0 ? (
         <div className="card p-10 text-center text-white/25 text-sm">Nenhum equipamento cadastrado.</div>
+      ) : equipsFiltrados.length === 0 ? (
+        <div className="card p-10 text-center text-white/25 text-sm">Nenhum equipamento neste filtro.</div>
       ) : (
         <div className="card overflow-hidden">
           <table className="w-full">
@@ -126,7 +172,7 @@ export default function EquipamentosPage() {
               </tr>
             </thead>
             <tbody>
-              {equips.map(e => {
+              {equipsFiltrados.map(e => {
                 const Icon = ICONES[e.grupoId] ?? Gauge
                 const g    = grupos.find(g => g.id === e.grupoId)
                 const cor  = GRUPO_CORES[g?.cor ?? 'gray']
