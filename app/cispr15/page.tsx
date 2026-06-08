@@ -85,6 +85,10 @@ export default function Cispr15ConfigPage() {
   const [gateInput,    setGateInput]   = useState('')
   const [gateError,    setGateError]   = useState(false)
   const [appPassword,  setAppPassword] = useState('')
+  // Exclusão de emenda protegida por senha
+  const [emendaDel,    setEmendaDel]    = useState<{ relatorioId: string; emendaNum: number } | null>(null)
+  const [emendaDelPwd, setEmendaDelPwd] = useState('')
+  const [emendaDelErr, setEmendaDelErr] = useState(false)
   const gateInputRef = useRef<HTMLInputElement>(null)
   const [tab, setTab] = useState<'formulario' | 'clientes' | 'emendas' | 'relatorios'>('formulario')
   const [relatoriosList, setRelatoriosList] = useState<RelatorioSalvo[]>([])
@@ -365,8 +369,10 @@ export default function Cispr15ConfigPage() {
     try {
       const all = Array.from(files)
       const getNum = (n: string) => parseInt(n.replace(/\.[^/.]+$/, '').replace(/\D/g, ''), 10) || 0
+      // Detecção robusta: type pode vir vazio em pastas — também aceita por extensão
+      const isImage = (f: File) => f.type.startsWith('image/') || /\.(jpe?g|png|bmp|gif|webp|tiff?)$/i.test(f.name)
       const docxFile   = all.find(f => f.name.toLowerCase().endsWith('.docx'))
-      const imageFiles = all.filter(f => f.type.startsWith('image/')).sort((a, b) => getNum(a.name) - getNum(b.name))
+      const imageFiles = all.filter(isImage).sort((a, b) => getNum(a.name) - getNum(b.name))
       if (!docxFile && imageFiles.length === 0) {
         alert('Pasta inválida — certifique-se de que contém um .docx e uma subpasta de fotos.')
         return
@@ -795,7 +801,25 @@ export default function Cispr15ConfigPage() {
   }
 
   /* ── excluir emenda ── */
-  async function handleDeleteEmenda(relatorioId: string, emendaNum: number) {
+  // Gate de senha antes de excluir emenda (modal — prompt() não funciona no Electron)
+  function handleDeleteEmenda(relatorioId: string, emendaNum: number) {
+    if (appPassword) {
+      setEmendaDel({ relatorioId, emendaNum }); setEmendaDelPwd(''); setEmendaDelErr(false)
+      return
+    }
+    if (!confirm('Excluir esta emenda? Esta ação não pode ser desfeita.')) return
+    doDeleteEmenda(relatorioId, emendaNum)
+  }
+
+  function confirmarExclusaoEmenda() {
+    if (!emendaDel) return
+    if (emendaDelPwd !== appPassword) { setEmendaDelErr(true); return }
+    const { relatorioId, emendaNum } = emendaDel
+    setEmendaDel(null)
+    doDeleteEmenda(relatorioId, emendaNum)
+  }
+
+  async function doDeleteEmenda(relatorioId: string, emendaNum: number) {
     try {
       const raw = localStorage.getItem(RELATORIOS_KEY)
       if (!raw) return
@@ -1818,6 +1842,42 @@ export default function Cispr15ConfigPage() {
                 }}
                 className="btn-primary px-5 py-2 text-sm font-bold flex items-center gap-2">
                 <ArrowRight size={14} /> Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: senha para excluir emenda ── */}
+      {emendaDel && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+             style={{ background: 'rgba(0,0,0,0.6)' }}
+             onClick={() => setEmendaDel(null)}>
+          <div className="card w-full max-w-sm p-5" style={{ background: '#0E1320' }}
+               onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2 mb-1 text-red-400">
+              <Lock size={15} />
+              <p className="font-display font-semibold text-[14px]">Excluir emenda</p>
+            </div>
+            <p className="text-[11px] text-white/40 mb-3">
+              Esta ação não pode ser desfeita. Digite a senha para confirmar.
+            </p>
+            <input
+              type="password"
+              autoFocus
+              value={emendaDelPwd}
+              onChange={e => { setEmendaDelPwd(e.target.value); setEmendaDelErr(false) }}
+              onKeyDown={e => { if (e.key === 'Enter') confirmarExclusaoEmenda() }}
+              placeholder="Senha"
+              className={cn('input w-full', emendaDelErr && 'border-red-400/60')}
+            />
+            {emendaDelErr && <p className="text-[10px] text-red-400 mt-1">Senha incorreta.</p>}
+            <div className="flex justify-end gap-2 mt-4">
+              <button type="button" onClick={() => setEmendaDel(null)} className="btn-secondary text-sm">Cancelar</button>
+              <button type="button" onClick={confirmarExclusaoEmenda}
+                className="btn-primary text-sm flex items-center gap-1.5"
+                style={{ background: '#F87171', borderColor: '#F87171' }}>
+                <Trash2 size={13} /> Excluir
               </button>
             </div>
           </div>

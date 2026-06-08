@@ -120,11 +120,8 @@ export function EmendasTab({ relatorios, onCarregarRelatorio, onDeleteEmenda }: 
                       {isOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                     </button>
                     <button
-                      onClick={() => {
-                        if (!confirm(`Excluir ${e.numFormatado}? Esta ação não pode ser desfeita.`)) return
-                        onDeleteEmenda(e.relatorio.id, e.numero)
-                      }}
-                      title="Excluir esta emenda"
+                      onClick={() => onDeleteEmenda(e.relatorio.id, e.numero)}
+                      title="Excluir esta emenda (pede senha)"
                       className="w-7 h-7 rounded-lg border border-white/10 text-white/30 hover:text-red-400 hover:border-red-400/30 flex items-center justify-center transition-all">
                       <Trash2 size={11} />
                     </button>

@@ -453,14 +453,20 @@ export default function Cispr15RelatorioPage() {
     try {
       const all = Array.from(files)
       const getNum = (name: string) => parseInt(name.replace(/\.[^/.]+$/, '').replace(/\D/g, ''), 10) || 0
+      // Detecção robusta de imagem: type pode vir vazio em pastas (webkitdirectory),
+      // então também aceita pela extensão do nome do arquivo.
+      const isImage = (f: File) =>
+        f.type.startsWith('image/') || /\.(jpe?g|png|bmp|gif|webp|tiff?)$/i.test(f.name)
 
       const docxFile = all.find(f => f.name.toLowerCase().endsWith('.docx'))
       const imageFiles = all
-        .filter(f => f.type.startsWith('image/'))
+        .filter(isImage)
         .sort((a, b) => getNum(a.name) - getNum(b.name))
 
+      // Usa handleDocxTodos para popular as 3 seções (conduzida/loop/anexoB),
+      // igual ao botão "Docx (todos)" que funciona.
       await Promise.all([
-        docxFile              ? handleDocx(docxFile)             : Promise.resolve(),
+        docxFile              ? handleDocxTodos(docxFile)         : Promise.resolve(),
         imageFiles.length > 0 ? (handlePhotosFromFiles(imageFiles), Promise.resolve()) : Promise.resolve(),
       ])
     } finally {
