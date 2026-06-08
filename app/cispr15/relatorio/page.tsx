@@ -597,19 +597,21 @@ export default function Cispr15RelatorioPage() {
           .doc-wrapper { background: white; padding: 0; }
           .doc-page {
             width: 210mm;
-            /* 1mm abaixo de A4 (297mm): a folga absorve o arredondamento
-               sub-pixel que empurrava o rodapé para uma página extra, sem
-               cortar conteúdo (não usa overflow hidden) */
-            height: 296mm; min-height: 296mm; max-height: 296mm;
+            /* min-height = área útil (≈273mm, A4 menos a margem do rodapé nativo).
+               O rodapé é margem de página (Chromium), reservada em TODA página —
+               igual ao Word, independente do texto. */
+            min-height: 273mm;
             box-shadow: none; margin: 0;
             page-break-before: always;
             font-family: Arial, Helvetica, sans-serif;
             font-size: 11pt; color: #000; line-height: 1.4;
             position: relative; box-sizing: border-box;
-            display: flex; flex-direction: column;
+            display: block;
           }
-          .doc-page-inner { flex: 1 1 auto; min-height: 0; }
+          .doc-page-inner { padding: 6mm 14mm 4mm !important; }
           .doc-page-first { page-break-before: avoid; }
+          /* rodapé DOM escondido na impressão — o Chromium desenha o rodapé na margem */
+          .page-footer { display: none !important; }
           .page-num-label { display: inline !important; }
           .upload-zone { display: none !important; }
           .doc-content th {
@@ -655,20 +657,20 @@ export default function Cispr15RelatorioPage() {
           .doc-page {
             margin: 0 !important;
             box-shadow: none !important;
-            /* 1mm abaixo de A4: folga absorve arredondamento sub-pixel, sem cortar conteúdo */
-            height: 296mm !important; min-height: 296mm !important; max-height: 296mm !important;
+            /* min-height = área útil (≈273mm); rodapé é margem nativa (Chromium) */
+            height: auto !important; min-height: 273mm !important; max-height: none !important;
             page-break-before: always !important;
             break-before: page !important;
             position: relative !important;
-            display: flex !important;
-            flex-direction: column !important;
+            display: block !important;
           }
           .doc-page-first {
             page-break-before: avoid !important;
             break-before: avoid !important;
           }
-          /* min-height:0 deixa o inner encolher para o rodapé ficar no fundo sem ser empurrado */
-          .doc-page-inner { flex: 1 1 auto !important; min-height: 0 !important; padding-top: 8mm !important; padding-bottom: 6mm !important; }
+          .doc-page-inner { padding: 6mm 14mm 4mm !important; }
+          /* rodapé DOM escondido — Chromium desenha o rodapé na margem da página */
+          .page-footer { display: none !important; }
           .page-num-label { display: inline !important; }
           /* Células de tabela compactas */
           .doc-page table td, .doc-page table th { padding: 1px 4px !important; }

@@ -853,6 +853,31 @@ ipcMain.handle('settings:get-local-data-dir', () => getDefaultDataDir())
 
 /* ─── IPC: PDF ────────────────────────────────────────────────────────────── */
 
+/* Rodapé nativo (margem de página reservada — igual ao Word): aparece em TODAS
+   as páginas, independente do conteúdo, com numeração automática do Chromium. */
+const PDF_FOOTER_TEMPLATE = `
+<div style="font-family:Arial,Helvetica,sans-serif; font-size:8px; color:#333; width:100%; box-sizing:border-box; padding:0 53px;">
+  <div style="border-top:2px solid #3C3C3C; display:flex; align-items:flex-start; padding-top:3px;">
+    <div style="font-weight:bold; color:#000; white-space:nowrap; line-height:1.25; width:55px;">LABELO<br/>PUCRS</div>
+    <div style="flex:1; text-align:center; line-height:1.3; color:#444; font-size:7px;">
+      Av. Ipiranga n° 6681, Prédio 30 Bloco A, Sala 210 – Partenon · CEP 90619-900 – Porto Alegre – RS – Brasil<br/>
+      Tel.: (51) 3320 3551 · labelo@pucrs.br · www.labelo.com.br
+    </div>
+    <div style="white-space:nowrap; width:95px; text-align:right; color:#444; font-size:7px;">Página <span class="pageNumber"></span> de <span class="totalPages"></span></div>
+  </div>
+</div>`
+
+// Opções de impressão com rodapé dedicado (margem inferior ~20mm reservada)
+const PDF_PRINT_OPTS = {
+  printBackground: true,
+  pageSize: 'A4',
+  landscape: false,
+  displayHeaderFooter: true,
+  headerTemplate: '<span></span>',
+  footerTemplate: PDF_FOOTER_TEMPLATE,
+  margins: { top: 0, bottom: 0.8, left: 0, right: 0 }, // polegadas (0.8in ≈ 20mm)
+}
+
 ipcMain.handle('pdf:save', async (_, { filename }) => {
   const win = BrowserWindow.getFocusedWindow()
   if (!win) return { ok: false, error: 'sem janela' }
@@ -863,10 +888,7 @@ ipcMain.handle('pdf:save', async (_, { filename }) => {
   })
   if (canceled || !filePath) return { ok: false, canceled: true }
   try {
-    const data = await win.webContents.printToPDF({
-      printBackground: true, pageSize: 'A4', landscape: false,
-      margins: { marginType: 'none' }, displayHeaderFooter: false,
-    })
+    const data = await win.webContents.printToPDF(PDF_PRINT_OPTS)
     fs.writeFileSync(filePath, data)
     shell.openPath(filePath)
     return { ok: true, filePath }
@@ -894,10 +916,7 @@ ipcMain.handle('pdf:save-eut', async (_, { filename, folderPath }) => {
       shell.showItemInFolder(outPath)
       return { ok: true, filePath: outPath, skipped: true, usedDocuments }
     }
-    const data = await win.webContents.printToPDF({
-      printBackground: true, pageSize: 'A4', landscape: false,
-      margins: { marginType: 'none' }, displayHeaderFooter: false,
-    })
+    const data = await win.webContents.printToPDF(PDF_PRINT_OPTS)
     await writeWithRetry(outPath, data)
     shell.showItemInFolder(outPath)
     return { ok: true, filePath: outPath, usedDocuments }
