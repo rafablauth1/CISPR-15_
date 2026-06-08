@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
-  LayoutDashboard, FileText, Cpu, BookOpen,
+  LayoutDashboard, FileText, Cpu, BookOpen, Calendar,
   ClipboardCheck, Network, Ruler, Settings, Award, FlaskConical,
 } from 'lucide-react'
 
@@ -14,27 +14,28 @@ interface NavGroup { label: string; items: NavItem[] }
 
 const NAV: NavGroup[] = [
   {
-    label: 'PRINCIPAL',
+    label: 'GERAL',
     items: [
       { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-      { href: '/cispr15',   icon: FileText,         label: 'Relatórios' },
+      { href: '/agenda',    icon: Calendar,         label: 'Agenda' },
     ],
   },
   {
-    label: 'LABORATÓRIO',
+    label: 'FORMULÁRIOS',
     items: [
-      { href: '/equipamentos',  icon: Cpu,            label: 'Equipamentos' },
-      { href: '/normas',        icon: BookOpen,       label: 'Normas' },
-      { href: '/checagens',      icon: ClipboardCheck, label: 'Checagens' },
-      { href: '/procedimentos',  icon: FlaskConical,   label: 'Procedimentos' },
-      { href: '/certificados',  icon: Award,           label: 'Certificados' },
+      { href: '/cispr15', icon: FileText, label: 'Relatórios CISPR 15' },
     ],
   },
   {
-    label: 'CONFIGURAÇÃO',
+    label: 'QUALIDADE',
     items: [
-      { href: '/equipamentos/grupos', icon: Network, label: 'Grupos' },
-      { href: '/grandezas',           icon: Ruler,   label: 'Grandezas' },
+      { href: '/checagens',           icon: ClipboardCheck, label: 'Checagens' },
+      { href: '/equipamentos',        icon: Cpu,            label: 'Equipamentos' },
+      { href: '/normas',              icon: BookOpen,       label: 'Normas' },
+      { href: '/procedimentos',       icon: FlaskConical,   label: 'Procedimentos' },
+      { href: '/certificados',        icon: Award,          label: 'Certificados' },
+      { href: '/equipamentos/grupos', icon: Network,        label: 'Grupos' },
+      { href: '/grandezas',           icon: Ruler,          label: 'Grandezas' },
     ],
   },
 ]
@@ -52,6 +53,13 @@ interface Props { checagensVencidas?: number }
 
 export default function LabSidebar({ checagensVencidas = 0 }: Props) {
   const pathname = usePathname()
+
+  // Href ativo = o match mais específico (mais longo) para a rota atual,
+  // evitando destacar /equipamentos junto de /equipamentos/grupos.
+  const activeHref = NAV
+    .flatMap(g => g.items.map(i => i.href))
+    .filter(h => pathname === h || pathname.startsWith(h + '/'))
+    .sort((a, b) => b.length - a.length)[0]
 
   // Inicializa do data-sidebar attribute (já setado pelo script do <head>)
   // Fallback para localStorage se o atributo não estiver disponível
@@ -74,7 +82,7 @@ export default function LabSidebar({ checagensVencidas = 0 }: Props) {
   return (
     /* lab-sidebar: largura controlada via CSS + data-sidebar no <html> — sem flash de hidratação */
     <aside
-      className="lab-sidebar sticky top-0 self-start flex flex-col h-screen border-r border-white/5 flex-shrink-0 overflow-hidden transition-[width] duration-200"
+      className="lab-sidebar flex flex-col h-full border-r border-white/5 flex-shrink-0 overflow-hidden transition-[width] duration-200"
       style={{ background: '#070A10' }}
     >
       {/* Logo */}
@@ -112,7 +120,7 @@ export default function LabSidebar({ checagensVencidas = 0 }: Props) {
             )}
             <div className="space-y-0.5">
               {group.items.map(item => {
-                const active = pathname === item.href || pathname.startsWith(item.href + '/')
+                const active = item.href === activeHref
                 if (collapsed) {
                   return (
                     <div key={item.href} className="relative group/nav">

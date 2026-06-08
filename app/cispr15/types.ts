@@ -145,6 +145,15 @@ export function formatEmendaNumero(numRelatorio: string, emendaNum: number): str
   return clean.includes('/') ? clean.replace('/', `${letter}/`) : `${clean}${letter}`
 }
 
+/* Detecta reprovação no relatório Radimation (HTML já parseado pelo parse-docx):
+   procura o veredito "Fail" (e variações em PT) ignorando as tags HTML.
+   Usado por "Verificar Conformidade" no lote e na emissão unitária. */
+export function docxTemFail(html?: string | null): boolean {
+  if (!html) return false
+  const txt = html.replace(/<[^>]+>/g, ' ')
+  return /\bfail\b/i.test(txt) || /\breprovad/i.test(txt) || /n[ãa]o[\s-]+conforme/i.test(txt)
+}
+
 export interface AmendmentChange {
   marker: number
   campo: string

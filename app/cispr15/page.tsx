@@ -6,6 +6,7 @@ import {
   Lightbulb, Lamp, ArrowRight, Upload, X, Loader2,
   Trash2, CheckCircle2, FileText, FolderOpen, Users, Database, History,
   BookOpen, AlertTriangle, Lock, Settings, ScanText, RefreshCw, Plus, ChevronDown, Search,
+  Shield, ShieldCheck, ShieldX,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
@@ -14,7 +15,7 @@ import {
   CFG_KEY, PHOTOS_KEY, DOCX_HTML_KEY, DOCX_NAME_KEY, LOTE_KEY, CLIENTES_KEY,
   RELATORIOS_KEY, RELATORIO_DOCX_PFX, EMENDA_DRAFT_KEY, LOCKED_KEY, formatEmendaNumero,
   AGENDA_KEY, SETTINGS_KEY, SESSION_KEY, AUTH_KEY,
-  newAmostra,
+  newAmostra, docxTemFail,
 } from './types'
 import { ClientesTab }     from './ClientesTab'
 import { RelatoriosTab }   from './RelatoriosTab'
@@ -69,6 +70,7 @@ export default function Cispr15ConfigPage() {
   const [cfg,    setCfg]    = useState<Cispr15Config>(DEFAULTS)
   const [photos, setPhotos] = useState<Photo[]>([])
   const [docx,   setDocx]   = useState<VoltData>({ loading: false, html: null, filename: null })
+  const [confResult, setConfResult] = useState<'conforme' | 'reprovado' | null>(null)
   const [flash,        setFlash]       = useState<string | null>(null)
   const [pastaLoading, setPastaLoading] = useState(false)
   const [gerandoRel,   setGerandoRel]  = useState(false)
@@ -686,6 +688,18 @@ export default function Cispr15ConfigPage() {
     setDocx({ loading: false, html: null, filename: null })
     sessionStorage.removeItem(DOCX_HTML_KEY)
     sessionStorage.removeItem(DOCX_NAME_KEY)
+  }
+
+  /* ── verificar conformidade: busca veredito "Fail" no docx do Radimation ── */
+  function verificarConformidadeUnitaria() {
+    if (!docx.html) { alert('Carregue o arquivo .docx do Radimation primeiro.'); return }
+    const fail = docxTemFail(docx.html)
+    setConfResult(fail ? 'reprovado' : 'conforme')
+    if (fail) {
+      alert('⚠ Veredito "Fail" encontrado no relatório Radimation.\n\nO produto está NÃO CONFORME — revise antes de emitir.')
+    } else {
+      flash4('✓ Nenhum "Fail" encontrado no relatório — produto conforme.')
+    }
   }
 
   const labelId = cfg.tipo === 'lampada' ? 'Código de Barras' : 'Número de Série'
@@ -1523,6 +1537,26 @@ export default function Cispr15ConfigPage() {
                     className="text-white/25 hover:text-red-400 transition-colors flex-shrink-0">
                     <X size={12} />
                   </button>
+                </div>
+              )}
+
+              {/* Verificar Conformidade — busca "Fail" no docx do Radimation */}
+              {docx.html && (
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={verificarConformidadeUnitaria}
+                    className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-white/10 text-[12px] text-white/50 hover:text-white hover:border-white/25 transition-all flex-1">
+                    <Shield size={13} /> Verificar Conformidade
+                  </button>
+                  {confResult === 'conforme' && (
+                    <span className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-green/8 border border-green/20 text-green-400 text-[11px] font-mono uppercase tracking-wider shrink-0">
+                      <ShieldCheck size={12} /> Conforme
+                    </span>
+                  )}
+                  {confResult === 'reprovado' && (
+                    <span className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-red/8 border border-red/20 text-red-400 text-[11px] font-mono uppercase tracking-wider shrink-0">
+                      <ShieldX size={12} /> Reprovado
+                    </span>
+                  )}
                 </div>
               )}
             </div>

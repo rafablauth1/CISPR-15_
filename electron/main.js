@@ -178,6 +178,28 @@ function copyPdfToFolder(filePath) {
   } catch {}
 }
 
+/* Lista todos os PDFs sob a pasta de cópias, incluindo subpastas por ano
+   (organização .../pdfs/2026/). Mantém compatibilidade com PDFs antigos
+   salvos direto na raiz (flat). */
+function listPdfsDeep(root) {
+  const out = []
+  try {
+    for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+      const full = path.join(root, entry.name)
+      if (entry.isDirectory()) {
+        try {
+          for (const f of fs.readdirSync(full)) {
+            if (f.toLowerCase().endsWith('.pdf')) out.push(path.join(full, f))
+          }
+        } catch {}
+      } else if (entry.name.toLowerCase().endsWith('.pdf')) {
+        out.push(full)
+      }
+    }
+  } catch {}
+  return out
+}
+
 function readDataFile(filename) {
   const fp = dataFilePath(filename)
   try {
@@ -910,15 +932,18 @@ ipcMain.handle('pdf:sign-file', async (_, { eutFolderPath: eutPath, pdfFilename 
 })
 
 // Copia o PDF assinado da pasta EUT para a pasta da agenda (acionado manualmente após assinatura)
-ipcMain.handle('pdf:publish', async (_, { eutFolderPath: eutPath, pdfFilename }) => {
+ipcMain.handle('pdf:publish', async (_, { eutFolderPath: eutPath, pdfFilename, ano }) => {
   const { pdfCopyFolder } = readSettings()
   if (!pdfCopyFolder) return { ok: false, error: 'Pasta de destino não configurada em Configurações.' }
   if (!eutPath || !pdfFilename) return { ok: false, error: 'Caminho da pasta EUT não disponível.' }
   const src = path.join(eutPath, pdfFilename)
   if (!fs.existsSync(src)) return { ok: false, error: `PDF não encontrado em:\n${src}` }
   try {
-    fs.mkdirSync(pdfCopyFolder, { recursive: true })
-    const dest = path.join(pdfCopyFolder, pdfFilename)
+    // Organiza por ano em subpasta (.../pdfs/2026/); sem ano cai na raiz (legado)
+    const anoStr = ano ? String(ano).replace(/\D/g, '').slice(0, 4) : ''
+    const destDir = anoStr ? path.join(pdfCopyFolder, anoStr) : pdfCopyFolder
+    fs.mkdirSync(destDir, { recursive: true })
+    const dest = path.join(destDir, pdfFilename)
     fs.copyFileSync(src, dest)
     return { ok: true, dest }
   } catch (err) { return { ok: false, error: String(err) } }
@@ -928,9 +953,15 @@ ipcMain.handle('relatorio:cancel-pdf', async (_, { eutFolderPath: eutPath, pdfFi
   const s = readSettings()
   const targets = []
   if (eutPath && pdfFilename) targets.push(path.join(eutPath, pdfFilename))
-  if (s.pdfCopyFolder && pdfFilename) targets.push(path.join(s.pdfCopyFolder, pdfFilename))
+  if (s.pdfCopyFolder && pdfFilename) {
+    targets.push(path.join(s.pdfCopyFolder, pdfFilename)) // raiz (legado)
+    // varre subpastas por ano e pega qualquer cópia com o mesmo nome
+    for (const p of listPdfsDeep(s.pdfCopyFolder)) {
+      if (path.basename(p) === pdfFilename) targets.push(p)
+    }
+  }
   const deleted = []
-  for (const p of targets) {
+  for (const p of [...new Set(targets)]) {
     try { if (fs.existsSync(p)) { fs.unlinkSync(p); deleted.push(p) } } catch {}
   }
   return { ok: true, deleted }
@@ -969,11 +1000,10 @@ ipcMain.handle('pdf:find-in-copy-folder', (_, { query }) => {
     if (!fs.existsSync(pdfCopyFolder)) return { ok: false, filePaths: [], folder: pdfCopyFolder }
     const san = s => String(s).replace(/[/\\:*?"<>|\s]/g, '_').replace(/_+/g, '_').toLowerCase()
     const needle = san(query)
-    const files = fs.readdirSync(pdfCopyFolder)
-    const matches = files.filter(f => f.toLowerCase().endsWith('.pdf') && san(f).includes(needle))
+    // busca em raiz + subpastas por ano
+    const matches = listPdfsDeep(pdfCopyFolder).filter(p => san(path.basename(p)).includes(needle))
     if (matches.length > 0) {
-      const filePaths = matches.map(f => path.join(pdfCopyFolder, f))
-      return { ok: true, filePaths, filePath: filePaths[0], folder: pdfCopyFolder }
+      return { ok: true, filePaths: matches, filePath: matches[0], folder: pdfCopyFolder }
     }
     return { ok: false, filePaths: [], folder: pdfCopyFolder }
   } catch (err) { return { ok: false, filePaths: [], error: String(err) } }
@@ -983,8 +1013,11 @@ ipcMain.handle('pdf:delete-copy', (_, { pdfPath }) => {
   const { pdfCopyFolder } = readSettings()
   if (!pdfCopyFolder || !pdfPath) return { ok: true }
   try {
-    const copyPath = path.join(pdfCopyFolder, path.basename(pdfPath))
-    if (fs.existsSync(copyPath)) fs.unlinkSync(copyPath)
+    // remove cópias com o mesmo nome em raiz + subpastas por ano
+    const base = path.basename(pdfPath)
+    for (const p of listPdfsDeep(pdfCopyFolder)) {
+      if (path.basename(p) === base) { try { fs.unlinkSync(p) } catch {} }
+    }
     return { ok: true }
   } catch (err) { return { ok: false, error: String(err) } }
 })

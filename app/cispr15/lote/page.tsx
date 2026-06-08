@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils'
 import {
   type LoteAmostra, type LoteConfig, type Cispr15Config, type RelatorioSalvo, type EquipamentoSalvo,
   newAmostra, LOTE_KEY, RELATORIOS_KEY, CFG_KEY, PHOTOS_KEY, DOCX_HTML_KEY, DOCX_NAME_KEY, EQUIPAMENTOS_KEY, RELATORIO_DOCX_PFX, AGENDA_KEY,
-  AUTH_KEY, SETTINGS_KEY,
+  AUTH_KEY, SETTINGS_KEY, docxTemFail,
 } from '../types'
 
 /* ─── helpers ─────────────────────────────────────────────────────────────── */
@@ -530,15 +530,23 @@ export default function LotePage() {
 
   function verificarConformidade() {
     if (!lote) return
-    const reprovadosIdx = lote.amostras
+    // Auto-avalia cada amostra que tenha docx: "Fail" no relatório Radimation → reprovado.
+    // Amostras sem docx mantêm o valor de conformidade definido manualmente.
+    const avaliadas = lote.amostras.map(a =>
+      a.docxHtml
+        ? { ...a, conformidade: (docxTemFail(a.docxHtml) ? 'reprovado' : 'conforme') as LoteAmostra['conformidade'] }
+        : a
+    )
+    const reprovadosIdx = avaliadas
       .map((a, i) => ({ a, i }))
       .filter(({ a }) => a.conformidade === 'reprovado')
       .map(({ i }) => i)
     setResultado({ reprovados: reprovadosIdx, checked: true, autoRemoved: reprovadosIdx.length > 0 })
-    if (reprovadosIdx.length > 0) {
-      const novas = lote.amostras.filter((_, i) => !reprovadosIdx.includes(i))
-      saveLote({ ...lote, qtd: Math.max(1, novas.length), amostras: novas })
-    }
+    // Persiste a avaliação (badges atualizam) e remove reprovados do lote
+    const novas = reprovadosIdx.length > 0
+      ? avaliadas.filter((_, i) => !reprovadosIdx.includes(i))
+      : avaliadas
+    saveLote({ ...lote, qtd: Math.max(1, novas.length), amostras: novas })
   }
 
   function iniciarEmissao() {
@@ -793,7 +801,7 @@ export default function LotePage() {
             expanded={expanded === i}
             onToggle={() => setExpanded(expanded === i ? null : i)}
             onChange={a => updateAmostra(i, a)}
-            onVerPDF={emitidos[i] || am.numRelatorio || am.docxHtml || am.photos.length > 0 ? () => verPDFAmostra(i) : undefined}
+            onVerPDF={() => verPDFAmostra(i)}
             equipamentos={equipamentos}
           />
         ))}

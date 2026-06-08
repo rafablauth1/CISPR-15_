@@ -95,7 +95,7 @@ export function RelatoriosTab({ onCarregar, onVerPDF }: Props) {
         setSignMsg(p => ({ ...p, [id]: signRes.error ?? 'Erro ao assinar' }))
         return
       }
-      const pubRes = await api.publishPdf(rel.eutFolderPath, pdfFilename)
+      const pubRes = await api.publishPdf(rel.eutFolderPath, pdfFilename, getAno(rel.dataEmissao))
       if (pubRes.ok) {
         setSignState(p => ({ ...p, [id]: 'ok' }))
         setSignMsg(p => ({ ...p, [id]: 'Assinado e publicado com sucesso' }))
@@ -192,6 +192,36 @@ export function RelatoriosTab({ onCarregar, onVerPDF }: Props) {
         {fromNetwork ? 'Dados da rede compartilhada' : 'Dados locais (configure a pasta de rede em Configurações)'}
       </div>
 
+      {/* Abas por ano */}
+      {anos.length > 0 && (
+        <div className="flex items-center gap-1 flex-wrap border-b border-white/6 pb-2">
+          <button
+            type="button"
+            onClick={() => setFiltroAno('')}
+            className={cn(
+              'px-3 py-1.5 rounded-lg text-[12px] font-mono transition-all',
+              filtroAno === '' ? 'bg-[#141B28] text-white border border-white/10' : 'text-white/35 hover:text-white/60',
+            )}>
+            Todos <span className="opacity-50">{lista.length}</span>
+          </button>
+          {anos.map(a => {
+            const n = lista.filter(r => getAno(r.dataEmissao) === a).length
+            return (
+              <button
+                key={a}
+                type="button"
+                onClick={() => setFiltroAno(a)}
+                className={cn(
+                  'px-3 py-1.5 rounded-lg text-[12px] font-mono transition-all',
+                  filtroAno === a ? 'bg-[#141B28] text-gold border border-gold/25' : 'text-white/35 hover:text-white/60',
+                )}>
+                {a} <span className="opacity-50">{n}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       {/* Busca */}
       <input
         className="input text-sm w-full"
@@ -202,15 +232,6 @@ export function RelatoriosTab({ onCarregar, onVerPDF }: Props) {
 
       {/* Filtros */}
       <div className="flex flex-wrap gap-2">
-        <select
-          className="input text-xs py-1.5 pr-7"
-          value={filtroAno}
-          onChange={e => setFiltroAno(e.target.value)}
-        >
-          <option value="">Todos os anos</option>
-          {anos.map(a => <option key={a} value={a}>{a}</option>)}
-        </select>
-
         <select
           className="input text-xs py-1.5 pr-7 max-w-[200px]"
           value={filtroCliente}

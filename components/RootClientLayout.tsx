@@ -74,7 +74,7 @@ function InnerTopbar() {
 /* ── Layout raiz ──────────────────────────────────────────────── */
 export function RootClientLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex flex-col min-h-screen">
+    <div className="flex flex-col h-screen overflow-hidden">
       <TitleBar />
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <LabSidebar />

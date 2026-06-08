@@ -52,10 +52,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onMenuSalvarPDFEut: (cb) => ipcRenderer.on('menu:salvar-pdf-eut', () => cb()),
 
   // Cancelar PDF
-  cancelPdf:      (eutFolderPath, pdfFilename) => ipcRenderer.invoke('relatorio:cancel-pdf', { eutFolderPath, pdfFilename }),
+  cancelPdf:      (eutFolderPath, pdfFilename, ano) => ipcRenderer.invoke('relatorio:cancel-pdf', { eutFolderPath, pdfFilename, ano }),
 
   // Publicar PDF assinado para pasta da agenda
-  publishPdf:     (eutFolderPath, pdfFilename) => ipcRenderer.invoke('pdf:publish', { eutFolderPath, pdfFilename }),
+  publishPdf:     (eutFolderPath, pdfFilename, ano) => ipcRenderer.invoke('pdf:publish', { eutFolderPath, pdfFilename, ano }),
 
   // Auto-update
   checkUpdate:    ()          => ipcRenderer.invoke('update:check'),
