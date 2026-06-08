@@ -597,22 +597,19 @@ export default function Cispr15RelatorioPage() {
           .doc-wrapper { background: white; padding: 0; }
           .doc-page {
             width: 210mm;
-            /* altura fixa um hair abaixo de A4 (297mm) + overflow hidden:
-               evita o transbordo sub-pixel que empurrava o rodapé para uma
-               página física extra em branco */
-            height: 295mm; min-height: 295mm; max-height: 295mm; overflow: hidden;
+            /* 1mm abaixo de A4 (297mm): a folga absorve o arredondamento
+               sub-pixel que empurrava o rodapé para uma página extra, sem
+               cortar conteúdo (não usa overflow hidden) */
+            height: 296mm; min-height: 296mm; max-height: 296mm;
             box-shadow: none; margin: 0;
             page-break-before: always;
             font-family: Arial, Helvetica, sans-serif;
             font-size: 11pt; color: #000; line-height: 1.4;
             position: relative; box-sizing: border-box;
-            display: block;
+            display: flex; flex-direction: column;
           }
-          /* reserva espaço do rodapé absoluto (18mm) no fim do conteúdo */
-          .doc-page-inner { overflow: hidden; padding-bottom: 18mm; }
+          .doc-page-inner { flex: 1 1 auto; min-height: 0; }
           .doc-page-first { page-break-before: avoid; }
-          /* rodapé fixo no fundo da página — nunca clipa nem vaza */
-          .page-footer { position: absolute; bottom: 0; left: 0; right: 0; }
           .page-num-label { display: inline !important; }
           .upload-zone { display: none !important; }
           .doc-content th {
@@ -658,22 +655,20 @@ export default function Cispr15RelatorioPage() {
           .doc-page {
             margin: 0 !important;
             box-shadow: none !important;
-            /* altura fixa 295mm + overflow hidden: nada vaza para página extra */
-            height: 295mm !important; min-height: 295mm !important; max-height: 295mm !important;
-            overflow: hidden !important;
+            /* 1mm abaixo de A4: folga absorve arredondamento sub-pixel, sem cortar conteúdo */
+            height: 296mm !important; min-height: 296mm !important; max-height: 296mm !important;
             page-break-before: always !important;
             break-before: page !important;
             position: relative !important;
-            display: block !important;
+            display: flex !important;
+            flex-direction: column !important;
           }
           .doc-page-first {
             page-break-before: avoid !important;
             break-before: avoid !important;
           }
-          /* reserva 18mm no fim do conteúdo para o rodapé absoluto */
-          .doc-page-inner { overflow: hidden !important; padding-top: 8mm !important; padding-bottom: 18mm !important; }
-          /* rodapé fixo no fundo de cada página — nunca clipa nem vaza */
-          .page-footer { position: absolute !important; bottom: 0 !important; left: 0 !important; right: 0 !important; }
+          /* min-height:0 deixa o inner encolher para o rodapé ficar no fundo sem ser empurrado */
+          .doc-page-inner { flex: 1 1 auto !important; min-height: 0 !important; padding-top: 8mm !important; padding-bottom: 6mm !important; }
           .page-num-label { display: inline !important; }
           /* Células de tabela compactas */
           .doc-page table td, .doc-page table th { padding: 1px 4px !important; }
