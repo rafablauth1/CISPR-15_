@@ -596,15 +596,19 @@ export default function Cispr15RelatorioPage() {
           body, html { background: white !important; margin: 0 !important; padding: 0 !important; }
           .doc-wrapper { background: white; padding: 0; }
           .doc-page {
-            width: 210mm; min-height: 297mm;
+            width: 210mm;
+            /* altura fixa um hair abaixo de A4 (297mm) + overflow hidden:
+               evita o transbordo sub-pixel que empurrava o rodapé para uma
+               página física extra em branco */
+            height: 295mm; min-height: 295mm; max-height: 295mm; overflow: hidden;
             box-shadow: none; margin: 0;
-            page-break-before: always;
+            page-break-before: always; page-break-after: avoid;
             font-family: Arial, Helvetica, sans-serif;
             font-size: 11pt; color: #000; line-height: 1.4;
             position: relative; box-sizing: border-box;
             display: flex; flex-direction: column;
           }
-          .doc-page-inner { flex: 1; }
+          .doc-page-inner { flex: 1; overflow: hidden; }
           .doc-page-first { page-break-before: avoid; }
           /* footer posicionado via flexbox — cada página tem o seu próprio */
           .page-num-label { display: inline !important; }
@@ -652,9 +656,13 @@ export default function Cispr15RelatorioPage() {
           .doc-page {
             margin: 0 !important;
             box-shadow: none !important;
-            min-height: 297mm !important;
+            /* altura fixa 295mm + overflow hidden: rodapé nunca vaza para página extra */
+            height: 295mm !important; min-height: 295mm !important; max-height: 295mm !important;
+            overflow: hidden !important;
             page-break-before: always !important;
             break-before: page !important;
+            page-break-after: avoid !important;
+            break-after: avoid !important;
             position: relative !important;
             display: flex !important;
             flex-direction: column !important;
@@ -663,7 +671,7 @@ export default function Cispr15RelatorioPage() {
             page-break-before: avoid !important;
             break-before: avoid !important;
           }
-          .doc-page-inner { flex: 1 !important; padding-top: 8mm !important; padding-bottom: 8mm !important; }
+          .doc-page-inner { flex: 1 !important; overflow: hidden !important; padding-top: 8mm !important; padding-bottom: 8mm !important; }
           /* footer posicionado via flexbox — cada página tem o seu próprio */
           .page-num-label { display: inline !important; }
           /* Células de tabela compactas */
