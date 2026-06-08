@@ -618,12 +618,16 @@ export default function Cispr15RelatorioPage() {
             -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
           }
           .doc-content table { page-break-inside: avoid !important; }
+          /* Gráficos: limita a altura para caber junto com a tabela de picos na mesma página */
           .doc-content img {
-            max-width: 165mm !important; width: auto !important; height: auto !important;
-            display: block !important; margin: 10px auto !important;
+            max-width: 158mm !important; max-height: 88mm !important;
+            width: auto !important; height: auto !important; object-fit: contain !important;
+            display: block !important; margin: 8px auto !important;
             page-break-inside: avoid !important;
             -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
           }
+          /* Mantém o conjunto gráfico + tabela de picos junto na mesma página */
+          .doc-content table { font-size: 8.5pt !important; }
         }
 
         /* estilos do conteúdo Radimation */
@@ -631,7 +635,7 @@ export default function Cispr15RelatorioPage() {
         .doc-content td,.doc-content th { border:1px solid #999 !important; padding:2px 5px; text-align:center; }
         .doc-content th { background:${GRAY1}; color:#000; font-weight:700; }
         .doc-content tr:nth-child(even) td { background:#f5f8ff; }
-        .doc-content img { max-width:165mm; width:auto; height:auto; border:1px solid #ddd; display:block; margin:12px auto; page-break-inside:avoid; }
+        .doc-content img { max-width:158mm; max-height:88mm; width:auto; height:auto; object-fit:contain; border:1px solid #ddd; display:block; margin:10px auto; page-break-inside:avoid; }
         .doc-content p { margin-bottom:5px; font-size:11pt; font-family:Arial,sans-serif; }
         .doc-content h1,.doc-content h2 { font-size:11pt; font-weight:700; color:#000; margin:12px 0 4px; font-family:Arial,sans-serif; page-break-after:avoid; }
         .doc-content h3,.doc-content h4 { font-size:11pt; font-weight:700; color:#000; margin:8px 0 3px; font-family:Arial,sans-serif; page-break-after:avoid; }
@@ -659,7 +663,7 @@ export default function Cispr15RelatorioPage() {
             page-break-before: avoid !important;
             break-before: avoid !important;
           }
-          .doc-page-inner { flex: 1 !important; padding-top: 10mm !important; padding-bottom: 12mm !important; }
+          .doc-page-inner { flex: 1 !important; padding-top: 8mm !important; padding-bottom: 8mm !important; }
           /* footer posicionado via flexbox — cada página tem o seu próprio */
           .page-num-label { display: inline !important; }
           /* Células de tabela compactas */
