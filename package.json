@@ -19,7 +19,7 @@
     "@signpdf/signpdf": "^3.3.0",
     "mammoth": "^1.12.0",
     "node-forge": "^1.4.0",
-    "pdf-parse": "^2.4.5",
+    "pdf-parse": "^1.1.1",
     "tesseract.js": "^7.0.0",
     "xlsx": "^0.18.5",
     "xlsx-populate": "^1.21.0"
@@ -107,6 +107,10 @@
       {
         "from": "assets/icon.ico",
         "to": "assets/icon.ico"
+      },
+      {
+        "from": "bin/wmf2png.exe",
+        "to": "bin/wmf2png.exe"
       }
     ],
     "files": [

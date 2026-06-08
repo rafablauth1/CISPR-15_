@@ -260,7 +260,7 @@ async function createWindow() {
   win.setMenuBarVisibility(true)
 
 
-  const HIDE_CHROME_CSS = `aside { display: none !important; } header.sticky { display: none !important; }`
+  const HIDE_CHROME_CSS = `header.sticky { display: none !important; }`
   win.webContents.on('did-start-loading', () => {
     win.webContents.insertCSS(HIDE_CHROME_CSS).catch(() => {})
   })
@@ -297,51 +297,8 @@ async function createWindow() {
   win.loadURL('http://127.0.0.1:' + port + APP_PATH)
 }
 
-/* ─── servidor auxiliar WMF→PNG (processo principal — tem window station) ─── */
-
-const WMF_PORT  = 3722
-const PS_EXE_WMF = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
-
-function startWmfServer() {
-  const wmfTmp = 'C:\\Windows\\Temp\\cispr15-wmf'
-  try { fs.mkdirSync(wmfTmp, { recursive: true }) } catch {}
-
-  const server = http.createServer((req, res) => {
-    if (req.method !== 'POST' || req.url !== '/wmf-to-png') {
-      res.writeHead(404); res.end(); return
-    }
-    const chunks = []
-    req.on('data', c => chunks.push(c))
-    req.on('end', () => {
-      const wmfBuf = Buffer.concat(chunks)
-      const id     = require('crypto').randomUUID().replace(/-/g, '')
-      const wmfPath = path.join(wmfTmp, `${id}.wmf`)
-      const pngPath = path.join(wmfTmp, `${id}.png`)
-      const psPath  = path.join(wmfTmp, `${id}.ps1`)
-      const script  = `﻿Add-Type -AssemblyName System.Drawing\ntry {\n  $mf = New-Object System.Drawing.Imaging.Metafile('${wmfPath}')\n  $w = if ($mf.Width -gt 10) { $mf.Width } else { 800 }\n  $h = if ($mf.Height -gt 10) { $mf.Height } else { 600 }\n  $bmp = New-Object System.Drawing.Bitmap($w, $h)\n  $g = [System.Drawing.Graphics]::FromImage($bmp)\n  $g.Clear([System.Drawing.Color]::White)\n  $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality\n  $g.DrawImage($mf, 0, 0, $w, $h)\n  $g.Dispose()\n  $bmp.Save('${pngPath}', [System.Drawing.Imaging.ImageFormat]::Png)\n  $bmp.Dispose()\n  $mf.Dispose()\n} catch {\n  Write-Error $_.Exception.Message\n  exit 1\n}\n`
-      try {
-        fs.writeFileSync(wmfPath, wmfBuf)
-        fs.writeFileSync(psPath, script, 'utf8')
-        const { execFileSync } = require('child_process')
-        execFileSync(PS_EXE_WMF, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', psPath],
-          { timeout: 20000, stdio: 'pipe' })
-        if (fs.existsSync(pngPath)) {
-          const png = fs.readFileSync(pngPath)
-          res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': png.length })
-          res.end(png)
-        } else {
-          res.writeHead(500); res.end('no output')
-        }
-      } catch (err) {
-        const msg = err?.stderr?.toString()?.trim() || err?.message || String(err)
-        res.writeHead(500); res.end(msg)
-      } finally {
-        for (const p of [wmfPath, psPath, pngPath]) { try { fs.unlinkSync(p) } catch {} }
-      }
-    })
-  })
-  server.listen(WMF_PORT, '127.0.0.1')
-}
+/* Conversão WMF/EMF→PNG agora é feita pelo bin/wmf2png.exe (autocontido),
+   chamado direto pela API parse-docx. Sem porta auxiliar e sem PowerShell. */
 
 /* ─── servidor Next.js ────────────────────────────────────────────────────── */
 
@@ -363,6 +320,9 @@ async function startServer(appDir) {
       HOSTNAME: '127.0.0.1',
       NODE_ENV: 'production',
       CISPR_USER_DATA: getUserDataDir(),
+      CISPR_WMF2PNG: app.isPackaged
+        ? path.join(process.resourcesPath, 'bin', 'wmf2png.exe')
+        : path.join(__dirname, '..', 'bin', 'wmf2png.exe'),
     },
     cwd: appDir, stdio: 'pipe',
   })
@@ -707,7 +667,6 @@ app.whenReady().then(() => {
     try { fs.mkdirSync(dir, { recursive: true }) } catch {}
   }
   Menu.setApplicationMenu(buildMenu())
-  startWmfServer()
   createWindow()
   setupAutoUpdater()
 })
@@ -769,8 +728,65 @@ ipcMain.handle('pdf:extract-text', async (_, { base64 }) => {
   try {
     const pdfBuffer = Buffer.from(base64, 'base64')
     const pdfParse  = require('pdf-parse')
-    const data      = await pdfParse(pdfBuffer)
-    return { ok: true, text: data.text || '' }
+
+    const pages = []
+
+    function renderPage(pageData) {
+      return pageData.getTextContent({ normalizeWhitespace: false, disableCombineTextItems: false })
+        .then(tc => {
+          if (!tc.items || !tc.items.length) { pages.push(''); return '' }
+
+          // Ordena itens de cima para baixo (Y decrescente = topo da página primeiro)
+          const sorted = [...tc.items].sort((a, b) => b.transform[5] - a.transform[5])
+
+          // Agrupa em linhas por proximidade de Y (tolerância adaptativa: ±4 unidades)
+          const lineGroups = []
+          let curGroup = []
+          let curY = null
+          for (const item of sorted) {
+            const y = item.transform[5]
+            if (curY === null || curY - y > 4) {
+              if (curGroup.length) lineGroups.push(curGroup)
+              curGroup = []
+              curY = y
+            }
+            const fs  = Math.abs(item.transform[0]) || 8
+            const end = item.transform[4] + (item.width > 0 ? item.width : item.str.length * fs * 0.55)
+            curGroup.push({ x: item.transform[4], str: item.str, end })
+          }
+          if (curGroup.length) lineGroups.push(curGroup)
+
+          const lines = lineGroups.map(grp => {
+            const items = grp.sort((a, b) => a.x - b.x)
+            let line = ''
+            let prevEnd = null
+            for (const item of items) {
+              // Gap > 15 unidades entre itens → separador de coluna
+              if (prevEnd !== null && item.x - prevEnd > 15) line += '\t'
+              line += item.str
+              prevEnd = item.end
+            }
+            return line
+          })
+
+          const text = lines.filter(l => l.trim()).join('\n')
+          pages.push(text)
+          return text
+        })
+        .catch(() => { pages.push(''); return '' })
+    }
+
+    const data = await pdfParse(pdfBuffer, { pagerender: renderPage })
+
+    // Ignora apenas a primeira página (capa) — dados podem estar na última página
+    let text
+    if (pages.length > 1) {
+      text = pages.slice(1).join('\n\n')
+    } else {
+      text = pages.join('\n\n') || data.text || ''
+    }
+
+    return { ok: true, text: text || '' }
   } catch (err) {
     return { ok: false, error: String(err) }
   }

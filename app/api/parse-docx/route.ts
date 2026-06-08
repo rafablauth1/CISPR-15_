@@ -1,36 +1,65 @@
 import { NextRequest, NextResponse } from 'next/server'
 import mammoth from 'mammoth'
 import * as cheerio from 'cheerio'
-import { request as httpRequest } from 'http'
+import { execFile } from 'child_process'
+import { writeFile, readFile, unlink } from 'fs/promises'
+import { existsSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { randomUUID } from 'crypto'
 
-/* Converte WMF/EMF chamando o servidor auxiliar no processo principal do Electron.
-   O processo principal tem window station completa — GDI+ funciona em qualquer PC. */
+/* Localiza o conversor wmf2png.exe (autocontido, sem porta nem PowerShell).
+   - empacotado: <resources>/bin/wmf2png.exe
+   - dev:        <projeto>/bin/wmf2png.exe                                   */
+function findWmf2Png(): string | null {
+  const resourcesPath = (process as any).resourcesPath as string | undefined
+  const candidates = [
+    process.env.CISPR_WMF2PNG || '',
+    resourcesPath ? join(resourcesPath, 'bin', 'wmf2png.exe') : '',
+    join(process.cwd(), 'bin', 'wmf2png.exe'),
+  ].filter(Boolean)
+  for (const p of candidates) { if (existsSync(p)) return p }
+  return null
+}
+
+/* Converte WMF/EMF → PNG chamando o exe direto. Sem porta, sem PowerShell:
+   roda em qualquer PC mesmo com antivírus/ConstrainedLanguage agressivos.  */
 function convertWmfToPng(wmfBuf: Buffer): Promise<{ buf: Buffer | null; error: string | null }> {
-  return new Promise(resolve => {
-    const req = httpRequest(
-      { hostname: '127.0.0.1', port: 3722, path: '/wmf-to-png', method: 'POST',
-        headers: { 'Content-Type': 'application/octet-stream', 'Content-Length': wmfBuf.length } },
-      res => {
-        const chunks: Buffer[] = []
-        res.on('data', c => chunks.push(c))
-        res.on('end', () => {
-          const body = Buffer.concat(chunks)
-          if (res.statusCode === 200) {
-            resolve({ buf: body, error: null })
-          } else {
-            const msg = body.toString('utf8').trim() || `HTTP ${res.statusCode}`
-            console.error('[wmf→png] servidor retornou erro:', msg)
-            resolve({ buf: null, error: msg })
-          }
+  return new Promise(async resolve => {
+    const exe = findWmf2Png()
+    if (!exe) {
+      const msg = 'wmf2png.exe não encontrado (bin/)'
+      console.error('[wmf→png]', msg)
+      resolve({ buf: null, error: msg }); return
+    }
+    const id      = randomUUID().replace(/-/g, '')
+    const wmfPath = join(tmpdir(), `cispr15-${id}.wmf`)
+    const pngPath = join(tmpdir(), `cispr15-${id}.png`)
+    const cleanup = async () => {
+      for (const p of [wmfPath, pngPath]) { try { await unlink(p) } catch {} }
+    }
+    try {
+      await writeFile(wmfPath, wmfBuf)
+      await new Promise<void>((res, rej) => {
+        execFile(exe, [wmfPath, pngPath], { timeout: 20000 }, (err, _out, stderr) => {
+          if (err) { rej(new Error((stderr || '').trim() || err.message)); return }
+          res()
         })
+      })
+      if (existsSync(pngPath)) {
+        const png = await readFile(pngPath)
+        await cleanup()
+        resolve({ buf: png, error: null })
+      } else {
+        await cleanup()
+        resolve({ buf: null, error: 'sem saída PNG' })
       }
-    )
-    req.on('error', err => {
-      console.error('[wmf→png] falha na conexão com servidor WMF:', err.message)
-      resolve({ buf: null, error: err.message })
-    })
-    req.write(wmfBuf)
-    req.end()
+    } catch (err: any) {
+      await cleanup()
+      const msg = (err?.message || String(err)).trim()
+      console.error('[wmf→png] conversão falhou:', msg)
+      resolve({ buf: null, error: msg })
+    }
   })
 }
 
@@ -250,7 +279,7 @@ export async function POST(req: NextRequest) {
           const isVector = type.includes('wmf') || type.includes('emf')
 
           if (isVector || buf.length === 0) {
-            console.log(`[parse-docx] img ${idx} é ${type} — convertendo via PowerShell…`)
+            console.log(`[parse-docx] img ${idx} é ${type} — convertendo via wmf2png.exe…`)
             const { buf: png, error: convErr } = await convertWmfToPng(buf)
 
             if (png) {
