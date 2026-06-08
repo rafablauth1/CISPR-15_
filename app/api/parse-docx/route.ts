@@ -186,7 +186,22 @@ function postProcessTables(html: string): string {
           const val = FREQ_UNITS.has(unit) ? pad3freq(num) : pad1min(num)
           $td.text(val)
         }
+        // Célula sem valor → "-"
+        if ($td.text().trim() === '') $td.text('-')
       })
+    }
+  })
+
+  // Garante negrito nas linhas de título (sobrevive à exportação PDF/Word):
+  // envolve o conteúdo de cada <th> em <strong>, além do CSS já aplicado.
+  // Se mammoth gerou um <p> interno, o <strong> entra dentro dele (evita
+  // aninhar bloco dentro de inline, que alguns motores de PDF rejeitam).
+  $('th').each(function() {
+    const $th     = $(this)
+    const $target = $th.children('p').length === 1 ? $th.children('p').first() : $th
+    const html    = $target.html() || ''
+    if (html.trim() && !/^\s*<strong[\s>]/i.test(html)) {
+      $target.html(`<strong>${html}</strong>`)
     }
   })
 
