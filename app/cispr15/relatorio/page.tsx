@@ -625,7 +625,7 @@ export default function Cispr15RelatorioPage() {
           .doc-content table { page-break-inside: avoid !important; }
           /* Gráficos: limita a altura para caber junto com a tabela de picos na mesma página */
           .doc-content img {
-            max-width: 158mm !important; max-height: 88mm !important;
+            max-width: 165mm !important; max-height: 105mm !important;
             width: auto !important; height: auto !important; object-fit: contain !important;
             display: block !important; margin: 8px auto !important;
             page-break-inside: avoid !important;
@@ -640,7 +640,7 @@ export default function Cispr15RelatorioPage() {
         .doc-content td,.doc-content th { border:1px solid #999 !important; padding:2px 5px; text-align:center; }
         .doc-content th { background:${GRAY1}; color:#000; font-weight:700; }
         .doc-content tr:nth-child(even) td { background:#f5f8ff; }
-        .doc-content img { max-width:158mm; max-height:88mm; width:auto; height:auto; object-fit:contain; border:1px solid #ddd; display:block; margin:10px auto; page-break-inside:avoid; }
+        .doc-content img { max-width:165mm; max-height:105mm; width:auto; height:auto; object-fit:contain; border:1px solid #ddd; display:block; margin:8px auto; page-break-inside:avoid; }
         .doc-content p { margin-bottom:5px; font-size:11pt; font-family:Arial,sans-serif; }
         .doc-content h1,.doc-content h2 { font-size:11pt; font-weight:700; color:#000; margin:12px 0 4px; font-family:Arial,sans-serif; page-break-after:avoid; }
         .doc-content h3,.doc-content h4 { font-size:11pt; font-weight:700; color:#000; margin:8px 0 3px; font-family:Arial,sans-serif; page-break-after:avoid; }
@@ -1359,11 +1359,10 @@ export default function Cispr15RelatorioPage() {
             <p key={i} style={{ ...pJ, marginLeft: 10 }}>• {obs}</p>
           ))}
 
-          {/* Signatário — absolutamente posicionado no fundo da página, acima do rodapé */}
-          <div style={{
-            position: 'absolute', bottom: '35mm', left: 0, right: 0,
-            display: 'flex', justifyContent: 'center',
-          }}>
+          {/* Signatário — em fluxo (margin-top empurra pro fundo). Em fluxo dá
+              altura real à página, evitando que o Chromium colapse/descarte a
+              última página por ser "fina" (só conteúdo absoluto). */}
+          <div style={{ marginTop: '55mm', display: 'flex', justifyContent: 'center' }}>
             <div style={{ textAlign: 'center', minWidth: 260 }}>
               <div style={{ borderTop: '1px solid #333', paddingTop: 8 }}>
                 <p style={{ fontSize: FS.sm, color: '#333', marginBottom: 2 }}>Signatário Autorizado</p>
