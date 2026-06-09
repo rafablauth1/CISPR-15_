@@ -7,7 +7,7 @@ const os      = require('os')
 const { execFile, spawn } = require('child_process')
 const XLSX    = require('xlsx')
 const mammoth = require('mammoth')
-const { listSigningCerts, signPDF } = require('./pdf-signer')
+const { listSigningCerts, signPDF, signPDFWithPfx, validatePfx } = require('./pdf-signer')
 
 /* ─── PowerShell script para Windows OCR ─────────────────────────────────── */
 const PS_OCR_SCRIPT = `
@@ -58,7 +58,7 @@ let eutFolderPath = null
 
 /* ─── settings ────────────────────────────────────────────────────────────── */
 
-const SETTINGS_DEFAULTS = { excelPath: '', dataFolder: '', agendaFolder: '', pdfCopyFolder: '', pdfAutoSaveToEut: true, updateFolder: '', certThumbprint: '' }
+const SETTINGS_DEFAULTS = { excelPath: '', dataFolder: '', agendaFolder: '', pdfCopyFolder: '', pdfAutoSaveToEut: true, updateFolder: '', certThumbprint: '', pfxPath: '', pfxPassword: '' }
 
 /* pasta raiz do app:
    - dev:       …/cispr15-standalone/
@@ -937,19 +937,47 @@ ipcMain.handle('pdf:list-certs', async () => {
 
 // Assina digitalmente um PDF já salvo na pasta da EUT
 ipcMain.handle('pdf:sign-file', async (_, { eutFolderPath: eutPath, pdfFilename }) => {
-  const { certThumbprint } = readSettings()
-  if (!certThumbprint) return { ok: false, error: 'Nenhum certificado configurado em Configurações → Assinatura Digital.' }
+  const { certThumbprint, pfxPath, pfxPassword } = readSettings()
+  if (!pfxPath && !certThumbprint) return { ok: false, error: 'Nenhum certificado/.pfx configurado em Configurações → Assinatura Digital.' }
   if (!eutPath || !pdfFilename) return { ok: false, error: 'Caminho da pasta EUT não disponível.' }
   const pdfPath = path.join(eutPath, pdfFilename)
   if (!fs.existsSync(pdfPath)) return { ok: false, error: `PDF não encontrado:\n${pdfPath}` }
   try {
     const pdfBuffer = fs.readFileSync(pdfPath)
-    const signed = await signPDF(pdfBuffer, certThumbprint)
+    let signed
+    if (pfxPath) {
+      if (!fs.existsSync(pfxPath)) return { ok: false, error: `Arquivo .pfx não encontrado:\n${pfxPath}` }
+      signed = await signPDFWithPfx(pdfBuffer, fs.readFileSync(pfxPath), pfxPassword || '')
+    } else {
+      signed = await signPDF(pdfBuffer, certThumbprint)
+    }
     fs.writeFileSync(pdfPath, signed)
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err.message || String(err) }
   }
+})
+
+// Abre diálogo para escolher um arquivo .pfx/.p12
+ipcMain.handle('pdf:pick-pfx', async () => {
+  try {
+    const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]
+    const r = await dialog.showOpenDialog(win, {
+      title: 'Selecione o arquivo de assinatura (.pfx / .p12)',
+      filters: [{ name: 'Certificado PKCS#12', extensions: ['pfx', 'p12'] }],
+      properties: ['openFile'],
+    })
+    if (r.canceled || !r.filePaths?.length) return { ok: false, canceled: true }
+    return { ok: true, path: r.filePaths[0] }
+  } catch (err) { return { ok: false, error: String(err) } }
+})
+
+// Valida o .pfx + senha e devolve dados do certificado (subject / validade)
+ipcMain.handle('pdf:validate-pfx', async (_, { pfxPath: p, password }) => {
+  try {
+    if (!p || !fs.existsSync(p)) return { ok: false, error: 'Arquivo .pfx não encontrado.' }
+    return validatePfx(fs.readFileSync(p), password || '')
+  } catch (err) { return { ok: false, error: err.message || String(err) } }
 })
 
 // Copia o PDF assinado da pasta EUT para a pasta da agenda (acionado manualmente após assinatura)

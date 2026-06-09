@@ -265,6 +265,8 @@ export interface AppSettings {
   senhaEmissao: string
   updateFolder: string
   certThumbprint: string
+  pfxPath: string
+  pfxPassword: string
 }
 
 export const SETTINGS_DEFAULTS: AppSettings = {
@@ -276,6 +278,8 @@ export const SETTINGS_DEFAULTS: AppSettings = {
   senhaEmissao: '',
   updateFolder: '',
   certThumbprint: '',
+  pfxPath: '',
+  pfxPassword: '',
 }
 
 export interface AgendaItem {

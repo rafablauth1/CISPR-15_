@@ -45,6 +45,9 @@ export default function ConfiguracoesPage() {
   const [certs,        setCerts]        = useState<CertInfo[]>([])
   const [certsLoading, setCertsLoading] = useState(false)
   const [certsError,   setCertsError]   = useState<string | null>(null)
+  const [pfxInfo,      setPfxInfo]      = useState<{ subject: string; notAfter: string } | null>(null)
+  const [pfxLoading,   setPfxLoading]   = useState(false)
+  const [pfxError,     setPfxError]     = useState<string | null>(null)
   const gateInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -148,6 +151,31 @@ export default function ConfiguracoesPage() {
       setCertsError(e.message)
     } finally {
       setCertsLoading(false)
+    }
+  }
+
+  async function selecionarPfx() {
+    const api = (window as any).electronAPI
+    if (!api?.pickPfx) return
+    const res = await api.pickPfx()
+    if (res?.ok && res.path) {
+      setSettings(s => ({ ...s, pfxPath: res.path, certThumbprint: '' }))
+      setPfxInfo(null); setPfxError(null)
+    }
+  }
+
+  async function validarPfx() {
+    const api = (window as any).electronAPI
+    if (!api?.validatePfx || !settings.pfxPath) return
+    setPfxLoading(true); setPfxError(null); setPfxInfo(null)
+    try {
+      const res = await api.validatePfx(settings.pfxPath, settings.pfxPassword)
+      if (res?.ok) setPfxInfo({ subject: res.subject, notAfter: res.notAfter })
+      else setPfxError(res?.error || 'Não foi possível abrir o .pfx (senha incorreta?).')
+    } catch (e: any) {
+      setPfxError(e.message)
+    } finally {
+      setPfxLoading(false)
     }
   }
 
@@ -381,9 +409,62 @@ export default function ConfiguracoesPage() {
         {isElectron && (
           <Section title="Assinatura Digital de PDF">
             <div className="space-y-3">
-              <p className="text-[10px] text-white/25 font-mono">
-                Selecione o certificado A3 (instalado no PC) para assinar os PDFs automaticamente ao gerar.
-                O software do token deve estar ativo antes de listar.
+              {/* Opção recomendada: arquivo .pfx (não precisa importar no Windows) */}
+              <div className="rounded-xl border border-teal/15 bg-teal/4 p-3 space-y-2.5">
+                <p className="text-[11px] text-teal/90 font-semibold flex items-center gap-1.5">
+                  <BadgeCheck size={12} /> Arquivo .pfx / .p12 (recomendado)
+                </p>
+                <p className="text-[10px] text-white/35">
+                  Aponte o arquivo da sua assinatura e a senha. Não precisa importar no Windows — funciona em qualquer PC.
+                </p>
+
+                {settings.pfxPath && (
+                  <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-teal/8 border border-teal/20">
+                    <BadgeCheck size={12} className="text-teal shrink-0" />
+                    <p className="flex-1 min-w-0 text-[10px] text-teal/90 font-mono truncate">
+                      {pfxInfo?.subject || settings.pfxPath}
+                    </p>
+                    <button type="button"
+                      onClick={() => { setSettings(s => ({ ...s, pfxPath: '', pfxPassword: '' })); setPfxInfo(null); setPfxError(null) }}
+                      className="text-[10px] text-white/30 hover:text-red-400 transition-colors shrink-0">Remover</button>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button type="button" onClick={selecionarPfx}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg border border-white/10 text-white/50 hover:text-teal hover:border-teal/30 transition-all text-xs">
+                    <FolderOpen size={12} /> {settings.pfxPath ? 'Trocar arquivo' : 'Selecionar .pfx'}
+                  </button>
+                  {settings.pfxPath && (
+                    <span className="text-[9px] text-white/30 font-mono truncate">{settings.pfxPath.split(/[\\/]/).pop()}</span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input type="password" value={settings.pfxPassword ?? ''}
+                    onChange={e => { setSettings(s => ({ ...s, pfxPassword: e.target.value })); setPfxInfo(null) }}
+                    placeholder="Senha do .pfx"
+                    className="input flex-1 text-xs" />
+                  <button type="button" onClick={validarPfx} disabled={!settings.pfxPath || pfxLoading}
+                    className="px-3 py-2 rounded-lg border border-teal/30 text-teal text-xs hover:bg-teal/10 transition-all disabled:opacity-40">
+                    {pfxLoading ? 'Validando…' : 'Validar'}
+                  </button>
+                </div>
+
+                {pfxInfo && (
+                  <p className="text-[10px] text-teal/80 flex items-center gap-1">
+                    <BadgeCheck size={9} /> OK — {pfxInfo.subject} · expira {pfxInfo.notAfter}
+                  </p>
+                )}
+                {pfxError && (
+                  <p className="text-[10px] text-amber-400/80 flex items-center gap-1">
+                    <AlertTriangle size={9} /> {pfxError}
+                  </p>
+                )}
+              </div>
+
+              <p className="text-[10px] text-white/25 font-mono pt-1">
+                Ou use um certificado A3 já instalado no Windows (token deve estar ativo):
               </p>
 
               {/* Certificado selecionado */}

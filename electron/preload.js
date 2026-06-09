@@ -64,5 +64,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Assinatura digital (Windows Certificate Store)
   listCerts:      ()                             => ipcRenderer.invoke('pdf:list-certs'),
   signPdf:        (eutFolderPath, pdfFilename)   => ipcRenderer.invoke('pdf:sign-file', { eutFolderPath, pdfFilename }),
+  // Assinatura digital via arquivo .pfx (sem importar no Windows)
+  pickPfx:        ()                             => ipcRenderer.invoke('pdf:pick-pfx'),
+  validatePfx:    (pfxPath, password)            => ipcRenderer.invoke('pdf:validate-pfx', { pfxPath, password }),
 
 })
