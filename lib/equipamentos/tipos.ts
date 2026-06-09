@@ -25,7 +25,20 @@ export type SubgrupoId =
   | 'termoigrometro'
   | 'barometro'
 
-export type StatusEquipamento = 'ativo' | 'calibrar' | 'fora'
+export type StatusEquipamento =
+  | 'ativo'              // em uso, calibração em dia
+  | 'calibrar'           // calibração vencida
+  | 'fora'               // fora de uso
+  | 'sem-calibracao'     // não requer calibração
+  | 'calibrar-antes-uso' // calibrar antes do uso
+
+export const STATUS_EQUIP: { id: StatusEquipamento; label: string }[] = [
+  { id: 'ativo',              label: 'Ativo' },
+  { id: 'calibrar',          label: 'Calibração vencida' },
+  { id: 'fora',               label: 'Fora de uso' },
+  { id: 'sem-calibracao',    label: 'Não requer calibração' },
+  { id: 'calibrar-antes-uso', label: 'Calibrar antes do uso' },
+]
 
 export interface EquipamentoEMC {
   id: string
@@ -44,4 +57,5 @@ export interface EquipamentoEMC {
   labCalibracao?: string
   numeroCertificado?: string
   obs?: string
+  foto?: string   // imagem do equipamento (data URL base64)
 }

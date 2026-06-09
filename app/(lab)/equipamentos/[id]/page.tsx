@@ -13,9 +13,11 @@ import { parsearCertificado, parsearMetadadosCertificado } from '@/lib/certifica
 
 /* ── Status pills ── */
 function StatusPill({ status }: { status: string }) {
-  if (status === 'ativo')    return <span className="badge-success">Ativo</span>
-  if (status === 'calibrar') return <span className="badge-warning">Calibrar</span>
-  return <span className="badge-danger">Fora</span>
+  if (status === 'ativo')              return <span className="badge-success">Ativo</span>
+  if (status === 'calibrar')           return <span className="badge-warning">Calibração vencida</span>
+  if (status === 'sem-calibracao')     return <span className="badge" style={{ background:'rgba(148,163,184,0.12)', color:'#94A3B8', border:'1px solid rgba(148,163,184,0.25)' }}>Não requer calibração</span>
+  if (status === 'calibrar-antes-uso') return <span className="badge-warning">Calibrar antes do uso</span>
+  return <span className="badge-danger">Fora de uso</span>
 }
 function StatusChecBadge({ status }: { status: string }) {
   if (status === 'reprovado') return <span className="badge-danger">Reprovada</span>
@@ -300,7 +302,7 @@ export default function EquipamentoDetalhePage() {
 
   return (
     <div>
-      <div className="page-header">
+      <div className="page-header flex items-start justify-between gap-3">
         <div className="flex items-center gap-3">
           <button onClick={()=>router.back()} className="btn-ghost p-2"><ArrowLeft size={15}/></button>
           <div>
@@ -310,6 +312,17 @@ export default function EquipamentoDetalhePage() {
             </div>
             <h1 className="page-title">{equip.nome}</h1>
           </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={()=>router.push(`/equipamentos/novo?edit=${equip.id}`)}
+            className="btn-secondary flex items-center gap-2 text-sm">
+            <Save size={13}/> Editar
+          </button>
+          <button type="button"
+            onClick={async()=>{ if(!confirm(`Excluir o equipamento "${equip.nome}"?\nEsta ação não pode ser desfeita.`)) return; await fetch(`/api/equipamentos/${equip.id}`,{method:'DELETE'}); router.push('/equipamentos') }}
+            className="flex items-center gap-2 px-3 py-2 rounded-lg border border-red/20 bg-red/8 text-red-400 hover:bg-red/15 transition-all text-sm">
+            <Trash2 size={13}/> Excluir
+          </button>
         </div>
       </div>
 
@@ -328,13 +341,21 @@ export default function EquipamentoDetalhePage() {
       {tab==='info' && (
         <div className="card p-5">
           <p className="form-section mb-4">Dados gerais</p>
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            {([['Fabricante',equip.fabricante??'—'],['Modelo',equip.modelo??'—'],['Nº de série',equip.serie??'—'],['Lab. de calibração',equip.labCalibracao??'—'],['Nº certificado',equip.numeroCertificado??'—'],['Última calibração',fmt(equip.ultimaCalibracao)],['Próx. calibração',fmt(equip.proximaCalibracao)],['Intervalo',`${equip.intervaloCalibracao} meses`]] as [string,string][]).map(([label,valor])=>(
-              <div key={label}>
-                <p className="text-[9px] font-mono tracking-[2px] uppercase text-white/30 mb-0.5">{label}</p>
-                <p className="text-white/75">{valor}</p>
+          <div className="flex gap-5 items-start flex-wrap">
+            <div className="grid grid-cols-2 gap-4 text-sm flex-1 min-w-[260px]">
+              {([['Fabricante',equip.fabricante??'—'],['Modelo',equip.modelo??'—'],['Nº de série',equip.serie??'—'],['Lab. de calibração',equip.labCalibracao??'—'],['Nº certificado',equip.numeroCertificado??'—'],['Última calibração',fmt(equip.ultimaCalibracao)],['Próx. calibração',fmt(equip.proximaCalibracao)],['Intervalo',`${equip.intervaloCalibracao} meses`]] as [string,string][]).map(([label,valor])=>(
+                <div key={label}>
+                  <p className="text-[9px] font-mono tracking-[2px] uppercase text-white/30 mb-0.5">{label}</p>
+                  <p className="text-white/75">{valor}</p>
+                </div>
+              ))}
+            </div>
+            {equip.foto && (
+              <div className="shrink-0">
+                <p className="text-[9px] font-mono tracking-[2px] uppercase text-white/30 mb-1">Foto</p>
+                <img src={equip.foto} alt={equip.nome} className="w-48 h-48 object-contain rounded-xl border border-white/10 bg-black/20" />
               </div>
-            ))}
+            )}
           </div>
           {equip.obs && <div className="mt-4 pt-4 border-t border-white/6"><p className="text-[9px] font-mono tracking-[2px] uppercase text-white/30 mb-1">Observações</p><p className="text-white/60 text-sm">{equip.obs}</p></div>}
         </div>

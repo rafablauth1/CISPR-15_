@@ -2,10 +2,29 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Save, ScanText, Loader2 } from 'lucide-react'
-import type { GrupoId, SubgrupoId } from '@/lib/equipamentos/tipos'
+import { ArrowLeft, Save, ScanText, Loader2, Image as ImageIcon, X } from 'lucide-react'
+import type { GrupoId, SubgrupoId, StatusEquipamento } from '@/lib/equipamentos/tipos'
+import { STATUS_EQUIP } from '@/lib/equipamentos/tipos'
 import { parsearDadosPadrao } from '@/lib/certificados/parser'
 import { fileToBase64 } from '@/lib/utils'
+
+// Redimensiona uma imagem para caber bem (máx. 900px) e retorna data URL
+function resizeImg(file: File, maxDim = 900): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    const obj = URL.createObjectURL(file)
+    img.onload = () => {
+      const r = Math.min(1, maxDim / Math.max(img.width, img.height))
+      const c = document.createElement('canvas')
+      c.width = Math.round(img.width * r); c.height = Math.round(img.height * r)
+      c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height)
+      URL.revokeObjectURL(obj)
+      resolve(c.toDataURL('image/jpeg', 0.85))
+    }
+    img.onerror = reject
+    img.src = obj
+  })
+}
 
 interface Subgrupo {
   id: SubgrupoId
@@ -32,6 +51,8 @@ interface FormState {
   numeroCertificado: string
   ultimaCalibracao: string
   intervaloCalibracao: number
+  status: StatusEquipamento
+  foto: string
   obs: string
 }
 
@@ -47,6 +68,8 @@ const EMPTY: FormState = {
   numeroCertificado: '',
   ultimaCalibracao: '',
   intervaloCalibracao: 12,
+  status: 'ativo',
+  foto: '',
   obs: '',
 }
 
@@ -63,9 +86,29 @@ export default function NovoEquipamentoPage() {
   const [form,   setForm]     = useState<FormState>(EMPTY)
   const [saving, setSaving]   = useState(false)
   const [erro,   setErro]     = useState('')
+  const [editId, setEditId]   = useState<string | null>(null)
+
+  // Modo edição: ?edit=<id> → carrega o equipamento e preenche o formulário
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('edit')
+    if (!id) return
+    setEditId(id)
+    fetch(`/api/equipamentos/${id}`).then(r => r.json()).then((e: any) => {
+      if (!e || e.error) return
+      setForm({
+        tag: e.tag ?? '', nome: e.nome ?? '',
+        grupoId: e.grupoId ?? '', subgrupoId: e.subgrupoId ?? '',
+        fabricante: e.fabricante ?? '', modelo: e.modelo ?? '', serie: e.serie ?? '',
+        labCalibracao: e.labCalibracao ?? '', numeroCertificado: e.numeroCertificado ?? '',
+        ultimaCalibracao: e.ultimaCalibracao ?? '', intervaloCalibracao: e.intervaloCalibracao ?? 12,
+        status: e.status ?? 'ativo', foto: e.foto ?? '', obs: e.obs ?? '',
+      })
+    }).catch(() => {})
+  }, [])
   const [scanning, setScanning] = useState(false)
   const [scanMsg,  setScanMsg]  = useState('')
   const certRef = useRef<HTMLInputElement>(null)
+  const fotoRef = useRef<HTMLInputElement>(null)
 
   async function escanearCertificado(file: File) {
     const api = (window as any).electronAPI
@@ -134,7 +177,8 @@ export default function NovoEquipamentoPage() {
       nome:               form.nome.trim(),
       grupoId:            form.grupoId as GrupoId,
       subgrupoId:         form.subgrupoId as SubgrupoId,
-      status:             'ativo',
+      status:             form.status,
+      foto:               form.foto || undefined,
       grandezas:          [],
       ultimaCalibracao:   form.ultimaCalibracao,
       proximaCalibracao,
@@ -149,8 +193,8 @@ export default function NovoEquipamentoPage() {
 
     setSaving(true)
     try {
-      const res = await fetch('/api/equipamentos', {
-        method: 'POST',
+      const res = await fetch(editId ? `/api/equipamentos/${editId}` : '/api/equipamentos', {
+        method: editId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
@@ -176,8 +220,8 @@ export default function NovoEquipamentoPage() {
           </button>
           <div>
             <p className="page-eyebrow">Laboratório · EMC</p>
-            <h1 className="page-title">Novo Equipamento</h1>
-            <p className="page-sub">Preencha os dados do instrumento</p>
+            <h1 className="page-title">{editId ? 'Editar Equipamento' : 'Novo Equipamento'}</h1>
+            <p className="page-sub">{editId ? 'Altere os dados do instrumento' : 'Preencha os dados do instrumento'}</p>
           </div>
         </div>
       </div>
@@ -263,6 +307,42 @@ export default function NovoEquipamentoPage() {
                   <option key={s.id} value={s.id}>{s.numero} — {s.nome}</option>
                 ))}
               </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Dados gerais: status + foto */}
+        <div className="card p-5 mb-5">
+          <p className="form-section mb-4">Dados gerais</p>
+          <div className="grid grid-cols-[1fr_auto] gap-6 items-start">
+            <div>
+              <label className="text-[10px] font-mono tracking-[2px] uppercase text-white/40 block mb-1">Status</label>
+              <select className="input" value={form.status} onChange={e => set('status', e.target.value as StatusEquipamento)}>
+                {STATUS_EQUIP.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+              </select>
+              <p className="text-[10px] text-white/30 mt-2">
+                Use os marcadores para sinalizar “fora de uso”, “não requer calibração” ou “calibrar antes do uso”.
+              </p>
+            </div>
+            <div className="flex flex-col items-center gap-1.5">
+              <label className="text-[10px] font-mono tracking-[2px] uppercase text-white/40 self-start">Foto</label>
+              <input ref={fotoRef} type="file" accept="image/*" className="hidden"
+                onChange={async e => { const f = e.target.files?.[0]; if (f) { try { set('foto', await resizeImg(f)) } catch {} } e.target.value = '' }} />
+              {form.foto ? (
+                <div className="relative">
+                  <img src={form.foto} alt="Equipamento" className="w-44 h-44 object-contain rounded-xl border border-white/10 bg-black/20" />
+                  <button type="button" onClick={() => set('foto', '')}
+                    className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-500 text-white flex items-center justify-center shadow-lg hover:bg-red-600">
+                    <X size={13} />
+                  </button>
+                </div>
+              ) : (
+                <button type="button" onClick={() => fotoRef.current?.click()}
+                  className="w-44 h-44 rounded-xl border-2 border-dashed border-white/15 flex flex-col items-center justify-center gap-2 text-white/35 hover:text-teal hover:border-teal/30 transition-all">
+                  <ImageIcon size={26} />
+                  <span className="text-[11px]">Adicionar foto</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -396,7 +476,7 @@ export default function NovoEquipamentoPage() {
           </button>
           <button type="submit" className="btn-primary" disabled={saving}>
             <Save size={13} />
-            {saving ? 'Salvando…' : 'Salvar equipamento'}
+            {saving ? 'Salvando…' : editId ? 'Salvar alterações' : 'Salvar equipamento'}
           </button>
         </div>
       </form>

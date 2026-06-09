@@ -278,33 +278,43 @@ export interface DadosPadrao {
    período de calibração. Usado para pré-preencher o cadastro de equipamento. */
 export function parsearDadosPadrao(texto: string): DadosPadrao {
   const t = texto.replace(/ /g, ' ').replace(/\s+/g, ' ').trim()
-  const pick = (re: RegExp): string | undefined => {
-    const m = t.match(re)
-    const v = m?.[1]?.trim().replace(/[•\-–\s]+$/, '').trim()
+  const token = (re: RegExp): string | undefined => { const m = t.match(re); return m?.[1]?.trim() || undefined }
+  // campo de texto livre que termina no PRÓXIMO rótulo (qualquer um deles)
+  const STOP = '(?:Protocolo|Fabricante|N[º°o]?\\s*de\\s*S[ée]rie|Modelo|TAG|Procedimento|M[ée]todo|Padr|Nome|Caracter|Certificado)'
+  const campo = (label: string): string | undefined => {
+    const m = t.match(new RegExp(label + '\\s*:?\\s*(.+?)\\s*' + STOP + '\\b', 'i'))
+    const v = m?.[1]?.trim().replace(/[•\-–:\s]+$/, '').trim()
     return v || undefined
   }
-  // campos entre rótulos (ordem típica: Nome / Protocolo / Fabricante / Nº de Série / Modelo / TAG)
-  const nome       = pick(/\bNome\s*:?\s*(.+?)\s*(?:Protocolo|Fabricante|N[º°o]?\s*de\s*S[ée]rie|Modelo|TAG)\b/i)
-  const protocolo  = pick(/\bProtocolo\s*N?[º°o.]*\s*:?\s*([A-Za-z0-9.\-/]+)/i)
-  const fabricante = pick(/\bFabricante\s*:?\s*(.+?)\s*(?:N[º°o]?\s*de\s*S[ée]rie|Modelo|TAG|Protocolo)\b/i)
-  const serie      = pick(/\bN[º°o]?\s*de\s*S[ée]rie\s*:?\s*([A-Za-z0-9.\-/]+)/i)
-  const modelo     = pick(/\bModelo\s*:?\s*(.+?)\s*(?:TAG|N[º°o]?\s*de\s*S[ée]rie|Fabricante|Procedimento|Caracter)\b/i)
-  const tag        = pick(/\bTAG\s*:?\s*([A-Za-z0-9]+)/i)
+
+  const nome       = campo('\\bNome')
+  const fabricante = campo('\\bFabricante')
+  const modelo     = campo('\\bModelo')   // para no Protocolo/TAG/etc — não cola o protocolo
+  const serie      = token(/\bN[º°o]?\s*de\s*S[ée]rie\s*:?\s*([A-Za-z0-9.\-/]+)/i)
+  const protocolo  = token(/\bProtocolo\s*N?[º°o.]*\s*:?\s*([A-Za-z0-9.\-/]+)/i)
+  // TAG: pega o número + sufixo de letras (ex.: "3217 EMC" ou "3217EMC" → 3217EMC)
+  const tag = (token(/\bTAG\s*N?[º°o.]*\s*:?\s*(\d+\s*[A-Za-z]{2,5})/i)
+    ?? token(/\bTAG\s*N?[º°o.]*\s*:?\s*([A-Za-z0-9]+)/i))?.replace(/\s+/g, '')
   const labCalibracao = /LABELO/i.test(t) ? 'LABELO/PUCRS' : undefined
 
-  // número do certificado (no topo, ex.: "Certificado ... Nº R0047/2025"); evita
-  // confundir com os certificados dos padrões listados depois.
-  const head = t.slice(0, 600)
-  const numeroCertificado = (head.match(/N[º°o]\s*([A-Z]\d{3,4}\/\d{4})/i)?.[1]
-    || head.match(/\b([A-Z]\d{3,4}\/\d{4})\b/)?.[1] || '').trim() || undefined
+  // número do certificado: "Certificado de Calibração Nº X0000/20XX" (o próprio).
+  // Senão, o ÚLTIMO X0000/20XX da página (os anteriores são dos padrões usados).
+  let numeroCertificado: string | undefined
+  const cm = t.match(/Certificado de Calibra[çc][ãa]o\s*N[º°o]?\s*([A-Z]\d{3,4}\/\d{4})/i)
+  if (cm) numeroCertificado = cm[1]
+  else { const all = t.match(/[A-Z]\d{3,4}\/\d{4}/g); if (all?.length) numeroCertificado = all[all.length - 1] }
 
-  // período de calibração → última data (yyyy-mm-dd)
-  let ultimaCalibracao: string | undefined
-  const per = t.match(/Per[íi]odo de calibra[çc][ãa]o\s*:?\s*(\d{2}\/\d{2}\/\d{4})(?:\s+(?:a\s+)?(\d{2}\/\d{2}\/\d{4}))?/i)
-  if (per) {
-    const [dd, mm, yy] = (per[2] || per[1]).split('/')
-    ultimaCalibracao = `${yy}-${mm}-${dd}`
-  }
+  // DATA (só a data, sem texto): período de calibração (última) → data de
+  // calibração → data de emissão → primeira data dd/mm/aaaa encontrada.
+  const isoFrom = (d?: string) => { if (!d) return undefined; const [dd, mm, yy] = d.split('/'); return `${yy}-${mm}-${dd}` }
+  let dataStr: string | undefined
+  const per = t.match(/Per[íi]odo de calibra[çc][ãa]o[^0-9]{0,30}(\d{2}\/\d{2}\/\d{4})(?:[^0-9]{0,8}(\d{2}\/\d{2}\/\d{4}))?/i)
+  if (per) dataStr = per[2] || per[1]
+  if (!dataStr) dataStr = token(/data\s+d[ae]\s+calibra[çc][ãa]o[^0-9]{0,30}(\d{2}\/\d{2}\/\d{4})/i)
+  if (!dataStr) dataStr = token(/(?:data\s+de\s+)?emiss[ãa]o[^0-9]{0,30}(\d{2}\/\d{2}\/\d{4})/i)
+  if (!dataStr) dataStr = token(/(\d{2}\/\d{2}\/\d{4})/)
+  const ultimaCalibracao = isoFrom(dataStr)
+
   return { nome, fabricante, modelo, serie, tag, protocolo, numeroCertificado, labCalibracao, ultimaCalibracao }
 }
 
