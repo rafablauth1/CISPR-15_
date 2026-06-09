@@ -888,7 +888,7 @@ ipcMain.handle('pdf:save', async (_, { filename }) => {
   })
   if (canceled || !filePath) return { ok: false, canceled: true }
   try {
-    try { await win.webContents.executeJavaScript(`new Promise(function(r){ if(document.fonts&&document.fonts.ready){document.fonts.ready.then(function(){requestAnimationFrame(function(){requestAnimationFrame(r)})})}else{requestAnimationFrame(function(){requestAnimationFrame(r)})} })`) } catch (e) {}
+    try { await win.webContents.executeJavaScript(`new Promise(function(r){ var imgs=[].slice.call(document.images); var pend=imgs.filter(function(i){return !i.complete}); function go(){ var f=(document.fonts&&document.fonts.ready)?document.fonts.ready:Promise.resolve(); f.then(function(){ requestAnimationFrame(function(){ requestAnimationFrame(function(){ setTimeout(r,150) }) }) }) } if(pend.length===0){go();return} var n=0,t=setTimeout(go,8000); function chk(){ if(++n>=pend.length){clearTimeout(t);go()} } pend.forEach(function(i){ i.addEventListener("load",chk); i.addEventListener("error",chk) }) })`) } catch (e) {}
     const data = await win.webContents.printToPDF(PDF_PRINT_OPTS)
     fs.writeFileSync(filePath, data)
     shell.openPath(filePath)
@@ -917,7 +917,7 @@ ipcMain.handle('pdf:save-eut', async (_, { filename, folderPath }) => {
       shell.showItemInFolder(outPath)
       return { ok: true, filePath: outPath, skipped: true, usedDocuments }
     }
-    try { await win.webContents.executeJavaScript(`new Promise(function(r){ if(document.fonts&&document.fonts.ready){document.fonts.ready.then(function(){requestAnimationFrame(function(){requestAnimationFrame(r)})})}else{requestAnimationFrame(function(){requestAnimationFrame(r)})} })`) } catch (e) {}
+    try { await win.webContents.executeJavaScript(`new Promise(function(r){ var imgs=[].slice.call(document.images); var pend=imgs.filter(function(i){return !i.complete}); function go(){ var f=(document.fonts&&document.fonts.ready)?document.fonts.ready:Promise.resolve(); f.then(function(){ requestAnimationFrame(function(){ requestAnimationFrame(function(){ setTimeout(r,150) }) }) }) } if(pend.length===0){go();return} var n=0,t=setTimeout(go,8000); function chk(){ if(++n>=pend.length){clearTimeout(t);go()} } pend.forEach(function(i){ i.addEventListener("load",chk); i.addEventListener("error",chk) }) })`) } catch (e) {}
     const data = await win.webContents.printToPDF(PDF_PRINT_OPTS)
     await writeWithRetry(outPath, data)
     shell.showItemInFolder(outPath)
