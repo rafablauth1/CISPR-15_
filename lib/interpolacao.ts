@@ -261,6 +261,99 @@ export function parsearCertificadoRBC(texto: string): {
     }
   }
 
+  // --- Formato LABELO/RNBC (seções "Parâmetro:" com VR/MM e unidades entre
+  //     parênteses). Casa VR↔MM SEMPRE pela mesma grandeza (a MM define);
+  //     erro = VR − MM. eixo1 = frequência, eixo2 = VR. ---------------------
+  {
+    const reU = /\(([^)]+)\)/
+    const ehParam = (l: string) => /^par[âa]metro\b/i.test(l.trim())
+    const ehLeg = (l: string) =>
+      /unidade da grandeza|^\s*UMP\s*[-–]|^\s*UST\s*[-–]|^\s*VR\s*\(unidade|^\s*MM\s*\(unidade|^\s*IM\s*\(unidade/i.test(l)
+    const numTok = /[≥≤><≈~]?\s*[+-]?(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d+)?|[+-]?\d+(?:\.\d+)?/g
+    const pN = (s: string): number | null => {
+      let t = String(s).replace(/[≥≤><≈~\s]/g, '')
+      if (!t || /^[-—–∞]+$/.test(t)) return null
+      if (t.includes(',')) t = t.replace(/\.(?=\d{3}\b)/g, '').replace(',', '.')
+      const n = parseFloat(t); return isFinite(n) ? n : null
+    }
+    const nums = (l: string): number[] => {
+      const o: number[] = []; const m = l.match(numTok)
+      if (m) for (const tk of m) { const n = pN(tk); if (n !== null) o.push(n) }
+      return o
+    }
+    type Role = 'freq' | 'vr' | 'mm' | 'im' | 'outro'
+    const inicios: number[] = []
+    linhas.forEach((l, i) => { if (ehParam(l)) inicios.push(i) })
+
+    const pts: PontoCalibracao2D[] = []
+    let e1U = '', e2U = ''
+    for (let s = 0; s < inicios.length; s++) {
+      const ini = inicios[s]
+      let fim = s + 1 < inicios.length ? inicios[s + 1] : linhas.length
+      for (let i = ini; i < fim; i++) { if (ehLeg(linhas[i])) { fim = i; break } }
+      const bloco = linhas.slice(ini, fim)
+      const grandeza = (bloco[0].replace(/^par[âa]metro\s*:?\s*/i, '') || '').trim()
+
+      const cols: { role: Role; unidade: string }[] = []
+      let pend: Role = 'outro'; let dataStart = -1
+      for (let i = 1; i < bloco.length; i++) {
+        const raw = bloco[i].trim(); if (!raw) continue
+        const ns = nums(raw); const tU = reU.test(raw)
+        const tVR = cols.some(c => c.role === 'vr'), tMM = cols.some(c => c.role === 'mm')
+        if (tVR && tMM && ns.length >= 1 && !tU) { dataStart = i; break }
+        if (/^vr\b/i.test(raw)) pend = 'vr'
+        else if (/^mm\b/i.test(raw)) pend = 'mm'
+        else if (/^im\b/i.test(raw)) pend = 'im'
+        else if (/freq/i.test(raw) && !tU) pend = 'freq'
+        if (tU) { let r = pend; if (/freq/i.test(raw)) r = 'freq'; cols.push({ role: r, unidade: (raw.match(reU)?.[1] ?? '').trim() }); pend = 'outro' }
+      }
+      if (dataStart < 0) continue
+      const vrIdx = cols.findIndex(c => c.role === 'vr')
+      const mmIdx = cols.findIndex(c => c.role === 'mm')
+      const imIdx = cols.findIndex(c => c.role === 'im')
+      const freqIdx = cols.findIndex(c => c.role === 'freq')
+      if (vrIdx < 0 || mmIdx < 0) continue
+      const uVR = cols[vrIdx].unidade, uMM = cols[mmIdx].unidade
+      if (uVR && uMM && uVR.toLowerCase() !== uMM.toLowerCase()) continue // grandezas diferentes → não calcula
+      if (!e1U && freqIdx >= 0) e1U = cols[freqIdx].unidade
+      if (!e2U) e2U = uMM || uVR
+      const threshold = Math.max(mmIdx + 1, cols.length)
+
+      let buf: number[] = []
+      for (let i = dataStart; i < bloco.length; i++) {
+        const raw = bloco[i].trim()
+        if (!raw || ehParam(raw) || ehLeg(raw)) continue
+        const ns = nums(raw); if (ns.length === 0) continue
+        buf.push(...ns)
+        if (buf.length >= threshold) {
+          const vr = buf[vrIdx], mm = buf[mmIdx]
+          const e1 = freqIdx >= 0 ? buf[freqIdx] : vr
+          const im = imIdx >= 0 ? buf[imIdx] : NaN
+          if (isFinite(vr) && isFinite(mm) && isFinite(e1)) {
+            pts.push({
+              eixo1: e1, eixo2: vr,
+              correcao: parseFloat((vr - mm).toPrecision(10)),
+              incerteza: isFinite(im) ? im : undefined,
+              grandeza: grandeza || undefined,
+              tabela: grandeza || undefined,
+              eixo1Unidade: (freqIdx >= 0 ? cols[freqIdx].unidade : (uMM || uVR)) || undefined,
+              eixo2Unidade: (uMM || uVR) || undefined,
+            })
+          }
+          buf = []
+        }
+      }
+    }
+    if (pts.length >= 3) {
+      return {
+        pontos: pts,
+        eixo1Nome: 'Frequência', eixo1Unidade: e1U || 'MHz',
+        eixo2Nome: 'Nível',      eixo2Unidade: e2U || 'dBm',
+        equipamentoTag, numeroCert,
+      }
+    }
+  }
+
   // --- Fallback: heurística por token stream (texto OCR livre) ---
   const isGHz = /ghz/i.test(texto)
   const isMHz = /mhz/i.test(texto)

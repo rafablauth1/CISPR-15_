@@ -13,9 +13,114 @@ function fmtCorrecao(n: number): string {
  * Tenta extrair linhas de correção de um texto OCR de certificado de calibração.
  * Suporta múltiplos formatos comuns de certificados (DARE, CHOMA, IMETRO, etc).
  */
+/* Casa VR↔MM SEMPRE por colunas de mesma grandeza (unidade entre parênteses).
+   A unidade da MM define o ensaio; o erro = VR − MM. Evita o caso de pegar a
+   coluna de frequência (GHz/MHz) como VR e subtrair de uma MM em dBm. */
+function parsearCertificadoVRMM(linhasRaw: string[]): LinhaCertificado[] {
+  const linhas = linhasRaw.map(l => l.replace(/ /g, ' '))
+  const reUnidade = /\(([^)]+)\)/
+  const ehParam   = (l: string) => /^par[âa]metro\b/i.test(l.trim())
+  const ehLegenda = (l: string) =>
+    /unidade da grandeza|^\s*UMP\s*[-–]|^\s*UST\s*[-–]|^\s*VR\s*\(unidade|^\s*MM\s*\(unidade|^\s*IM\s*\(unidade/i.test(l)
+  const numToken = /[≥≤><≈~]?\s*[+-]?(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d+)?|[+-]?\d+(?:\.\d+)?/g
+  const parseN = (s: string): number | null => {
+    let t = String(s).replace(/[≥≤><≈~\s]/g, '')
+    if (!t || /^[-—–∞]+$/.test(t)) return null
+    if (t.includes(',')) t = t.replace(/\.(?=\d{3}\b)/g, '').replace(',', '.')
+    const n = parseFloat(t)
+    return isFinite(n) ? n : null
+  }
+  const extrairNums = (l: string): number[] => {
+    const out: number[] = []
+    const m = l.match(numToken)
+    if (m) for (const tk of m) { const n = parseN(tk); if (n !== null) out.push(n) }
+    return out
+  }
+
+  type Role = 'freq' | 'vr' | 'mm' | 'im' | 'outro'
+  const inicios: number[] = []
+  linhas.forEach((l, i) => { if (ehParam(l)) inicios.push(i) })
+
+  const res: LinhaCertificado[] = []
+  let pnt = 0
+  for (let s = 0; s < inicios.length; s++) {
+    const ini = inicios[s]
+    let fim = s + 1 < inicios.length ? inicios[s + 1] : linhas.length
+    for (let i = ini; i < fim; i++) { if (ehLegenda(linhas[i])) { fim = i; break } }
+    const bloco = linhas.slice(ini, fim)
+    const grandeza = (bloco[0].replace(/^par[âa]metro\s*:?\s*/i, '') || '').trim()
+
+    // monta as colunas (em ordem) a partir do cabeçalho
+    const cols: { role: Role; unidade: string }[] = []
+    let pendingRole: Role = 'outro'
+    let dataStart = -1
+    for (let i = 1; i < bloco.length; i++) {
+      const raw = bloco[i].trim()
+      if (!raw) continue
+      const nums = extrairNums(raw)
+      const temUnidade = reUnidade.test(raw)
+      const temVR = cols.some(c => c.role === 'vr')
+      const temMM = cols.some(c => c.role === 'mm')
+      if (temVR && temMM && nums.length >= 1 && !temUnidade) { dataStart = i; break }
+      if (/^vr\b/i.test(raw)) pendingRole = 'vr'
+      else if (/^mm\b/i.test(raw)) pendingRole = 'mm'
+      else if (/^im\b/i.test(raw)) pendingRole = 'im'
+      else if (/freq/i.test(raw) && !temUnidade) pendingRole = 'freq'
+      if (temUnidade) {
+        let role = pendingRole
+        if (/freq/i.test(raw)) role = 'freq'
+        cols.push({ role, unidade: (raw.match(reUnidade)?.[1] ?? '').trim() })
+        pendingRole = 'outro'
+      }
+    }
+    if (dataStart < 0) continue
+    const vrIdx = cols.findIndex(c => c.role === 'vr')
+    const mmIdx = cols.findIndex(c => c.role === 'mm')
+    const imIdx = cols.findIndex(c => c.role === 'im')
+    if (vrIdx < 0 || mmIdx < 0) continue
+    const unidVR = cols[vrIdx].unidade
+    const unidMM = cols[mmIdx].unidade
+    // exige MESMA grandeza entre VR e MM (a MM define) — senão não calcula
+    if (unidVR && unidMM && unidVR.toLowerCase() !== unidMM.toLowerCase()) continue
+    const threshold = Math.max(mmIdx + 1, cols.length)
+
+    let pend: number[] = []
+    for (let i = dataStart; i < bloco.length; i++) {
+      const raw = bloco[i].trim()
+      if (!raw || ehParam(raw) || ehLegenda(raw)) continue
+      const nums = extrairNums(raw)
+      if (nums.length === 0) continue
+      pend.push(...nums)
+      if (pend.length >= threshold) {
+        const vr = pend[vrIdx], mm = pend[mmIdx], im = imIdx >= 0 ? pend[imIdx] : null
+        if (isFinite(vr) && isFinite(mm)) {
+          pnt++
+          res.push({
+            ponto: pnt,
+            grandeza,
+            unidade: unidMM || unidVR || '',
+            valorNominal: String(vr),
+            valorIndicado: String(mm),
+            correcao: fmtCorrecao(parseFloat((vr - mm).toPrecision(10))),
+            incertezaExpandida: im !== null && isFinite(im) ? `±${im}` : '',
+            fatorCobertura: 2,
+          })
+        }
+        pend = []
+      }
+    }
+  }
+  return res
+}
+
 export function parsearCertificado(texto: string): LinhaCertificado[] {
   const linhas = texto.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
   const resultado: LinhaCertificado[] = []
+
+  // ── Estratégia 0 (prioritária): formato LABELO/RNBC com colunas VR/MM e
+  //    unidade entre parênteses — casa VR e MM pela mesma grandeza. ─────────
+  const vrmm = parsearCertificadoVRMM(texto.split(/\r?\n/))
+  if (vrmm.length > 0) return vrmm
 
   // ── Estratégia 1: formato tabulado com marcadores Python (# GRANDEZA / # PARAM / # HEADERS) ──
   const hasMarkers = linhas.some(l => l.startsWith('# GRANDEZA:') || l.startsWith('# PARAM:') || l.startsWith('# HEADERS:'))
