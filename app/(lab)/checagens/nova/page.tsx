@@ -561,11 +561,11 @@ export default function NovaChecagemPage() {
           <h1 className="page-title">Registro de Checagem Intermediária</h1>
         </div>
         <div className="flex items-center gap-2">
-          {(['manual','it','excel','ocr'] as Tab[]).map(t => (
+          {(['manual','ocr'] as Tab[]).map(t => (
             <button key={t} type="button" onClick={()=>setTab(t)}
               className={cn('px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all',
                 tab===t?'bg-[#141B28] text-white border border-white/10':'text-white/35 hover:text-white/60')}>
-              {t==='manual'?'Manual':t==='it'?'IT / Instrução':t==='excel'?'Excel':'OCR'}
+              {t==='manual'?'Manual':'OCR'}
             </button>
           ))}
         </div>

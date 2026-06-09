@@ -278,11 +278,18 @@ export interface DadosPadrao {
    período de calibração. Usado para pré-preencher o cadastro de equipamento. */
 export function parsearDadosPadrao(texto: string): DadosPadrao {
   const t = texto.replace(/ /g, ' ').replace(/\s+/g, ' ').trim()
-  const token = (re: RegExp): string | undefined => { const m = t.match(re); return m?.[1]?.trim() || undefined }
-  // campo de texto livre que termina no PRÓXIMO rótulo (qualquer um deles)
-  const STOP = '(?:Protocolo|Fabricante|N[º°o]?\\s*de\\s*S[ée]rie|Modelo|TAG|Procedimento|M[ée]todo|Padr|Nome|Caracter|Certificado)'
+  // Corrige rótulos quebrados pelo OCR (ex.: "Protoc olo" → "Protocolo")
+  const tn = t
+    .replace(/Protoc\s*olo/gi, 'Protocolo')
+    .replace(/Fabric\s*ante/gi, 'Fabricante')
+    .replace(/Proced\s*imento/gi, 'Procedimento')
+    .replace(/Caracter\s*[íi]sticas/gi, 'Características')
+  const token = (re: RegExp): string | undefined => { const m = tn.match(re); return m?.[1]?.trim() || undefined }
+  // termina no PRÓXIMO rótulo — PREFIXOS (robusto a splits) + marcador genérico "Nº:"
+  const STOP = '(?:Protoc|Fabric|Modelo|TAG|Procedim|M[ée]todo|Padr|Nome|Caracter|Certificad|N[º°o]?\\s*de\\s*S[ée]rie|N[º°o]\\s*:)'
   const campo = (label: string): string | undefined => {
-    const m = t.match(new RegExp(label + '\\s*:?\\s*(.+?)\\s*' + STOP + '\\b', 'i'))
+    // fronteira ANTES do STOP (prefixos como "Protoc" casam no início de "Protocolo")
+    const m = tn.match(new RegExp(label + '\\s*:?\\s*(.+?)\\s+' + STOP, 'i'))
     const v = m?.[1]?.trim().replace(/[•\-–:\s]+$/, '').trim()
     return v || undefined
   }
