@@ -1,13 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, FileText, Cpu, BookOpen, Calendar,
-  ClipboardCheck, Network, Ruler, Settings, Award, FlaskConical,
+  ClipboardCheck, Network, Ruler, Settings, Award, FlaskConical, Layers,
 } from 'lucide-react'
+import { LOTE_KEY } from '@/app/cispr15/types'
 
 interface NavItem { href: string; icon: React.ElementType; label: string }
 interface NavGroup { label: string; items: NavItem[] }
@@ -53,6 +54,19 @@ interface Props { checagensVencidas?: number }
 
 export default function LabSidebar({ checagensVencidas = 0 }: Props) {
   const pathname = usePathname()
+
+  // Lote em andamento: nº de amostras ainda não emitidas no LOTE_KEY.
+  // Reavalia a cada navegação (pathname) — assim some/aparece ao entrar/sair.
+  const [loteAtivo, setLoteAtivo] = useState(0)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LOTE_KEY)
+      if (!raw) { setLoteAtivo(0); return }
+      const lote = JSON.parse(raw)
+      const pend = Array.isArray(lote?.amostras) ? lote.amostras.filter((a: any) => !a?.numRelatorio).length : 0
+      setLoteAtivo(pend)
+    } catch { setLoteAtivo(0) }
+  }, [pathname])
 
   // Href ativo = o match mais específico (mais longo) para a rota atual,
   // evitando destacar /equipamentos junto de /equipamentos/grupos.
@@ -110,6 +124,34 @@ export default function LabSidebar({ checagensVencidas = 0 }: Props) {
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
+        {/* Lote em andamento — atalho para retomar de onde parou */}
+        {loteAtivo > 0 && (
+          <div className="relative group/nav">
+            <Link href="/cispr15/lote"
+              className={cn(
+                'nav-item w-full border border-gold/25 bg-gold/8 text-gold hover:bg-gold/15',
+                collapsed ? 'justify-center px-0 py-2.5' : '',
+                pathname === '/cispr15/lote' && 'active',
+              )}>
+              <Layers size={14} className="nav-icon flex-shrink-0" />
+              {!collapsed && <span className="truncate">Lote em andamento</span>}
+              {!collapsed && (
+                <span className="ml-auto badge text-[9px] px-1.5 py-0.5 rounded-md bg-gold/20 text-gold border border-gold/30">
+                  {loteAtivo}
+                </span>
+              )}
+              {collapsed && <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-gold" />}
+            </Link>
+            {collapsed && (
+              <div className="pointer-events-none absolute left-full top-1/2 -translate-y-1/2 ml-3 z-50
+                              px-2.5 py-1.5 rounded-lg text-[11px] font-medium text-white whitespace-nowrap
+                              opacity-0 group-hover/nav:opacity-100 transition-opacity duration-150"
+                   style={{ background: 'rgba(20,22,32,0.97)', boxShadow: '0 4px 16px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.08)' }}>
+                Lote em andamento ({loteAtivo})
+              </div>
+            )}
+          </div>
+        )}
         {NAV.map(group => (
           <div key={group.label}>
             {!collapsed && (

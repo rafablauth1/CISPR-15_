@@ -9,6 +9,7 @@ import {
   Lightbulb, Lamp, Trash2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { iniciarMarcadorSeAusente, finalizarMarcador, registrarTempo } from '@/lib/tempos'
 import {
   type LoteAmostra, type LoteConfig, type Cispr15Config, type RelatorioSalvo, type EquipamentoSalvo, type AgendaItem,
   newAmostra, today, LOTE_KEY, RELATORIOS_KEY, CFG_KEY, PHOTOS_KEY, DOCX_HTML_KEY, DOCX_NAME_KEY, EQUIPAMENTOS_KEY, RELATORIO_DOCX_PFX, AGENDA_KEY,
@@ -474,6 +475,7 @@ export default function LotePage() {
   }, [])
 
   useEffect(() => {
+    iniciarMarcadorSeAusente('emissao') // cronômetro de emissão (vale para lote também)
     try {
       const raw = localStorage.getItem(LOTE_KEY)
       if (raw) setLote(JSON.parse(raw))
@@ -610,10 +612,13 @@ export default function LotePage() {
   /* Devolve uma amostra reprovada para a agenda (não some dela): marca o ensaio
      onde caiu a reprovação, registra a nota nas observações e zera numRelatorio
      (volta a ficar pendente de re-ensaio). Cria o item se não existir mais. */
-  async function retornarReprovadoParaAgenda(am: LoteAmostra, testes: string[], trechos: string[]) {
+  async function retornarReprovadoParaAgenda(am: LoteAmostra, info: ReturnType<typeof docxOndeFail>) {
     try {
       const proto = (am.protocolo || '').trim().toLowerCase()
       if (!proto) return
+      const testes  = info?.testes  ?? []
+      const trechos = info?.trechos ?? []
+      const chaves  = info?.chaves  ?? []
       const api = (window as any).electronAPI
       let lista: AgendaItem[] = []
       if (api) { const r = await api.getAgenda().catch(() => null); if (r?.ok && Array.isArray(r.agenda)) lista = r.agenda }
@@ -625,9 +630,9 @@ export default function LotePage() {
       const aplicar = (item: AgendaItem): AgendaItem => ({
         ...item,
         numRelatorio: '', dataEmissao: '', pdfPath: undefined,   // volta à agenda (não emitido)
-        statusConduzida: testes.some(t => /Conduzida/i.test(t)) ? 'reprovado' : item.statusConduzida,
-        statusLoop:      testes.some(t => /Loop|Radiada/i.test(t)) ? 'reprovado' : item.statusLoop,
-        statusAnexoB:    testes.some(t => /Anexo B/i.test(t)) ? 'reprovado' : item.statusAnexoB,
+        statusConduzida: chaves.includes('conduzida') ? 'reprovado' : item.statusConduzida,
+        statusLoop:      chaves.includes('loop')      ? 'reprovado' : item.statusLoop,
+        statusAnexoB:    chaves.includes('anexoB')    ? 'reprovado' : item.statusAnexoB,
         observacoes: [item.observacoes?.trim(), nota].filter(Boolean).join('\n'),
         tags: Array.from(new Set([...(item.tags ?? []), 'reprovado'])),
       })
@@ -659,10 +664,8 @@ export default function LotePage() {
     const detalhes: { protocolo: string; testes: string[]; trechos: string[] }[] = []
     for (const { a } of reprovados) {
       const info = docxOndeFail(a.docxHtml)
-      const testes  = info?.testes  ?? []
-      const trechos = info?.trechos ?? []
-      detalhes.push({ protocolo: a.protocolo || '(sem protocolo)', testes, trechos })
-      await retornarReprovadoParaAgenda(a, testes, trechos)
+      detalhes.push({ protocolo: a.protocolo || '(sem protocolo)', testes: info?.testes ?? [], trechos: info?.trechos ?? [] })
+      await retornarReprovadoParaAgenda(a, info)
     }
 
     setResultado({ reprovados: detalhes, total: avaliadas.length, checked: true })
@@ -802,6 +805,16 @@ export default function LotePage() {
         novosEmitidos[i] = numRelatorio
       }
       setEmitidos(prev => ({ ...prev, ...novosEmitidos }))
+      // métrica: tempo de emissão do lote (do abrir o lote até emitir).
+      // Divide a duração da sessão pelo nº de relatórios emitidos → tempo médio por relatório.
+      const emitidosCount = Object.keys(novosEmitidos).length
+      const dur = finalizarMarcador('emissao')
+      if (dur != null && emitidosCount > 0) {
+        const porRel = Math.round(dur / emitidosCount)
+        for (const i of Object.keys(novosEmitidos)) {
+          registrarTempo({ tipo: 'emissao', protocolo: lote.amostras[Number(i)]?.protocolo, numRelatorio: novosEmitidos[Number(i)], duracaoMs: porRel })
+        }
+      }
     } catch (err: any) {
       alert(`Erro ao emitir lote: ${err.message}`)
     } finally {

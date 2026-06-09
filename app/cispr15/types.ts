@@ -154,42 +154,70 @@ export function docxTemFail(html?: string | null): boolean {
   return /\bfail\b/i.test(txt) || /\breprovad/i.test(txt) || /n[ãa]o[\s-]+conforme/i.test(txt)
 }
 
+export type EnsaioKey = 'conduzida' | 'loop' | 'anexoB'
+
+const ENSAIO_MATCH: Record<EnsaioKey, RegExp> = {
+  conduzida: /conduzida|conducted/i,
+  loop:      /\bloop\b|radiad/i,
+  anexoB:    /anexo\s*b|annex\s*b|insertion loss/i,
+}
+const ENSAIO_NOME: Record<EnsaioKey, string> = {
+  conduzida: 'Emissão Conduzida',
+  loop:      'Radiada (Loop)',
+  anexoB:    'Anexo B',
+}
+
 export interface FailInfo {
-  /** Ensaios CISPR 15 onde foi detectada a reprovação (ex.: "Emissão Conduzida") */
+  /** Nomes amigáveis dos ensaios reprovados (ex.: "Emissão Conduzida") */
   testes: string[]
+  /** Chaves dos ensaios para marcar os status na agenda (statusConduzida/Loop/AnexoB) */
+  chaves: EnsaioKey[]
   /** Trechos de texto ao redor de cada "Fail" para o operador localizar a reprovação */
   trechos: string[]
 }
 
-/* Localiza ONDE está a reprovação no relatório Radimation (HTML do parse-docx):
-   quebra o HTML em blocos, acha os blocos com "Fail" e classifica em qual dos
-   ensaios CISPR 15 (Conduzida / Radiada-Loop / Anexo B) caiu, capturando o
-   trecho de contexto. Usado para devolver a amostra à agenda já marcando o ensaio. */
+/* Localiza ONDE está a reprovação no relatório Radimation (HTML do parse-docx).
+   Usa a MESMA segmentação por page-break do docx-filter: quebra o documento em
+   seções (uma por ensaio), acha as seções com "Fail" e classifica cada uma em
+   Conduzida / Loop / Anexo B. Retorna as chaves para marcar os botões de status. */
 export function docxOndeFail(html?: string | null): FailInfo | null {
   if (!html) return null
   const FAIL = /\bfail\b|\breprovad|n[ãa]o[\s-]+conforme/i
-  const txt = html
-    .replace(/<\s*(br|\/p|\/tr|\/td|\/th|\/table|\/div|\/h[1-6])\s*\/?>/gi, '\n')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/[ \t]+/g, ' ')
-  const linhas = txt.split('\n').map(l => l.trim()).filter(Boolean)
-  const cats = new Set<string>()
+
+  // 1) segmenta em seções por page-break-before (igual ao docx-filter)
+  let sections: string[] = []
+  try {
+    if (typeof DOMParser !== 'undefined') {
+      const dom = new DOMParser().parseFromString(html, 'text/html')
+      let cur = ''
+      for (const child of Array.from(dom.body.children)) {
+        const el = child as HTMLElement
+        const style = el.getAttribute('style') ?? ''
+        if (el.tagName === 'DIV' && /page-break-before\s*:\s*always/i.test(style)) {
+          if (cur.trim()) sections.push(cur)
+          cur = el.outerHTML
+        } else { cur += el.outerHTML }
+      }
+      if (cur.trim()) sections.push(cur)
+    }
+  } catch {}
+  if (sections.length === 0) sections = [html] // fallback: documento inteiro
+
+  // 2) acha seções com Fail e classifica
+  const chaves  = new Set<EnsaioKey>()
+  const testes  = new Set<string>()
   const trechos: string[] = []
-  const classificar = (s: string) => {
-    if (/condu|conducted|terminal|disturbance voltage|tens[ãa]o de perturba/i.test(s)) cats.add('Emissão Conduzida')
-    if (/radiat|loop|magnetic|campo magn|antenna|9\s*khz|30\s*mhz/i.test(s)) cats.add('Emissão Radiada (Loop)')
-    if (/insertion loss|anexo\s*b|perda de inser/i.test(s)) cats.add('Anexo B (Insertion Loss)')
+  for (const sec of sections) {
+    const text = sec.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim()
+    if (!FAIL.test(text)) continue
+    ;(Object.keys(ENSAIO_MATCH) as EnsaioKey[]).forEach(k => {
+      if (ENSAIO_MATCH[k].test(text)) { chaves.add(k); testes.add(ENSAIO_NOME[k]) }
+    })
+    const idx = text.search(FAIL)
+    if (idx >= 0) trechos.push(text.slice(Math.max(0, idx - 70), idx + 45).trim())
   }
-  linhas.forEach((l, i) => {
-    if (!FAIL.test(l)) return
-    const ctx = [linhas[i - 1], l, linhas[i + 1]].filter(Boolean).join(' · ').replace(/\s+/g, ' ').trim()
-    if (ctx) trechos.push(ctx.slice(0, 160))
-    classificar([linhas[i - 2], linhas[i - 1], l, linhas[i + 1]].filter(Boolean).join(' '))
-  })
   if (trechos.length === 0) return null
-  return { testes: [...cats], trechos: trechos.slice(0, 6) }
+  return { testes: [...testes], chaves: [...chaves], trechos: trechos.slice(0, 6) }
 }
 
 export interface AmendmentChange {

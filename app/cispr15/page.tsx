@@ -92,6 +92,7 @@ export default function Cispr15ConfigPage() {
   const [emendaDelErr, setEmendaDelErr] = useState(false)
   const gateInputRef = useRef<HTMLInputElement>(null)
   const [tab, setTab] = useState<'formulario' | 'clientes' | 'emendas' | 'relatorios'>('formulario')
+  const [loteAtivo, setLoteAtivo] = useState(0) // amostras não emitidas no lote em andamento
   const [relatoriosList, setRelatoriosList] = useState<RelatorioSalvo[]>([])
   const [isElectron,   setIsElectron]  = useState(false)
   const [eutFolder,    setEutFolder]   = useState<string | null>(null)
@@ -122,6 +123,12 @@ export default function Cispr15ConfigPage() {
   useEffect(() => {
     // Marca abertura do formulário de emissão (métrica de tempo até gerar o PDF)
     iniciarMarcadorSeAusente('emissao')
+    // Detecta lote em andamento (amostras ainda não emitidas)
+    try {
+      const raw = localStorage.getItem(LOTE_KEY)
+      const lote = raw ? JSON.parse(raw) : null
+      setLoteAtivo(Array.isArray(lote?.amostras) ? lote.amostras.filter((a: any) => !a?.numRelatorio).length : 0)
+    } catch { setLoteAtivo(0) }
     // Sessão nova: limpa o formulário ao reiniciar o app
     const isFresh = !sessionStorage.getItem(SESSION_KEY)
     if (isFresh) {
@@ -1685,8 +1692,9 @@ export default function Cispr15ConfigPage() {
           <div className="flex-1" />
 
           <button type="button" onClick={openLote}
-            className="btn-secondary flex items-center gap-2 px-4 py-2.5 text-sm">
-            <Users size={14} /> Emitir Lote
+            className={cn('btn-secondary flex items-center gap-2 px-4 py-2.5 text-sm',
+              loteAtivo > 0 && 'border-gold/40 bg-gold/8 text-gold')}>
+            <Users size={14} /> {loteAtivo > 0 ? `Continuar Lote (${loteAtivo})` : 'Emitir Lote'}
           </button>
 
           <button type="button"
