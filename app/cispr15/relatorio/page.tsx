@@ -593,7 +593,13 @@ export default function Cispr15RelatorioPage() {
 
         @media print {
           aside, nav, header, .no-print { display: none !important; }
-          body, html { background: white !important; margin: 0 !important; padding: 0 !important; }
+          body, html { background: white !important; margin: 0 !important; padding: 0 !important; height: auto !important; overflow: visible !important; }
+          /* Desfaz o shell de scroll (h-screen/overflow-hidden/overflow-auto) só na
+             impressão — senão o printToPDF clipa o fluxo e corta a última página. */
+          .h-screen { height: auto !important; }
+          .min-h-0 { min-height: 0 !important; }
+          .overflow-hidden, .overflow-auto { overflow: visible !important; }
+          main { overflow: visible !important; height: auto !important; max-height: none !important; padding: 0 !important; }
           .doc-wrapper { background: white; padding: 0; }
           .doc-page {
             width: 210mm;
@@ -648,10 +654,15 @@ export default function Cispr15RelatorioPage() {
 
       {printMode && (
         <style>{`
-          body, html { background: white !important; margin: 0 !important; padding: 0 !important; }
+          body, html { background: white !important; margin: 0 !important; padding: 0 !important; height: auto !important; overflow: visible !important; }
           aside, nav, header, .no-print { display: none !important; }
+          /* Desfaz o shell de scroll para o fluxo não ser clipado na impressão */
+          .h-screen { height: auto !important; }
+          .min-h-0 { min-height: 0 !important; }
+          .overflow-hidden, .overflow-auto { overflow: visible !important; }
+          main { overflow: visible !important; height: auto !important; max-height: none !important; }
           /* Remove padding do container do dashboard para o .doc-page não ficar deslocado */
-          main > div { padding: 0 !important; max-width: none !important; margin: 0 !important; }
+          main, main > div { padding: 0 !important; max-width: none !important; margin: 0 !important; }
           .dot-grid { background: white !important; }
           .doc-wrapper { background: white !important; padding: 0 !important; }
           .doc-page {

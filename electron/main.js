@@ -888,6 +888,7 @@ ipcMain.handle('pdf:save', async (_, { filename }) => {
   })
   if (canceled || !filePath) return { ok: false, canceled: true }
   try {
+    try { await win.webContents.executeJavaScript(`new Promise(function(r){ if(document.fonts&&document.fonts.ready){document.fonts.ready.then(function(){requestAnimationFrame(function(){requestAnimationFrame(r)})})}else{requestAnimationFrame(function(){requestAnimationFrame(r)})} })`) } catch (e) {}
     const data = await win.webContents.printToPDF(PDF_PRINT_OPTS)
     fs.writeFileSync(filePath, data)
     shell.openPath(filePath)
@@ -916,6 +917,7 @@ ipcMain.handle('pdf:save-eut', async (_, { filename, folderPath }) => {
       shell.showItemInFolder(outPath)
       return { ok: true, filePath: outPath, skipped: true, usedDocuments }
     }
+    try { await win.webContents.executeJavaScript(`new Promise(function(r){ if(document.fonts&&document.fonts.ready){document.fonts.ready.then(function(){requestAnimationFrame(function(){requestAnimationFrame(r)})})}else{requestAnimationFrame(function(){requestAnimationFrame(r)})} })`) } catch (e) {}
     const data = await win.webContents.printToPDF(PDF_PRINT_OPTS)
     await writeWithRetry(outPath, data)
     shell.showItemInFolder(outPath)

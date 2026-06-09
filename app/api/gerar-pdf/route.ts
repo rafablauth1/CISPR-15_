@@ -74,11 +74,17 @@ export async function POST(request: NextRequest) {
         { waitUntil: 'domcontentloaded', timeout: 60_000 },
       )
       await page.waitForFunction('window.__printReady === true', { timeout: 50_000 })
+      // garante que fontes/layout assentaram antes de capturar (senão a última página pode ser cortada)
+      await page.evaluateHandle('document.fonts.ready')
+      await new Promise(r => setTimeout(r, 400))
+      const footer = `<div style="font-family:Arial,sans-serif; font-size:8px; color:#333; width:100%; box-sizing:border-box; padding:0 53px;"><div style="border-top:2px solid #3C3C3C; display:flex; align-items:flex-start; padding-top:3px;"><div style="font-weight:bold; color:#000; white-space:nowrap; line-height:1.25; width:55px;">LABELO<br/>PUCRS</div><div style="flex:1; text-align:center; line-height:1.3; color:#444; font-size:7px;">Av. Ipiranga n° 6681, Prédio 30 Bloco A, Sala 210 – Partenon · CEP 90619-900 – Porto Alegre – RS – Brasil<br/>Tel.: (51) 3320 3551 · labelo@pucrs.br · www.labelo.com.br</div><div style="white-space:nowrap; width:95px; text-align:right; color:#444; font-size:7px;">Página <span class="pageNumber"></span> de <span class="totalPages"></span></div></div></div>`
       pdf = await page.pdf({
         format: 'A4',
         printBackground: true,
-        margin: { top: '0', right: '0', bottom: '0', left: '0' },
-        displayHeaderFooter: false,
+        margin: { top: '0', right: '0', bottom: '0.8in', left: '0' },
+        displayHeaderFooter: true,
+        headerTemplate: '<span></span>',
+        footerTemplate: footer,
       })
     } finally {
       await browser.close()
