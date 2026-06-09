@@ -13,7 +13,7 @@ from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 import copy
 
-BASE   = Path(r"C:\Users\Notla\OneDrive\Área de Trabalho\cispr15-standalone")
+BASE   = Path(r"C:\Users\Notla\OneDrive\Área de Trabalho\DIONATA\cispr15-standalone")
 SHOTS  = BASE / "screenshots_manual"
 LOGO   = BASE / "public" / "formularios" / "emc" / "pucrs-logo.png"
 CRL    = BASE / "public" / "formularios" / "emc" / "crl0075.jpg"
@@ -339,7 +339,7 @@ def build_capa(doc):
     tbl.style = 'Table Grid'
     dados = [
         ('Identificação do Documento', 'MV-EMC-CISPR15-001'),
-        ('Revisão',                    '00'),
+        ('Revisão',                    '01'),
         ('Data de Emissão',            TODAY),
         ('Elaborado por',              'Dionata Rafael Blauth da Paixão Nunes'),
         ('Revisado por',               'Jonathan Culau'),
@@ -895,10 +895,224 @@ def build_body(doc):
     doc.add_paragraph()
 
     # ══════════════════════════════════════════════════════════════════════
-    # 15. OBSERVAÇÕES FINAIS E ASSINATURAS
+    # 15. MÓDULO LAB — VISÃO GERAL
     # ══════════════════════════════════════════════════════════════════════
     page_break(doc)
-    section_bar(doc, '15. Declaração de Validação e Assinaturas')
+    section_bar(doc, '15. Módulo Lab — Gestão de Equipamentos e Certificados')
+    body_para(doc,
+        'O Módulo Lab é um conjunto de ferramentas complementares ao sistema CISPR 15 LABELO, '
+        'voltado para a gestão do laboratório EMC: cadastro de equipamentos de medição, '
+        'certificados de calibração com grades de correção 2D, checagens intermediárias de '
+        'instrumentos e elaboração de instruções de trabalho / procedimentos de calibração. '
+        'O módulo é acessado pela barra lateral esquerda do sistema e inclui as rotas '
+        '/dashboard, /equipamentos, /certificados, /checagens e /procedimentos.')
+
+    heading_para(doc, '15.1 Dashboard', size=11, bold=True, space_before=8, space_after=3)
+    body_para(doc,
+        'A tela de Dashboard (/dashboard) exibe uma visão consolidada do laboratório '
+        'com quatro indicadores: total de equipamentos cadastrados, normas ativas, '
+        'checagens pendentes (vencendo em ≤ 30 dias) e checagens vencidas. '
+        'Também lista as próximas cinco checagens em ordem de prazo com seus status.')
+
+    add_screenshot(doc, 'lab_dashboard.png',
+        'Dashboard do Módulo Lab — indicadores gerais e próximas checagens')
+
+    # ══════════════════════════════════════════════════════════════════════
+    # 16. EQUIPAMENTOS
+    # ══════════════════════════════════════════════════════════════════════
+    page_break(doc)
+    section_bar(doc, '16. Equipamentos — Cadastro e Gestão')
+    body_para(doc,
+        'A tela de Equipamentos (/equipamentos) permite cadastrar e gerenciar todos os '
+        'instrumentos do laboratório EMC. Cada equipamento possui uma TAG identificadora '
+        'única e é classificado por grupo e subgrupo.')
+
+    heading_para(doc, '16.1 Grupos e Subgrupos', size=11, bold=True, space_before=8, space_after=3)
+    body_para(doc,
+        'Os equipamentos são organizados nos seguintes grupos:')
+    bullet(doc, 'Geradores de sinal — ex.: geradores de RF, fontes de ruído.')
+    bullet(doc, 'Medidores — receptores EMI, multímetros, osciloscópios.')
+    bullet(doc, 'Redes de Impedância (LISN) — redes de impedância de linha.')
+    bullet(doc, 'Antenas — antenas de ensaio e calibradas.')
+    bullet(doc, 'Atenuação — atenuadores, cabos, acopladores.')
+    bullet(doc, 'Grandezas Ambientais — termômetros, higrômetros.')
+
+    heading_para(doc, '16.2 Dados do Equipamento', size=11, bold=True, space_before=8, space_after=3)
+    body_para(doc, 'Cada equipamento registra:')
+    bullet(doc, 'TAG: identificador único (ex.: GEN-001, ANT-003).')
+    bullet(doc, 'Nome, fabricante, modelo e número de série.')
+    bullet(doc, 'Grupo e subgrupo de classificação.')
+    bullet(doc, 'Data de próxima calibração e status (Ativo / Calibrar / Fora de uso).')
+    bullet(doc, 'Certificados de calibração vinculados.')
+
+    add_screenshot(doc, 'lab_equipamentos.png',
+        'Tela de Equipamentos — lista por grupo com indicador de status')
+
+    # ══════════════════════════════════════════════════════════════════════
+    # 17. CERTIFICADOS DE CALIBRAÇÃO
+    # ══════════════════════════════════════════════════════════════════════
+    page_break(doc)
+    section_bar(doc, '17. Certificados de Calibração — Grade 2D')
+    body_para(doc,
+        'A tela de Certificados (/certificados) gerencia os certificados de calibração '
+        'acreditados (ABNT NBR ISO/IEC 17025) dos padrões do laboratório. Cada certificado '
+        'pode conter uma grade de correção 2D usada para interpolação bilinear nas checagens '
+        'intermediárias.')
+
+    heading_para(doc, '17.1 Importação via PDF (OCR)', size=11, bold=True, space_before=8, space_after=3)
+    body_para(doc,
+        'O sistema aceita certificados em PDF (ex.: LABELO/PUCRS, modelo Agilent N5171B). '
+        'O arquivo é processado com pdf-parse com agrupamento espacial de pixels, '
+        'extraindo as tabelas de calibração com separação de colunas por tabulação. '
+        'A página de capa é ignorada automaticamente; todas as demais páginas são processadas, '
+        'incluindo tabelas de distorção harmônica e de varredura de frequência.')
+    body_para(doc,
+        'O parser identifica automaticamente:')
+    bullet(doc, 'Número do certificado e TAG do equipamento.')
+    bullet(doc, 'Cabeçalhos de tabela com VR (valor de referência / UST) e MM (valor medido / UMP).')
+    bullet(doc, 'Parâmetros (ex.: "Linearidade", "Distorção Harmônica") como nome da tabela.')
+    bullet(doc, '"Medição de ..." como grandeza (ex.: "Potência", "Frequência").')
+    bullet(doc, 'Correção calculada automaticamente: Correção = VR − MM.')
+    bullet(doc, 'Incerteza (IM) detectada no cabeçalho ou pela heurística de coluna adjacente ao MM.')
+    body_para(doc,
+        'A sub-linha de unidades ("UST(dBm) / UMP(dBm)") é ignorada pelo parser, '
+        'evitando a sobrescrição do cabeçalho correto. Números no formato brasileiro '
+        '("1.000,5" = 1000,5 ; "2.450" = 2450) são reconhecidos automaticamente.',
+        italic=True)
+
+    heading_para(doc, '17.2 Grade de Correção 2D', size=11, bold=True, space_before=8, space_after=3)
+    body_para(doc,
+        'A grade 2D representa uma função de correção f(Frequência, Nível) ou f(VR, Nível), '
+        'com pontos agrupados por parâmetro (tabela). Para uso nas checagens, o sistema '
+        'realiza interpolação bilinear sobre a grade para calcular a correção no ponto '
+        'exato de frequência e nível solicitado, mesmo que não conste explicitamente no '
+        'certificado. A tela exibe os pontos em tabela com colunas: Frequência (eixo 1), '
+        'Nível VR (eixo 2), MM, Correção (VR−MM) e Incerteza.')
+
+    add_screenshot(doc, 'lab_certificado_grade.png',
+        'Certificado com grade 2D — tabela de pontos por parâmetro e grade de correção')
+
+    # ══════════════════════════════════════════════════════════════════════
+    # 18. CHECAGENS INTERMEDIÁRIAS
+    # ══════════════════════════════════════════════════════════════════════
+    page_break(doc)
+    section_bar(doc, '18. Checagens Intermediárias — Controle de Instrumentos')
+    body_para(doc,
+        'A tela de Checagens (/checagens) controla as verificações intermediárias periódicas '
+        'dos instrumentos de medição, conforme exigido pelo sistema da qualidade '
+        'ABNT NBR ISO/IEC 17025:2017. As checagens são organizadas em três categorias: '
+        'Vencidas, Vencendo nos próximos 30 dias e Em dia.')
+
+    heading_para(doc, '18.1 Tipos de Checagem', size=11, bold=True, space_before=8, space_after=3)
+    body_para(doc, 'Existem dois modos de registro:')
+    bullet(doc, 'Do certificado: seleciona um ponto já existente no certificado do padrão. O valor de referência (VR) e a incerteza são preenchidos automaticamente a partir da grade 2D.')
+    bullet(doc, 'Manual com interpolação: o operador define um ponto não calibrado (frequência e nível). O sistema interpola bilinearmente a correção e calcula o VR automaticamente.')
+
+    heading_para(doc, '18.2 Dados de uma Checagem', size=11, bold=True, space_before=8, space_after=3)
+    body_para(doc, 'Cada checagem registra:')
+    bullet(doc, 'TAG do equipamento verificado e certificado do padrão utilizado.')
+    bullet(doc, 'Data de realização e data da próxima checagem.')
+    bullet(doc, 'Norma de referência (ex.: ABNT NBR ISO/IEC 17025).')
+    bullet(doc, 'Valor de referência (VR), valor medido (MM) e correção aplicada.')
+    bullet(doc, 'Status calculado automaticamente: APROVADO, ATENÇÃO ou REPROVADO.')
+    bullet(doc, 'Observações do técnico.')
+
+    heading_para(doc, '18.3 Templates de Checagem', size=11, bold=True, space_before=8, space_after=3)
+    body_para(doc,
+        'A tela de Templates (/checagens/templates) permite criar modelos reutilizáveis de '
+        'checagem, pré-configurados com equipamento, parâmetros e periodicidade. '
+        'Facilita o registro de checagens recorrentes com um clique.')
+
+    add_screenshot(doc, 'lab_checagens.png',
+        'Tela de Checagens — lista por status com indicador de prazo')
+
+    # ══════════════════════════════════════════════════════════════════════
+    # 19. NORMAS
+    # ══════════════════════════════════════════════════════════════════════
+    page_break(doc)
+    section_bar(doc, '19. Normas — Banco de Normas Técnicas')
+    body_para(doc,
+        'A tela de Normas (/normas) gerencia o banco de normas técnicas utilizadas nos '
+        'ensaios e calibrações do laboratório. Permite cadastrar normas com número, '
+        'título, organismo publicador (ABNT, IEC, CISPR, etc.), edição, ano e '
+        'situação (vigente, substituída, cancelada). '
+        'O dashboard exibe o total de normas ativas como indicador de referência.')
+
+    # ══════════════════════════════════════════════════════════════════════
+    # 20. PROCEDIMENTOS — IT e PC
+    # ══════════════════════════════════════════════════════════════════════
+    page_break(doc)
+    section_bar(doc, '20. Procedimentos — Instruções de Trabalho e Procedimentos de Calibração')
+    body_para(doc,
+        'O módulo de Procedimentos (/procedimentos) centraliza a criação e gestão de '
+        'Instruções de Trabalho (IT) e Procedimentos de Calibração (PC) no formato '
+        'padrão LABELO.')
+
+    heading_para(doc, '20.1 Editor de IT / PC', size=11, bold=True, space_before=8, space_after=3)
+    body_para(doc,
+        'O editor de documentos (/procedimentos/instrucoes/novo) oferece um ambiente '
+        'estruturado para elaboração de documentos técnicos com os seguintes elementos:')
+    bullet(doc, 'Seções numeradas com hierarquia (1, 1.1, 1.1.1).')
+    bullet(doc, 'Parágrafos de texto justificado.')
+    bullet(doc, 'Listas com marcadores e listas de passos numerados.')
+    bullet(doc, 'Imagens embutidas com legenda.')
+    bullet(doc, 'Tabelas com cabeçalho e linhas alternadas.')
+    bullet(doc, 'Blocos de destaque (NOTA, ATENÇÃO, AVISO).')
+    bullet(doc, 'Siglas e definições com glossário automático.')
+
+    heading_para(doc, '20.2 Lista de Documentos', size=11, bold=True, space_before=8, space_after=3)
+    body_para(doc,
+        'A tela /procedimentos/instrucoes lista todos os documentos cadastrados com número, '
+        'título, revisão e data. Documentos podem ser editados, revisados (incremento '
+        'automático do número de revisão) ou excluídos.')
+
+    add_screenshot(doc, 'lab_procedimentos.png',
+        'Módulo Procedimentos — visão geral com acesso a checagens e editor de IT/PC')
+
+    # ══════════════════════════════════════════════════════════════════════
+    # 21. SIDEBAR DE NAVEGAÇÃO DO MÓDULO LAB
+    # ══════════════════════════════════════════════════════════════════════
+    page_break(doc)
+    section_bar(doc, '21. Navegação — Sidebar do Módulo Lab')
+    body_para(doc,
+        'A barra lateral (sidebar) do Módulo Lab provê acesso rápido a todos os recursos. '
+        'É exibida em todas as telas do módulo e organizada em seções:')
+
+    tbl_nav = doc.add_table(rows=9, cols=2)
+    tbl_nav.style = 'Table Grid'
+    tbl_nav.alignment = WD_TABLE_ALIGNMENT.LEFT
+    nav_itens = [
+        ('Dashboard',                  '/dashboard — visão consolidada com indicadores e próximas checagens'),
+        ('Equipamentos',               '/equipamentos — lista e cadastro de instrumentos por grupo'),
+        ('Certificados',               '/certificados — certificados de calibração com grade 2D'),
+        ('Checagens',                  '/checagens — registro e controle de checagens intermediárias'),
+        ('Normas',                     '/normas — banco de normas técnicas do laboratório'),
+        ('Procedimentos',              '/procedimentos — hub de checagens e editor de IT/PC'),
+        ('Instruções de Trabalho',     '/procedimentos/instrucoes — lista de documentos IT/PC'),
+        ('Relatórios CISPR 15',        '/cispr15 — retorna ao formulário principal de emissão'),
+    ]
+    for j, h in enumerate(['Seção', 'Descrição']):
+        c = tbl_nav.cell(0, j)
+        set_cell_bg(c, BG_DARK)
+        p = c.paragraphs[0]; p.paragraph_format.left_indent = Cm(0.2)
+        add_run(p, h, bold=True, size=9.5, color=WHITE)
+    for i, (sec, desc) in enumerate(nav_itens, 1):
+        row_bg = BG_ALT if i % 2 == 0 else 'FFFFFF'
+        set_cell_bg(tbl_nav.cell(i, 0), row_bg)
+        set_cell_bg(tbl_nav.cell(i, 1), row_bg)
+        p0 = tbl_nav.cell(i, 0).paragraphs[0]; p0.paragraph_format.left_indent = Cm(0.2)
+        add_run(p0, sec, bold=True, size=9)
+        p1 = tbl_nav.cell(i, 1).paragraphs[0]; p1.paragraph_format.left_indent = Cm(0.2)
+        add_run(p1, desc, size=9)
+
+    doc.add_paragraph()
+    page_break(doc)
+
+    # ══════════════════════════════════════════════════════════════════════
+    # 22. OBSERVAÇÕES FINAIS E ASSINATURAS
+    # ══════════════════════════════════════════════════════════════════════
+    page_break(doc)
+    section_bar(doc, '22. Declaração de Validação e Assinaturas')
     body_para(doc,
         'Com base nos testes realizados e documentados neste manual, declara-se que o '
         'software CISPR 15 LABELO atende aos requisitos operacionais do laboratório e está '

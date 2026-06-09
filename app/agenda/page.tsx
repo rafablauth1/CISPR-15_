@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import { registrarTempo } from '@/lib/tempos'
 import {
   ArrowLeft, ArrowRight, Plus, Search, X, CheckCircle2, XCircle, Clock, Edit2,
   Trash2, ChevronDown, ChevronUp, FileText, Loader2, Download,
@@ -292,6 +293,15 @@ function ItemModal({ item, onSave, onClose, clientes, customTags, onCustomTagsCh
     clienteRua: '', clienteCidade: '', clienteCep: '', documentacao: '', tags: [],
     ...item,
   })
+  // métrica: tempo de preenchimento dos dados da amostra no cadastro
+  const abertoEm = useRef(Date.now())
+  function salvar() {
+    const dur = Date.now() - abertoEm.current
+    if (dur >= 4_000 && dur <= 2 * 3_600_000) {
+      registrarTempo({ tipo: 'agenda', protocolo: form.protocolo, duracaoMs: dur })
+    }
+    onSave(form)
+  }
   const [showDUT, setShowDUT] = useState(
     !!(item.fabricante || item.modelo || item.potencia || item.tensaoAlim)
   )
@@ -815,7 +825,7 @@ function ItemModal({ item, onSave, onClose, clientes, customTags, onCustomTagsCh
             className="px-4 py-2 rounded-lg border border-white/10 text-white/40 hover:text-white/70 text-sm transition-all">
             Cancelar
           </button>
-          <button type="button" onClick={() => onSave(form)}
+          <button type="button" onClick={salvar}
             className="btn-primary px-6 py-2 text-sm font-bold flex items-center gap-2">
             <CheckCircle2 size={13} /> Salvar
           </button>

@@ -154,6 +154,44 @@ export function docxTemFail(html?: string | null): boolean {
   return /\bfail\b/i.test(txt) || /\breprovad/i.test(txt) || /n[ãa]o[\s-]+conforme/i.test(txt)
 }
 
+export interface FailInfo {
+  /** Ensaios CISPR 15 onde foi detectada a reprovação (ex.: "Emissão Conduzida") */
+  testes: string[]
+  /** Trechos de texto ao redor de cada "Fail" para o operador localizar a reprovação */
+  trechos: string[]
+}
+
+/* Localiza ONDE está a reprovação no relatório Radimation (HTML do parse-docx):
+   quebra o HTML em blocos, acha os blocos com "Fail" e classifica em qual dos
+   ensaios CISPR 15 (Conduzida / Radiada-Loop / Anexo B) caiu, capturando o
+   trecho de contexto. Usado para devolver a amostra à agenda já marcando o ensaio. */
+export function docxOndeFail(html?: string | null): FailInfo | null {
+  if (!html) return null
+  const FAIL = /\bfail\b|\breprovad|n[ãa]o[\s-]+conforme/i
+  const txt = html
+    .replace(/<\s*(br|\/p|\/tr|\/td|\/th|\/table|\/div|\/h[1-6])\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/[ \t]+/g, ' ')
+  const linhas = txt.split('\n').map(l => l.trim()).filter(Boolean)
+  const cats = new Set<string>()
+  const trechos: string[] = []
+  const classificar = (s: string) => {
+    if (/condu|conducted|terminal|disturbance voltage|tens[ãa]o de perturba/i.test(s)) cats.add('Emissão Conduzida')
+    if (/radiat|loop|magnetic|campo magn|antenna|9\s*khz|30\s*mhz/i.test(s)) cats.add('Emissão Radiada (Loop)')
+    if (/insertion loss|anexo\s*b|perda de inser/i.test(s)) cats.add('Anexo B (Insertion Loss)')
+  }
+  linhas.forEach((l, i) => {
+    if (!FAIL.test(l)) return
+    const ctx = [linhas[i - 1], l, linhas[i + 1]].filter(Boolean).join(' · ').replace(/\s+/g, ' ').trim()
+    if (ctx) trechos.push(ctx.slice(0, 160))
+    classificar([linhas[i - 2], linhas[i - 1], l, linhas[i + 1]].filter(Boolean).join(' '))
+  })
+  if (trechos.length === 0) return null
+  return { testes: [...cats], trechos: trechos.slice(0, 6) }
+}
+
 export interface AmendmentChange {
   marker: number
   campo: string

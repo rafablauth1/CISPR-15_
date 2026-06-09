@@ -10,9 +10,9 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
-  type LoteAmostra, type LoteConfig, type Cispr15Config, type RelatorioSalvo, type EquipamentoSalvo,
-  newAmostra, LOTE_KEY, RELATORIOS_KEY, CFG_KEY, PHOTOS_KEY, DOCX_HTML_KEY, DOCX_NAME_KEY, EQUIPAMENTOS_KEY, RELATORIO_DOCX_PFX, AGENDA_KEY,
-  AUTH_KEY, SETTINGS_KEY, docxTemFail,
+  type LoteAmostra, type LoteConfig, type Cispr15Config, type RelatorioSalvo, type EquipamentoSalvo, type AgendaItem,
+  newAmostra, today, LOTE_KEY, RELATORIOS_KEY, CFG_KEY, PHOTOS_KEY, DOCX_HTML_KEY, DOCX_NAME_KEY, EQUIPAMENTOS_KEY, RELATORIO_DOCX_PFX, AGENDA_KEY,
+  AUTH_KEY, SETTINGS_KEY, docxTemFail, docxOndeFail,
 } from '../types'
 
 /* ─── helpers ─────────────────────────────────────────────────────────────── */
@@ -438,7 +438,7 @@ export default function LotePage() {
   const [lote,        setLote]        = useState<LoteConfig | null>(null)
   const [expanded,    setExpanded]    = useState<number | null>(0)
   const [emitindo,    setEmitindo]    = useState(false)
-  const [resultado,   setResultado]   = useState<{ reprovados: number[]; checked: boolean; autoRemoved: boolean } | null>(null)
+  const [resultado,   setResultado]   = useState<{ reprovados: { protocolo: string; testes: string[]; trechos: string[] }[]; total: number; checked: boolean } | null>(null)
   const [emitidos,    setEmitidos]    = useState<Record<number, string>>({}) // index → numRelatorio
   const [equipamentos,setEquipamentos] = useState<EquipamentoSalvo[]>([])
   const [emitModal,   setEmitModal]   = useState<{ conformes: number; reprovadosNomes: string[] } | null>(null)
@@ -585,7 +585,64 @@ export default function LotePage() {
     saveLote({ ...lote, amostras: lote.amostras.map((x, j) => j === i ? a : x) })
   }
 
-  function verificarConformidade() {
+  /* Monta um item de agenda a partir de uma amostra do lote (para devolvê-la). */
+  function amostraParaAgenda(am: LoteAmostra): AgendaItem {
+    return {
+      id: crypto.randomUUID(),
+      tipo: lote?.tipo ?? 'lampada',
+      protocolo: am.protocolo, orcamento: am.orcamento,
+      cliente: lote?.cliente ?? '', clienteRua: lote?.clienteRua, clienteCidade: lote?.clienteCidade, clienteCep: lote?.clienteCep,
+      produto: am.produto, fabricante: am.fabricante, modelo: am.modelo, identificador: am.identificador,
+      potencia: am.potencia, tensaoAlim: am.tensaoAlim, frequencia: am.frequencia,
+      documentacao: 'embalagem com especificações',
+      temDriver: am.temDriver,
+      driverProduto: am.driverProduto, driverFabricante: am.driverFabricante, driverModelo: am.driverModelo,
+      driverIdentificador: am.driverIdentificador, driverPotencia: am.driverPotencia,
+      driverTensaoAlim: am.driverTensaoAlim, driverFrequencia: am.driverFrequencia,
+      driverOrcamento: am.driverOrcamento, driverProtocolo: am.driverProtocolo,
+      dataEntrada: am.periodoInicio || today(), previsaoSaida: am.periodoFim || today(),
+      dataEmissao: '', numRelatorio: '', responsavel: lote?.responsavel ?? '',
+      statusConduzida: 'pendente', statusLoop: 'pendente', statusAnexoB: 'pendente',
+      observacoes: '',
+    }
+  }
+
+  /* Devolve uma amostra reprovada para a agenda (não some dela): marca o ensaio
+     onde caiu a reprovação, registra a nota nas observações e zera numRelatorio
+     (volta a ficar pendente de re-ensaio). Cria o item se não existir mais. */
+  async function retornarReprovadoParaAgenda(am: LoteAmostra, testes: string[], trechos: string[]) {
+    try {
+      const proto = (am.protocolo || '').trim().toLowerCase()
+      if (!proto) return
+      const api = (window as any).electronAPI
+      let lista: AgendaItem[] = []
+      if (api) { const r = await api.getAgenda().catch(() => null); if (r?.ok && Array.isArray(r.agenda)) lista = r.agenda }
+      if (!lista.length) { const raw = localStorage.getItem(AGENDA_KEY); if (raw) { try { lista = JSON.parse(raw) } catch {} } }
+
+      const nota = `⚠ Reprovado no lote (${new Date().toLocaleDateString('pt-BR')})`
+        + (testes.length ? ` — ${testes.join(', ')}` : '')
+        + (trechos.length ? `: ${trechos.join(' | ')}` : '')
+      const aplicar = (item: AgendaItem): AgendaItem => ({
+        ...item,
+        numRelatorio: '', dataEmissao: '', pdfPath: undefined,   // volta à agenda (não emitido)
+        statusConduzida: testes.some(t => /Conduzida/i.test(t)) ? 'reprovado' : item.statusConduzida,
+        statusLoop:      testes.some(t => /Loop|Radiada/i.test(t)) ? 'reprovado' : item.statusLoop,
+        statusAnexoB:    testes.some(t => /Anexo B/i.test(t)) ? 'reprovado' : item.statusAnexoB,
+        observacoes: [item.observacoes?.trim(), nota].filter(Boolean).join('\n'),
+        tags: Array.from(new Set([...(item.tags ?? []), 'reprovado'])),
+      })
+
+      const existe = lista.some(it => it.protocolo?.trim().toLowerCase() === proto)
+      const updated = existe
+        ? lista.map(it => it.protocolo?.trim().toLowerCase() === proto ? aplicar(it) : it)
+        : [...lista, aplicar(amostraParaAgenda(am))]
+
+      if (api) await api.saveAgenda(updated).catch(() => null)
+      localStorage.setItem(AGENDA_KEY, JSON.stringify(updated))
+    } catch {}
+  }
+
+  async function verificarConformidade() {
     if (!lote) return
     // Auto-avalia cada amostra que tenha docx: "Fail" no relatório Radimation → reprovado.
     // Amostras sem docx mantêm o valor de conformidade definido manualmente.
@@ -594,15 +651,24 @@ export default function LotePage() {
         ? { ...a, conformidade: (docxTemFail(a.docxHtml) ? 'reprovado' : 'conforme') as LoteAmostra['conformidade'] }
         : a
     )
-    const reprovadosIdx = avaliadas
+    const reprovados = avaliadas
       .map((a, i) => ({ a, i }))
       .filter(({ a }) => a.conformidade === 'reprovado')
-      .map(({ i }) => i)
-    setResultado({ reprovados: reprovadosIdx, checked: true, autoRemoved: reprovadosIdx.length > 0 })
+
+    // Para cada reprovado: descobre onde caiu a reprovação e devolve à agenda
+    const detalhes: { protocolo: string; testes: string[]; trechos: string[] }[] = []
+    for (const { a } of reprovados) {
+      const info = docxOndeFail(a.docxHtml)
+      const testes  = info?.testes  ?? []
+      const trechos = info?.trechos ?? []
+      detalhes.push({ protocolo: a.protocolo || '(sem protocolo)', testes, trechos })
+      await retornarReprovadoParaAgenda(a, testes, trechos)
+    }
+
+    setResultado({ reprovados: detalhes, total: avaliadas.length, checked: true })
     // Persiste a avaliação (badges atualizam) e remove reprovados do lote
-    const novas = reprovadosIdx.length > 0
-      ? avaliadas.filter((_, i) => !reprovadosIdx.includes(i))
-      : avaliadas
+    const idx = new Set(reprovados.map(({ i }) => i))
+    const novas = idx.size > 0 ? avaliadas.filter((_, i) => !idx.has(i)) : avaliadas
     saveLote({ ...lote, qtd: Math.max(1, novas.length), amostras: novas })
   }
 
@@ -896,19 +962,33 @@ export default function LotePage() {
             ? 'border-red/20 bg-red/8 text-red-400'
             : 'border-green/20 bg-green/8 text-green-400'
         )}>
-          {resultado.reprovados.length === 0 && !resultado.autoRemoved ? (
+          {resultado.reprovados.length === 0 ? (
             <span className="flex items-center gap-2">
               <ShieldCheck size={14} /> Todas as amostras estão conformes.
-            </span>
-          ) : resultado.autoRemoved ? (
-            <span className="flex items-center gap-2">
-              <ShieldX size={14} />
-              {resultado.reprovados.length} amostra(s) reprovada(s) removida(s) do lote automaticamente.
             </span>
           ) : (
-            <span className="flex items-center gap-2">
-              <ShieldCheck size={14} /> Todas as amostras estão conformes.
-            </span>
+            <div className="space-y-2">
+              <span className="flex items-center gap-2 font-medium">
+                <ShieldX size={14} />
+                {resultado.reprovados.length} amostra(s) reprovada(s) removida(s) do lote e devolvida(s) à agenda:
+              </span>
+              <ul className="space-y-1.5 pl-1">
+                {resultado.reprovados.map((r, k) => (
+                  <li key={`${r.protocolo}-${k}`} className="border-l-2 border-red/30 pl-2.5">
+                    <span className="font-mono font-semibold text-red-300">Protocolo {r.protocolo}</span>
+                    {r.testes.length > 0
+                      ? <span className="text-red-400/90"> — reprovação em: <b>{r.testes.join(', ')}</b></span>
+                      : <span className="text-red-400/60"> — ensaio não identificado automaticamente</span>}
+                    {r.trechos.length > 0 && (
+                      <div className="text-[11px] text-white/45 mt-0.5 leading-snug">{r.trechos.join('  ·  ')}</div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              <span className="text-[11px] text-white/40 block pt-0.5">
+                As amostras voltaram à agenda como pendentes, com o ensaio reprovado marcado nas observações.
+              </span>
+            </div>
           )}
         </div>
       )}

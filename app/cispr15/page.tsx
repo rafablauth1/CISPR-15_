@@ -20,6 +20,7 @@ import {
 import { ClientesTab }     from './ClientesTab'
 import { RelatoriosTab }   from './RelatoriosTab'
 import { EmendasTab }      from './EmendasTab'
+import { iniciarMarcador, iniciarMarcadorSeAusente } from '@/lib/tempos'
 
 /* ─── helpers ─────────────────────────────────────────────────────────────── */
 async function resizeToBase64(file: File, maxW = 1024): Promise<{ base64: string; url: string }> {
@@ -119,6 +120,8 @@ export default function Cispr15ConfigPage() {
   }, [])
 
   useEffect(() => {
+    // Marca abertura do formulário de emissão (métrica de tempo até gerar o PDF)
+    iniciarMarcadorSeAusente('emissao')
     // Sessão nova: limpa o formulário ao reiniciar o app
     const isFresh = !sessionStorage.getItem(SESSION_KEY)
     if (isFresh) {
@@ -334,6 +337,7 @@ export default function Cispr15ConfigPage() {
     setPhotos([])
     setDocx({ loading: false, html: null, filename: null })
     setLocked(false)
+    iniciarMarcador('emissao') // reinicia o cronômetro para a nova emissão
   }
 
   function limparDados() {

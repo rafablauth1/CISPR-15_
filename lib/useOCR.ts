@@ -18,6 +18,15 @@ function getElectronAPI(): ElectronAPI | null {
 }
 
 export async function extrairTextoArquivo(file: File): Promise<string> {
+  if (file.type === 'text/plain' || file.name.toLowerCase().endsWith('.txt')) {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as string)
+      reader.onerror = () => reject(new Error('Erro ao ler arquivo de texto.'))
+      reader.readAsText(file)
+    })
+  }
+
   const base64 = await fileToBase64(file)
   const api = getElectronAPI()
 

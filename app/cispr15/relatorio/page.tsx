@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, Printer, Upload, X, Loader2, FolderOpen, PenLine, CheckCircle2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { finalizarMarcador, registrarTempo } from '@/lib/tempos'
 import {
   type Cispr15Config, type EmendaDraft, type RelatorioSalvo,
   getTensoes, CFG_KEY, PHOTOS_KEY, DOCX_HTML_KEY, DOCX_NAME_KEY,
@@ -836,6 +837,8 @@ export default function Cispr15RelatorioPage() {
                 const result = await api.salvarPDFNaEut(filename, folderPath)
                 if (result.ok) {
                   setSavedFile(result.filePath ?? filename)
+                  const dur = finalizarMarcador('emissao')
+                  if (dur != null) registrarTempo({ tipo: 'emissao', protocolo: cfg.protocolo, numRelatorio: displayNum || cfg.numRelatorio, duracaoMs: dur })
                   if (result.usedDocuments) {
                     alert(`A pasta da EUT não foi encontrada.\nO PDF foi salvo em Documentos:\n${result.filePath ?? filename}`)
                   }
@@ -871,6 +874,8 @@ export default function Cispr15RelatorioPage() {
               document.body.removeChild(a)
               setTimeout(() => URL.revokeObjectURL(url), 1000)
               setSavedFile(filename)
+              const dur = finalizarMarcador('emissao')
+              if (dur != null) registrarTempo({ tipo: 'emissao', protocolo: cfg.protocolo, numRelatorio: displayNum || cfg.numRelatorio, duracaoMs: dur })
               if (emendaDraft) await commitEmenda(emendaDraft, cfg ?? undefined)
             } catch (err: any) {
               const s = (v: string) => (v ?? '').replace(/[/\\:*?"<>|\s]/g, '_').replace(/_+/g, '_')

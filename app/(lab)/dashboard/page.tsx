@@ -5,9 +5,11 @@ import Link from 'next/link'
 import {
   Cpu, BookOpen, ClipboardCheck, AlertTriangle, ChevronRight, ArrowRight,
   Calendar, FileText, Settings, ShieldCheck, Clock, GitBranch,
+  Timer, Hourglass,
 } from 'lucide-react'
 import { fmt, diasAte } from '@/lib/utils'
 import { RELATORIOS_KEY, AGENDA_KEY } from '@/app/cispr15/types'
+import { lerTempos, mediaDuracao, formatDuracao, type TempoTrabalho } from '@/lib/tempos'
 import { DonutChart, BarChart, HBarChart, ChartCard } from '@/components/Charts'
 import type { EquipamentoEMC } from '@/lib/equipamentos/tipos'
 import type { Checagem } from '@/lib/checagens/tipos'
@@ -121,6 +123,7 @@ export default function DashboardPage() {
   const [relatorios, setRelatorios] = useState<any[]>([])
   const [agenda,     setAgenda]     = useState<any[]>([])
   const [ano,        setAno]        = useState<number>(new Date().getFullYear())
+  const [tempos,     setTempos]     = useState<TempoTrabalho[]>([])
 
   useEffect(() => {
     Promise.all([
@@ -135,6 +138,7 @@ export default function DashboardPage() {
 
     loadList('getRelatorios', 'relatorios', RELATORIOS_KEY).then(setRelatorios)
     loadList('getAgenda',     'agenda',     AGENDA_KEY).then(setAgenda)
+    setTempos(lerTempos())
   }, [])
 
   // Anos disponíveis (dos relatórios) + ano atual, ordenados desc
@@ -185,6 +189,14 @@ export default function DashboardPage() {
     return { media, atrasos, amostra: dias.length }
   }, [relatoriosAno])
 
+  // Tempos de trabalho do ano: emissão (form → PDF) e cadastro de amostra na agenda
+  const trabalhoStats = useMemo(() => {
+    const doAno = tempos.filter(t => new Date(t.data).getFullYear() === ano)
+    const emissao = mediaDuracao(doAno, 'emissao')
+    const agendaT = mediaDuracao(doAno, 'agenda')
+    return { emissao, agendaT }
+  }, [tempos, ano])
+
   const vencidas  = checagens.filter(c => c.status === 'reprovado').length
   const pendentes = checagens.filter(c => c.status === 'atencao').length
   const emDia     = checagens.length - vencidas - pendentes
@@ -233,6 +245,18 @@ export default function DashboardPage() {
         <StatCard icon={<Clock size={18} />} label="Tempo médio de saída"
           value={tempoStats.media !== null ? `${tempoStats.media}d` : '—'} sub={`base: ${tempoStats.amostra} relatórios`} color="#34D399" />
         <StatCard icon={<AlertTriangle size={18} />} label={`Atrasos (>${PRAZO_ATRASO_DIAS}d)`} value={tempoStats.atrasos} color="#F59E0B" />
+      </div>
+
+      {/* Marcadores de tempo de trabalho */}
+      <div className="grid grid-cols-2 gap-4 mb-4">
+        <StatCard icon={<Timer size={18} />} label="Tempo médio de emissão"
+          value={formatDuracao(trabalhoStats.emissao.mediaMs)}
+          sub={trabalhoStats.emissao.n ? `${trabalhoStats.emissao.n} emissão(ões) · do formulário ao PDF` : 'sem dados ainda'}
+          color="#9B8CFF" />
+        <StatCard icon={<Hourglass size={18} />} label="Tempo médio de cadastro (amostra)"
+          value={formatDuracao(trabalhoStats.agendaT.mediaMs)}
+          sub={trabalhoStats.agendaT.n ? `${trabalhoStats.agendaT.n} cadastro(s) na agenda` : 'sem dados ainda'}
+          color="#34D399" />
       </div>
 
       {/* Métricas de qualidade/agenda — clicáveis */}
