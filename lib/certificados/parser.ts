@@ -38,9 +38,17 @@ function parsearCertificadoVRMM(linhasRaw: string[]): LinhaCertificado[] {
   }
   const near2     = (x: number) => x >= 1.9 && x <= 2.35      // fator k típico (2,00 / 2,07)
   const temLetras = (l: string) => /[a-zA-ZÀ-ÿ]{4,}/.test(l) // linha de rótulo/legenda
+  // GRANDEZA = cabeçalho "Medição de …" antes da tabela; "Parâmetro:" = nome da tabela
+  const reGrand   = /^medi[çc][ãa]o\s+de\b|^medi[çc][õo]es\s+de\b|^calibra[çc][ãa]o\s+de\b/i
 
   const inicios: number[] = []
-  linhas.forEach((l, i) => { if (ehParam(l)) inicios.push(i) })
+  const grandezaDe: Record<number, string> = {}
+  let curG = ''
+  linhas.forEach((l, i) => {
+    const t = l.trim()
+    if (reGrand.test(t)) curG = t
+    if (ehParam(l)) { inicios.push(i); grandezaDe[i] = curG }
+  })
 
   const res: LinhaCertificado[] = []
   let pnt = 0
@@ -49,7 +57,8 @@ function parsearCertificadoVRMM(linhasRaw: string[]): LinhaCertificado[] {
     let fim = s + 1 < inicios.length ? inicios[s + 1] : linhas.length
     for (let i = ini; i < fim; i++) { if (ehLegenda(linhas[i])) { fim = i; break } }
     const bloco = linhas.slice(ini, fim)
-    const grandeza = (bloco[0].replace(/^par[âa]metro\s*:?\s*/i, '') || '').trim()
+    const parametro = (bloco[0].replace(/^par[âa]metro\s*:?\s*/i, '') || '').trim()
+    const grandeza = grandezaDe[ini] || parametro
 
     // unidade da grandeza (a MM define) — UMP (xxx); evita pegar a freq (GHz/MHz)
     const headerTxt = bloco.slice(0, 14).join(' ')
@@ -250,6 +259,53 @@ export function parsearCertificado(texto: string): LinhaCertificado[] {
   }
 
   return resultado
+}
+
+export interface DadosPadrao {
+  nome?: string
+  fabricante?: string
+  modelo?: string
+  serie?: string
+  tag?: string
+  protocolo?: string
+  numeroCertificado?: string
+  labCalibracao?: string
+  ultimaCalibracao?: string  // ISO yyyy-mm-dd (data final do período)
+}
+
+/* Extrai os dados do PADRÃO da 1ª página do certificado (bloco "Características
+   da Unidade Sob Teste"): Nome, Fabricante, Modelo, Nº de Série, TAG, Protocolo,
+   período de calibração. Usado para pré-preencher o cadastro de equipamento. */
+export function parsearDadosPadrao(texto: string): DadosPadrao {
+  const t = texto.replace(/ /g, ' ').replace(/\s+/g, ' ').trim()
+  const pick = (re: RegExp): string | undefined => {
+    const m = t.match(re)
+    const v = m?.[1]?.trim().replace(/[•\-–\s]+$/, '').trim()
+    return v || undefined
+  }
+  // campos entre rótulos (ordem típica: Nome / Protocolo / Fabricante / Nº de Série / Modelo / TAG)
+  const nome       = pick(/\bNome\s*:?\s*(.+?)\s*(?:Protocolo|Fabricante|N[º°o]?\s*de\s*S[ée]rie|Modelo|TAG)\b/i)
+  const protocolo  = pick(/\bProtocolo\s*N?[º°o.]*\s*:?\s*([A-Za-z0-9.\-/]+)/i)
+  const fabricante = pick(/\bFabricante\s*:?\s*(.+?)\s*(?:N[º°o]?\s*de\s*S[ée]rie|Modelo|TAG|Protocolo)\b/i)
+  const serie      = pick(/\bN[º°o]?\s*de\s*S[ée]rie\s*:?\s*([A-Za-z0-9.\-/]+)/i)
+  const modelo     = pick(/\bModelo\s*:?\s*(.+?)\s*(?:TAG|N[º°o]?\s*de\s*S[ée]rie|Fabricante|Procedimento|Caracter)\b/i)
+  const tag        = pick(/\bTAG\s*:?\s*([A-Za-z0-9]+)/i)
+  const labCalibracao = /LABELO/i.test(t) ? 'LABELO/PUCRS' : undefined
+
+  // número do certificado (no topo, ex.: "Certificado ... Nº R0047/2025"); evita
+  // confundir com os certificados dos padrões listados depois.
+  const head = t.slice(0, 600)
+  const numeroCertificado = (head.match(/N[º°o]\s*([A-Z]\d{3,4}\/\d{4})/i)?.[1]
+    || head.match(/\b([A-Z]\d{3,4}\/\d{4})\b/)?.[1] || '').trim() || undefined
+
+  // período de calibração → última data (yyyy-mm-dd)
+  let ultimaCalibracao: string | undefined
+  const per = t.match(/Per[íi]odo de calibra[çc][ãa]o\s*:?\s*(\d{2}\/\d{2}\/\d{4})(?:\s+(?:a\s+)?(\d{2}\/\d{2}\/\d{4}))?/i)
+  if (per) {
+    const [dd, mm, yy] = (per[2] || per[1]).split('/')
+    ultimaCalibracao = `${yy}-${mm}-${dd}`
+  }
+  return { nome, fabricante, modelo, serie, tag, protocolo, numeroCertificado, labCalibracao, ultimaCalibracao }
 }
 
 /**

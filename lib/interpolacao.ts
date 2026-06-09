@@ -287,9 +287,18 @@ export function parsearCertificadoRBC(texto: string): {
     // parâmetros de valor MÍNIMO: o equipamento deve ATINGIR pelo menos o VR
     // (reflexão / perda de retorno) — MM ≥ VR significa que já atende (apto)
     const ehMinSpec = (g: string) => /reflex|perda de retorno|return\s*loss|\bretorno\b/i.test(g)
+    // GRANDEZA = cabeçalho "Medição de …" (centralizado/negrito) que antecede a tabela;
+    // o "Parâmetro:" é o nome da tabela, não a grandeza.
+    const reGrand = /^medi[çc][ãa]o\s+de\b|^medi[çc][õo]es\s+de\b|^calibra[çc][ãa]o\s+de\b/i
 
     const inicios: number[] = []
-    linhas.forEach((l, i) => { if (ehParam(l)) inicios.push(i) })
+    const grandezaDe: Record<number, string> = {}
+    let curG = ''
+    linhas.forEach((l, i) => {
+      const t = l.trim()
+      if (reGrand.test(t)) curG = t
+      if (ehParam(l)) { inicios.push(i); grandezaDe[i] = curG }
+    })
 
     const pts: PontoCalibracao2D[] = []
     let e1U = '', e2U = ''
@@ -297,8 +306,9 @@ export function parsearCertificadoRBC(texto: string): {
       const ini = inicios[s]
       const fim = s + 1 < inicios.length ? inicios[s + 1] : linhas.length
       const bloco = linhas.slice(ini, fim)
-      const grandeza = (bloco[0].replace(/^par[âa]metro\s*:?\s*/i, '') || '').trim()
-      const minSpec = ehMinSpec(grandeza)
+      const parametro = (bloco[0].replace(/^par[âa]metro\s*:?\s*/i, '') || '').trim()
+      const grandeza = grandezaDe[ini] || parametro
+      const minSpec = ehMinSpec(parametro) || ehMinSpec(grandeza)
       const headerTxt = bloco.slice(0, 14).join(' ')
       const uMM = (headerTxt.match(/UMP\s*\(([^)]+)\)/i)?.[1]
         || headerTxt.match(/UST\s*\((?!GHz|MHz|kHz|Hz)([^)]+)\)/i)?.[1] || '').trim()
@@ -330,7 +340,7 @@ export function parsearCertificadoRBC(texto: string): {
               correcao: parseFloat((vr - mm).toPrecision(10)),
               incerteza: isFinite(im) ? im : undefined,
               grandeza: grandeza || undefined,
-              tabela: grandeza || undefined,
+              tabela: parametro || undefined,
               eixo1Unidade: e1u || undefined,
               eixo2Unidade: uMM || undefined,
               casas,

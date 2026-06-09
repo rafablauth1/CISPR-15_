@@ -1,9 +1,11 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Save } from 'lucide-react'
+import { ArrowLeft, Save, ScanText, Loader2 } from 'lucide-react'
 import type { GrupoId, SubgrupoId } from '@/lib/equipamentos/tipos'
+import { parsearDadosPadrao } from '@/lib/certificados/parser'
+import { fileToBase64 } from '@/lib/utils'
 
 interface Subgrupo {
   id: SubgrupoId
@@ -61,6 +63,40 @@ export default function NovoEquipamentoPage() {
   const [form,   setForm]     = useState<FormState>(EMPTY)
   const [saving, setSaving]   = useState(false)
   const [erro,   setErro]     = useState('')
+  const [scanning, setScanning] = useState(false)
+  const [scanMsg,  setScanMsg]  = useState('')
+  const certRef = useRef<HTMLInputElement>(null)
+
+  async function escanearCertificado(file: File) {
+    const api = (window as any).electronAPI
+    if (!api?.extractPdfPage1) { setScanMsg('Disponível apenas no app desktop.'); return }
+    setScanning(true); setScanMsg('')
+    try {
+      const base64 = await fileToBase64(file)
+      const res = await api.extractPdfPage1(base64)
+      if (!res?.ok || !res.text) { setScanMsg('Não foi possível ler a 1ª página do certificado.'); return }
+      const d = parsearDadosPadrao(res.text)
+      setForm(prev => ({
+        ...prev,
+        tag:               d.tag || prev.tag,
+        nome:              d.nome || prev.nome,
+        fabricante:        d.fabricante || prev.fabricante,
+        modelo:            d.modelo || prev.modelo,
+        serie:             d.serie || prev.serie,
+        labCalibracao:     d.labCalibracao || prev.labCalibracao,
+        numeroCertificado: d.numeroCertificado || prev.numeroCertificado,
+        ultimaCalibracao:  d.ultimaCalibracao || prev.ultimaCalibracao,
+      }))
+      const campos = [d.nome && 'nome', d.fabricante && 'fabricante', d.modelo && 'modelo', d.serie && 'série', d.tag && 'tag', d.ultimaCalibracao && 'última calib.'].filter(Boolean)
+      setScanMsg(campos.length
+        ? `✓ Preenchido: ${campos.join(', ')}. Confira os dados e selecione grupo/subgrupo.`
+        : 'Nenhum campo reconhecido — preencha manualmente.')
+    } catch (e: any) {
+      setScanMsg('Erro ao ler certificado: ' + e.message)
+    } finally {
+      setScanning(false)
+    }
+  }
 
   useEffect(() => {
     fetch('/api/grupos').then(r => r.json()).then((g: Grupo[]) => {
@@ -147,6 +183,28 @@ export default function NovoEquipamentoPage() {
       </div>
 
       <form onSubmit={handleSubmit}>
+        {/* Escanear certificado (1ª página → dados do padrão) */}
+        <div className="card p-4 mb-5 border border-teal/15" style={{ background: 'rgba(34,211,200,0.04)' }}>
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex-1 min-w-[200px]">
+              <p className="text-[12px] text-teal/90 font-semibold flex items-center gap-1.5">
+                <ScanText size={13} /> Preencher pelo certificado
+              </p>
+              <p className="text-[10px] text-white/35 mt-0.5">
+                Selecione o PDF do certificado — leio a <b>1ª página</b> e preencho Nome, Fabricante, Modelo, Série, TAG e a calibração.
+              </p>
+            </div>
+            <input ref={certRef} type="file" accept="application/pdf,.pdf" className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) escanearCertificado(f); e.target.value = '' }} />
+            <button type="button" onClick={() => certRef.current?.click()} disabled={scanning}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg border border-teal/30 text-teal text-sm hover:bg-teal/10 transition-all disabled:opacity-50">
+              {scanning ? <Loader2 size={13} className="animate-spin" /> : <ScanText size={13} />}
+              {scanning ? 'Lendo…' : 'Escanear certificado'}
+            </button>
+          </div>
+          {scanMsg && <p className="text-[11px] text-white/55 mt-2">{scanMsg}</p>}
+        </div>
+
         {/* Identificação */}
         <div className="card p-5 mb-5">
           <p className="form-section mb-4">Identificação</p>

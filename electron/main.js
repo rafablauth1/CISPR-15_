@@ -814,6 +814,28 @@ ipcMain.handle('pdf:extract-text', async (_, { base64 }) => {
   }
 })
 
+// Extrai SÓ o texto da 1ª página (dados do padrão p/ cadastro de equipamento)
+ipcMain.handle('pdf:extract-page1', async (_, { base64 }) => {
+  try {
+    const pdfBuffer = Buffer.from(base64, 'base64')
+    const pdfParse  = require('pdf-parse')
+    let first = ''
+    let pn = 0
+    await pdfParse(pdfBuffer, {
+      max: 1,
+      pagerender: (pd) => pd.getTextContent().then(tc => {
+        pn++
+        const txt = (tc.items || []).map(i => i.str).join(' ')
+        if (pn === 1) first = txt
+        return txt
+      }),
+    })
+    return { ok: true, text: first }
+  } catch (err) {
+    return { ok: false, error: String(err) }
+  }
+})
+
 /* ─── IPC: Dados de rede (clientes / relatórios) ─────────────────────────── */
 
 ipcMain.handle('data:get-clientes', () => {
