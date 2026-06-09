@@ -1373,7 +1373,7 @@ export default function Cispr15RelatorioPage() {
           {/* Signatário — em fluxo (margin-top empurra pro fundo). Em fluxo dá
               altura real à página, evitando que o Chromium colapse/descarte a
               última página por ser "fina" (só conteúdo absoluto). */}
-          <div style={{ marginTop: '55mm', display: 'flex', justifyContent: 'center' }}>
+          <div style={{ marginTop: '85mm', display: 'flex', justifyContent: 'center' }}>
             <div style={{ textAlign: 'center', minWidth: 260 }}>
               <div style={{ borderTop: '1px solid #333', paddingTop: 8 }}>
                 <p style={{ fontSize: FS.sm, color: '#333', marginBottom: 2 }}>Signatário Autorizado</p>
