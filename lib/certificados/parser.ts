@@ -36,8 +36,9 @@ function parsearCertificadoVRMM(linhasRaw: string[]): LinhaCertificado[] {
     if (m) for (const tk of m) { const n = parseN(tk); if (n !== null) out.push(n) }
     return out
   }
+  const near2     = (x: number) => x >= 1.9 && x <= 2.35      // fator k típico (2,00 / 2,07)
+  const temLetras = (l: string) => /[a-zA-ZÀ-ÿ]{4,}/.test(l) // linha de rótulo/legenda
 
-  type Role = 'freq' | 'vr' | 'mm' | 'im' | 'outro'
   const inicios: number[] = []
   linhas.forEach((l, i) => { if (ehParam(l)) inicios.push(i) })
 
@@ -50,64 +51,41 @@ function parsearCertificadoVRMM(linhasRaw: string[]): LinhaCertificado[] {
     const bloco = linhas.slice(ini, fim)
     const grandeza = (bloco[0].replace(/^par[âa]metro\s*:?\s*/i, '') || '').trim()
 
-    // monta as colunas (em ordem) a partir do cabeçalho
-    const cols: { role: Role; unidade: string }[] = []
-    let pendingRole: Role = 'outro'
-    let dataStart = -1
+    // unidade da grandeza (a MM define) — UMP (xxx); evita pegar a freq (GHz/MHz)
+    const headerTxt = bloco.slice(0, 14).join(' ')
+    const unidMM = (headerTxt.match(/UMP\s*\(([^)]+)\)/i)?.[1]
+      || headerTxt.match(/UST\s*\((?!GHz|MHz|kHz|Hz)([^)]+)\)/i)?.[1] || '').trim()
+
+    // dados: ancora no fator k (≈2,00). [freq…, VR, MM, IM, k, veff] →
+    //   VR, MM, IM são as 3 colunas antes do k. Erro = VR − MM.
+    let buf: number[] = []
     for (let i = 1; i < bloco.length; i++) {
       const raw = bloco[i].trim()
       if (!raw) continue
       const nums = extrairNums(raw)
-      const temUnidade = reUnidade.test(raw)
-      const temVR = cols.some(c => c.role === 'vr')
-      const temMM = cols.some(c => c.role === 'mm')
-      if (temVR && temMM && nums.length >= 1 && !temUnidade) { dataStart = i; break }
-      if (/^vr\b/i.test(raw)) pendingRole = 'vr'
-      else if (/^mm\b/i.test(raw)) pendingRole = 'mm'
-      else if (/^im\b/i.test(raw)) pendingRole = 'im'
-      else if (/freq/i.test(raw) && !temUnidade) pendingRole = 'freq'
-      if (temUnidade) {
-        let role = pendingRole
-        if (/freq/i.test(raw)) role = 'freq'
-        cols.push({ role, unidade: (raw.match(reUnidade)?.[1] ?? '').trim() })
-        pendingRole = 'outro'
-      }
-    }
-    if (dataStart < 0) continue
-    const vrIdx = cols.findIndex(c => c.role === 'vr')
-    const mmIdx = cols.findIndex(c => c.role === 'mm')
-    const imIdx = cols.findIndex(c => c.role === 'im')
-    if (vrIdx < 0 || mmIdx < 0) continue
-    const unidVR = cols[vrIdx].unidade
-    const unidMM = cols[mmIdx].unidade
-    // exige MESMA grandeza entre VR e MM (a MM define) — senão não calcula
-    if (unidVR && unidMM && unidVR.toLowerCase() !== unidMM.toLowerCase()) continue
-    const threshold = Math.max(mmIdx + 1, cols.length)
-
-    let pend: number[] = []
-    for (let i = dataStart; i < bloco.length; i++) {
-      const raw = bloco[i].trim()
-      if (!raw || ehParam(raw) || ehLegenda(raw)) continue
-      const nums = extrairNums(raw)
+      if (temLetras(raw) && nums.length < 3) { buf = []; continue } // rótulo/config → reinicia
       if (nums.length === 0) continue
-      pend.push(...nums)
-      if (pend.length >= threshold) {
-        const vr = pend[vrIdx], mm = pend[mmIdx], im = imIdx >= 0 ? pend[imIdx] : null
+      buf.push(...nums)
+      let kIdx = -1
+      if (buf.length >= 1 && near2(buf[buf.length - 1])) kIdx = buf.length - 1
+      else if (buf.length >= 2 && near2(buf[buf.length - 2])) kIdx = buf.length - 2
+      if (kIdx >= 3) {
+        const vr = buf[kIdx - 3], mm = buf[kIdx - 2], im = buf[kIdx - 1]
         if (isFinite(vr) && isFinite(mm)) {
           pnt++
           res.push({
             ponto: pnt,
             grandeza,
-            unidade: unidMM || unidVR || '',
+            unidade: unidMM,
             valorNominal: String(vr),
             valorIndicado: String(mm),
             correcao: fmtCorrecao(parseFloat((vr - mm).toPrecision(10))),
-            incertezaExpandida: im !== null && isFinite(im) ? `±${im}` : '',
+            incertezaExpandida: isFinite(im) ? `±${im}` : '',
             fatorCobertura: 2,
           })
         }
-        pend = []
-      }
+        buf = []
+      } else if (buf.length > 10) { buf = [] }
     }
   }
   return res

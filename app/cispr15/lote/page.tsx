@@ -53,7 +53,7 @@ function Row({ label, children, span2 }: { label: string; children: React.ReactN
 }
 
 /* ─── AmostraCard ─────────────────────────────────────────────────────────── */
-function AmostraCard({ index, amostra, expanded, onToggle, onChange, tipoLote, onVerPDF, equipamentos }: {
+function AmostraCard({ index, amostra, expanded, onToggle, onChange, tipoLote, onVerPDF, onDelete, equipamentos }: {
   index: number
   amostra: LoteAmostra
   expanded: boolean
@@ -61,6 +61,7 @@ function AmostraCard({ index, amostra, expanded, onToggle, onChange, tipoLote, o
   onChange: (a: LoteAmostra) => void
   tipoLote: 'lampada' | 'luminaria'
   onVerPDF?: () => void
+  onDelete?: () => void
   equipamentos?: EquipamentoSalvo[]
 }) {
   const [pastaLoading,  setPastaLoading]  = useState(false)
@@ -178,6 +179,13 @@ function AmostraCard({ index, amostra, expanded, onToggle, onChange, tipoLote, o
         )}>
           {amostra.conformidade}
         </span>
+        {onDelete && (
+          <button type="button" onClick={e => { e.stopPropagation(); onDelete() }}
+            title="Excluir amostra do lote"
+            className="text-red-400/50 hover:text-red-400 hover:bg-red/10 rounded p-1 transition-all shrink-0">
+            <Trash2 size={12} />
+          </button>
+        )}
         <ChevronDown size={12} className={cn('text-white/20 transition-transform shrink-0', expanded && 'rotate-180')} />
       </button>
 
@@ -587,6 +595,16 @@ export default function LotePage() {
     saveLote({ ...lote, amostras: lote.amostras.map((x, j) => j === i ? a : x) })
   }
 
+  function removerAmostra(i: number) {
+    if (!lote || lote.amostras.length <= 1) return
+    const am = lote.amostras[i]
+    const ref = am.protocolo || am.produto || `Amostra ${i + 1}`
+    if (!confirm(`Remover a amostra "${ref}" do lote?`)) return
+    const novas = lote.amostras.filter((_, j) => j !== i)
+    saveLote({ ...lote, qtd: Math.max(1, novas.length), amostras: novas })
+    setExpanded(prev => (prev === i ? null : prev !== null && prev > i ? prev - 1 : prev))
+  }
+
   /* Monta um item de agenda a partir de uma amostra do lote (para devolvê-la). */
   function amostraParaAgenda(am: LoteAmostra): AgendaItem {
     return {
@@ -962,6 +980,7 @@ export default function LotePage() {
             onToggle={() => setExpanded(expanded === i ? null : i)}
             onChange={a => updateAmostra(i, a)}
             onVerPDF={() => verPDFAmostra(i)}
+            onDelete={lote.amostras.length > 1 ? () => removerAmostra(i) : undefined}
             equipamentos={equipamentos}
           />
         ))}
