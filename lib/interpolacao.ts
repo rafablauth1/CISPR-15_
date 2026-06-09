@@ -29,6 +29,9 @@ export interface PontoCalibracao2D {
   vr?: number
   mmVal?: number
   vrUnidade?: string
+  casas?: number       // nº de casas decimais do VR (para alinhar MM e correção)
+  minSpec?: boolean    // parâmetro de mínimo (reflexão / perda de retorno / atenuação)
+  apto?: boolean       // em minSpec: MM ≥ VR → equipamento atende
 }
 
 /** Clamp de valor dentro de um intervalo */
@@ -272,15 +275,18 @@ export function parsearCertificadoRBC(texto: string): {
       if (t.includes(',')) t = t.replace(/\.(?=\d{3}\b)/g, '').replace(',', '.')
       const n = parseFloat(t); return isFinite(n) ? n : null
     }
-    const getNums = (l: string): number[] => {
-      const o: number[] = []; const m = l.match(numTok)
-      if (m) for (const tk of m) { const n = pN(tk); if (n !== null) o.push(n) }
+    const getNums = (l: string): { n: number; dec: number }[] => {
+      const o: { n: number; dec: number }[] = []; const m = l.match(numTok)
+      if (m) for (const tk of m) { const n = pN(tk); if (n !== null) { const d = tk.match(/,(\d+)/); o.push({ n, dec: d ? d[1].length : 0 }) } }
       return o
     }
     const near2 = (x: number) => x >= 1.9 && x <= 2.35
     const ehParam = (l: string) => /^par[âa]metro\b/i.test(l.trim())
     const temLetras = (l: string) => /[a-zA-ZÀ-ÿ]{4,}/.test(l)
     const freqUnit = (s: string) => (s.match(/\((GHz|MHz|kHz|Hz)\)/i)?.[1] || '')
+    // parâmetros de valor MÍNIMO: o equipamento deve ATINGIR pelo menos o VR
+    // (reflexão / perda de retorno) — MM ≥ VR significa que já atende (apto)
+    const ehMinSpec = (g: string) => /reflex|perda de retorno|return\s*loss|\bretorno\b/i.test(g)
 
     const inicios: number[] = []
     linhas.forEach((l, i) => { if (ehParam(l)) inicios.push(i) })
@@ -292,6 +298,7 @@ export function parsearCertificadoRBC(texto: string): {
       const fim = s + 1 < inicios.length ? inicios[s + 1] : linhas.length
       const bloco = linhas.slice(ini, fim)
       const grandeza = (bloco[0].replace(/^par[âa]metro\s*:?\s*/i, '') || '').trim()
+      const minSpec = ehMinSpec(grandeza)
       const headerTxt = bloco.slice(0, 14).join(' ')
       const uMM = (headerTxt.match(/UMP\s*\(([^)]+)\)/i)?.[1]
         || headerTxt.match(/UST\s*\((?!GHz|MHz|kHz|Hz)([^)]+)\)/i)?.[1] || '').trim()
@@ -299,7 +306,7 @@ export function parsearCertificadoRBC(texto: string): {
 
       // Ancora no fator k (≈2,00): [freq…, VR, MM, IM, k, veff] → VR/MM/IM são as
       // 3 colunas antes do k. eixo1 = frequência, eixo2 = VR. Erro = VR − MM.
-      let buf: number[] = []
+      let buf: { n: number; dec: number }[] = []
       for (let i = 1; i < bloco.length; i++) {
         const raw = bloco[i].trim(); if (!raw) continue
         const ns = getNums(raw)
@@ -307,12 +314,13 @@ export function parsearCertificadoRBC(texto: string): {
         if (ns.length === 0) continue
         buf.push(...ns)
         let kIdx = -1
-        if (buf.length >= 1 && near2(buf[buf.length - 1])) kIdx = buf.length - 1
-        else if (buf.length >= 2 && near2(buf[buf.length - 2])) kIdx = buf.length - 2
+        if (buf.length >= 1 && near2(buf[buf.length - 1].n)) kIdx = buf.length - 1
+        else if (buf.length >= 2 && near2(buf[buf.length - 2].n)) kIdx = buf.length - 2
         if (kIdx >= 3) {
-          const vr = buf[kIdx - 3], mm = buf[kIdx - 2], im = buf[kIdx - 1]
+          const vr = buf[kIdx - 3].n, mm = buf[kIdx - 2].n, im = buf[kIdx - 1].n
+          const casas = Math.max(buf[kIdx - 3].dec, buf[kIdx - 2].dec)
           const temFreq = (kIdx - 3) > 0
-          const e1 = temFreq ? buf[0] : vr
+          const e1 = temFreq ? buf[0].n : vr
           if (isFinite(vr) && isFinite(mm) && isFinite(e1)) {
             const e1u = temFreq ? (uFreq || uMM) : uMM
             if (!e1U) e1U = e1u
@@ -325,6 +333,9 @@ export function parsearCertificadoRBC(texto: string): {
               tabela: grandeza || undefined,
               eixo1Unidade: e1u || undefined,
               eixo2Unidade: uMM || undefined,
+              casas,
+              minSpec: minSpec || undefined,
+              apto: minSpec ? mm >= vr : undefined,
             })
           }
           buf = []

@@ -30,10 +30,10 @@ function parsearCertificadoVRMM(linhasRaw: string[]): LinhaCertificado[] {
     const n = parseFloat(t)
     return isFinite(n) ? n : null
   }
-  const extrairNums = (l: string): number[] => {
-    const out: number[] = []
+  const extrairNums = (l: string): { n: number; dec: number }[] => {
+    const out: { n: number; dec: number }[] = []
     const m = l.match(numToken)
-    if (m) for (const tk of m) { const n = parseN(tk); if (n !== null) out.push(n) }
+    if (m) for (const tk of m) { const n = parseN(tk); if (n !== null) { const d = tk.match(/,(\d+)/); out.push({ n, dec: d ? d[1].length : 0 }) } }
     return out
   }
   const near2     = (x: number) => x >= 1.9 && x <= 2.35      // fator k típico (2,00 / 2,07)
@@ -58,7 +58,7 @@ function parsearCertificadoVRMM(linhasRaw: string[]): LinhaCertificado[] {
 
     // dados: ancora no fator k (≈2,00). [freq…, VR, MM, IM, k, veff] →
     //   VR, MM, IM são as 3 colunas antes do k. Erro = VR − MM.
-    let buf: number[] = []
+    let buf: { n: number; dec: number }[] = []
     for (let i = 1; i < bloco.length; i++) {
       const raw = bloco[i].trim()
       if (!raw) continue
@@ -67,19 +67,22 @@ function parsearCertificadoVRMM(linhasRaw: string[]): LinhaCertificado[] {
       if (nums.length === 0) continue
       buf.push(...nums)
       let kIdx = -1
-      if (buf.length >= 1 && near2(buf[buf.length - 1])) kIdx = buf.length - 1
-      else if (buf.length >= 2 && near2(buf[buf.length - 2])) kIdx = buf.length - 2
+      if (buf.length >= 1 && near2(buf[buf.length - 1].n)) kIdx = buf.length - 1
+      else if (buf.length >= 2 && near2(buf[buf.length - 2].n)) kIdx = buf.length - 2
       if (kIdx >= 3) {
-        const vr = buf[kIdx - 3], mm = buf[kIdx - 2], im = buf[kIdx - 1]
+        const vr = buf[kIdx - 3].n, mm = buf[kIdx - 2].n, im = buf[kIdx - 1].n
         if (isFinite(vr) && isFinite(mm)) {
           pnt++
+          // alinha MM e correção ao nº de casas decimais do VR (mesma grandeza)
+          const casas = Math.max(buf[kIdx - 3].dec, buf[kIdx - 2].dec)
+          const corr = vr - mm
           res.push({
             ponto: pnt,
             grandeza,
             unidade: unidMM,
-            valorNominal: String(vr),
-            valorIndicado: String(mm),
-            correcao: fmtCorrecao(parseFloat((vr - mm).toPrecision(10))),
+            valorNominal: vr.toFixed(casas),
+            valorIndicado: mm.toFixed(casas),
+            correcao: (corr >= 0 ? '+' : '') + corr.toFixed(casas),
             incertezaExpandida: isFinite(im) ? `±${im}` : '',
             fatorCobertura: 2,
           })

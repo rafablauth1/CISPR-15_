@@ -26,8 +26,13 @@ interface Props {
 function uid() { return Math.random().toString(36).slice(2) }
 
 /** Converte número para string sem notação científica, preservando casas decimais. */
-function fmtN(n: number | undefined, prefix = false): string {
+function fmtN(n: number | undefined, prefix = false, casas?: number): string {
   if (n === undefined || !isFinite(n)) return '—'
+  // casas definidas → formata com nº fixo de decimais (alinha MM/correção ao VR)
+  if (typeof casas === 'number' && casas >= 0 && casas <= 20) {
+    const r = n.toFixed(casas)
+    return prefix ? (n >= 0 ? '+' : '') + r : r
+  }
   const s = String(n)
   let result = s
   if (s.includes('e')) {
@@ -269,6 +274,12 @@ export function Grade2DCertificado({
                       {nome && (
                         <p className="text-[10px] font-mono tracking-widest text-white/40 mb-1 border-l-2 border-teal/40 pl-2">{nome}</p>
                       )}
+                      {items.some(({ p }) => p.minSpec) && (
+                        <div className="text-[10px] text-amber-300/80 bg-amber-400/8 border border-amber-400/20 rounded-lg px-2.5 py-1.5 mb-1.5 flex items-start gap-1.5">
+                          <span className="shrink-0">ℹ</span>
+                          <span>Parâmetro de <b>mínimo</b> (reflexão / perda de retorno): quando <b>MM ≥ VR</b> o equipamento já atende o requisito (<b>Apto</b>). A correção é informada mesmo assim.</span>
+                        </div>
+                      )}
                       <table className="w-full text-[11px]">
                         <thead className="tbl-head">
                           <tr>
@@ -278,6 +289,7 @@ export function Grade2DCertificado({
                             <th>MM ({u2||'—'})</th>
                             <th>Correção ({u2||'—'})</th>
                             <th>IM ({u2||'—'})</th>
+                            {firstP?.minSpec && <th title="Equipamento atende o mínimo (MM ≥ VR)">Apto</th>}
                             {!bloqueado && <th className="w-8"></th>}
                           </tr>
                         </thead>
@@ -288,10 +300,17 @@ export function Grade2DCertificado({
                               <tr key={i} className="tbl-row group/row">
                                 {!is1DGrp && <td className="font-mono text-[10px] px-2 text-white/60">{fmtN(p.eixo1)}</td>}
                                 {has1b && <td className="font-mono text-[10px] px-2 text-amber-400/70">{fmtN(p.eixo1b)}</td>}
-                                <td className="font-mono text-[10px] px-2 text-white/60">{fmtN(p.eixo2)}</td>
-                                <td className="font-mono text-[10px] px-2 text-white/50">{fmtN(mmDisp)}</td>
-                                <td className="font-mono text-[10px] px-2 text-teal/70">{fmtN(p.correcao, true)}</td>
+                                <td className="font-mono text-[10px] px-2 text-white/60">{fmtN(p.eixo2, false, p.casas)}</td>
+                                <td className="font-mono text-[10px] px-2 text-white/50">{fmtN(mmDisp, false, p.casas)}</td>
+                                <td className="font-mono text-[10px] px-2 text-teal/70">{fmtN(p.correcao, true, p.casas)}</td>
                                 <td className="font-mono text-[10px] px-2 text-white/40">{fmtN(p.incerteza)}</td>
+                                {p.minSpec && (
+                                  <td className="px-2 text-[10px] font-mono whitespace-nowrap">
+                                    {p.apto
+                                      ? <span className="text-green-400">Apto ✓</span>
+                                      : <span className="text-red-400">Não ✗</span>}
+                                  </td>
+                                )}
                                 {!bloqueado && (
                                   <td>
                                     <button type="button" onClick={()=>removePonto(i)}
@@ -361,13 +380,13 @@ export function Grade2DCertificado({
                         <tbody>
                           {pts.map((p, i) => {
                             const mm = p.eixo2 - p.correcao
-                            const corrStr = fmtN(p.correcao, true)
+                            const corrStr = fmtN(p.correcao, true, p.casas)
                             return (
                               <tr key={i} className="hover:bg-white/3">
                                 <td className="px-3 py-1 text-white/70 border border-white/6 whitespace-nowrap">{fmtN(p.eixo1)}</td>
                                 {has1b && <td className="px-3 py-1 text-amber-400/70 border border-white/6 text-right">{fmtN(p.eixo1b)}</td>}
-                                <td className="px-3 py-1 text-white/50 border border-white/6 text-right">{fmtN(p.eixo2)}</td>
-                                <td className="px-3 py-1 text-white/50 border border-white/6 text-right">{fmtN(mm)}</td>
+                                <td className="px-3 py-1 text-white/50 border border-white/6 text-right">{fmtN(p.eixo2, false, p.casas)}</td>
+                                <td className="px-3 py-1 text-white/50 border border-white/6 text-right">{fmtN(mm, false, p.casas)}</td>
                                 <td className={cn('px-3 py-1 border border-white/6 text-right font-bold',
                                   p.correcao > 0 ? 'text-green-400' : p.correcao < 0 ? 'text-red-400' : 'text-white/30')}>
                                   {corrStr}
