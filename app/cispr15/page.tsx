@@ -299,7 +299,9 @@ export default function Cispr15ConfigPage() {
   useEffect(() => {
     // skip the very first run (cfg = DEFAULTS) — wait for the load effect to finish first
     if (!cfgLoaded.current) { cfgLoaded.current = true; return }
-    localStorage.setItem(CFG_KEY, JSON.stringify(cfg))
+    // debounce: não bloqueia a digitação com I/O síncrona a cada tecla
+    const t = setTimeout(() => localStorage.setItem(CFG_KEY, JSON.stringify(cfg)), 400)
+    return () => clearTimeout(t)
   }, [cfg])
 
   function flash4(msg: string) {
@@ -308,9 +310,15 @@ export default function Cispr15ConfigPage() {
   }
 
   /* ── handlers cfg ── */
-  const set = (k: keyof Cispr15Config) =>
-    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-      setCfg(prev => ({ ...prev, [k]: e.target.value }))
+  // Cache de handlers por campo: identidade estável entre renders (não recria
+  // 40+ closures a cada tecla, evita churn de re-render no formulário grande).
+  const setHandlers = useRef<Partial<Record<keyof Cispr15Config,
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void>>>({})
+  const set = (k: keyof Cispr15Config) => {
+    const cache = setHandlers.current
+    if (!cache[k]) cache[k] = (e) => setCfg(prev => ({ ...prev, [k]: e.target.value }))
+    return cache[k]!
+  }
 
   function setTipo(t: 'lampada' | 'luminaria') {
     setCfg(prev => ({ ...prev, tipo: t, tensaoConfig: '127_220' }))

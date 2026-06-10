@@ -271,6 +271,7 @@ export interface DadosPadrao {
   numeroCertificado?: string
   labCalibracao?: string
   ultimaCalibracao?: string  // ISO yyyy-mm-dd (data final do período)
+  procedimentos?: string[]   // códigos PC do certificado (ex.: "PC R04") → casa a IT
 }
 
 /* Extrai os dados do PADRÃO da 1ª página do certificado (bloco "Características
@@ -322,7 +323,19 @@ export function parsearDadosPadrao(texto: string): DadosPadrao {
   if (!dataStr) dataStr = token(/(\d{2}\/\d{2}\/\d{4})/)
   const ultimaCalibracao = isoFrom(dataStr)
 
-  return { nome, fabricante, modelo, serie, tag, protocolo, numeroCertificado, labCalibracao, ultimaCalibracao }
+  // Procedimentos de calibração referenciados (ex.: "PC R04", "PC E02") →
+  // normaliza para "PC <Letra><NN>" e remove duplicados. Casa com o codigo da IT/PC.
+  const procedimentos = (() => {
+    const set = new Set<string>()
+    const re = /\bPC\s+([A-Za-z])\.?\s*(\d{1,3})\b/g
+    let m: RegExpExecArray | null
+    while ((m = re.exec(tn)) !== null) {
+      set.add(`PC ${m[1].toUpperCase()}${m[2].padStart(2, '0')}`)
+    }
+    return set.size ? [...set] : undefined
+  })()
+
+  return { nome, fabricante, modelo, serie, tag, protocolo, numeroCertificado, labCalibracao, ultimaCalibracao, procedimentos }
 }
 
 /**

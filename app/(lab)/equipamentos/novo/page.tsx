@@ -49,6 +49,7 @@ interface FormState {
   serie: string
   labCalibracao: string
   numeroCertificado: string
+  procedimentos: string   // códigos IT/PC separados por vírgula (ex.: "PC R04, PC E02")
   ultimaCalibracao: string
   intervaloCalibracao: number
   status: StatusEquipamento
@@ -66,6 +67,7 @@ const EMPTY: FormState = {
   serie: '',
   labCalibracao: '',
   numeroCertificado: '',
+  procedimentos: '',
   ultimaCalibracao: '',
   intervaloCalibracao: 12,
   status: 'ativo',
@@ -100,6 +102,7 @@ export default function NovoEquipamentoPage() {
         grupoId: e.grupoId ?? '', subgrupoId: e.subgrupoId ?? '',
         fabricante: e.fabricante ?? '', modelo: e.modelo ?? '', serie: e.serie ?? '',
         labCalibracao: e.labCalibracao ?? '', numeroCertificado: e.numeroCertificado ?? '',
+        procedimentos: Array.isArray(e.procedimentos) ? e.procedimentos.join(', ') : '',
         ultimaCalibracao: e.ultimaCalibracao ?? '', intervaloCalibracao: e.intervaloCalibracao ?? 12,
         status: e.status ?? 'ativo', foto: e.foto ?? '', obs: e.obs ?? '',
       })
@@ -128,9 +131,10 @@ export default function NovoEquipamentoPage() {
         serie:             d.serie || prev.serie,
         labCalibracao:     d.labCalibracao || prev.labCalibracao,
         numeroCertificado: d.numeroCertificado || prev.numeroCertificado,
+        procedimentos:     d.procedimentos?.length ? d.procedimentos.join(', ') : prev.procedimentos,
         ultimaCalibracao:  d.ultimaCalibracao || prev.ultimaCalibracao,
       }))
-      const campos = [d.nome && 'nome', d.fabricante && 'fabricante', d.modelo && 'modelo', d.serie && 'série', d.tag && 'tag', d.ultimaCalibracao && 'última calib.'].filter(Boolean)
+      const campos = [d.nome && 'nome', d.fabricante && 'fabricante', d.modelo && 'modelo', d.serie && 'série', d.tag && 'tag', d.procedimentos?.length && 'procedimento(s)', d.ultimaCalibracao && 'última calib.'].filter(Boolean)
       setScanMsg(campos.length
         ? `✓ Preenchido: ${campos.join(', ')}. Confira os dados e selecione grupo/subgrupo.`
         : 'Nenhum campo reconhecido — preencha manualmente.')
@@ -188,6 +192,7 @@ export default function NovoEquipamentoPage() {
       serie:              form.serie.trim()      || undefined,
       labCalibracao:      form.labCalibracao.trim() || undefined,
       numeroCertificado:  form.numeroCertificado.trim() || undefined,
+      procedimentos:      (() => { const p = form.procedimentos.split(/[,;\n]+/).map(s => s.trim()).filter(Boolean); return p.length ? p : undefined })(),
       obs:                form.obs.trim() || undefined,
     }
 
@@ -412,6 +417,18 @@ export default function NovoEquipamentoPage() {
                 value={form.numeroCertificado}
                 onChange={e => set('numeroCertificado', e.target.value)}
               />
+            </div>
+            <div className="col-span-2">
+              <label className="text-[10px] font-mono tracking-[2px] uppercase text-white/40 block mb-1">
+                Procedimentos (IT/PC)
+              </label>
+              <input
+                className="input font-mono"
+                placeholder="ex: PC R04, PC E02 — casa com a IT/PC na checagem"
+                value={form.procedimentos}
+                onChange={e => set('procedimentos', e.target.value)}
+              />
+              <p className="text-[10px] text-white/30 mt-1">Códigos do certificado, separados por vírgula. Usados na checagem para sugerir a IT/PC correspondente.</p>
             </div>
             <div>
               <label className="text-[10px] font-mono tracking-[2px] uppercase text-white/40 block mb-1">

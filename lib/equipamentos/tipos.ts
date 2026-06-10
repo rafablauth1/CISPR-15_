@@ -56,6 +56,7 @@ export interface EquipamentoEMC {
   serie?: string
   labCalibracao?: string
   numeroCertificado?: string
+  procedimentos?: string[]   // códigos da IT/PC de calibração (ex.: "PC R04") — casam com DocumentoIT.codigo
   obs?: string
   foto?: string   // imagem do equipamento (data URL base64)
 }

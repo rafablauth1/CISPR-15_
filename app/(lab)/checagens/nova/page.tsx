@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 import { addM } from '@/lib/utils'
 import { extrairTextoArquivo } from '@/lib/useOCR'
 import type { EquipamentoEMC } from '@/lib/equipamentos/tipos'
+import type { DocumentoIT, Bloco } from '@/lib/instrucoes/tipos'
 import type { ItemChecagem, TipoComparacao, PapelReferencia, ResultadoGeral } from '@/lib/checagens/tipos'
 import { TEMPLATES } from '@/lib/checagens/templates'
 import { parsearGrandezasIT, parsearMetadadosIT } from '@/lib/checagens/parser-it'
@@ -21,6 +22,26 @@ const LABORATORIOS = [
 ]
 
 function uid() { return Math.random().toString(36).slice(2) + Date.now().toString(36) }
+
+// Normaliza código de procedimento p/ comparar ("PC R04" ≈ "PCR04" ≈ "pc-r04")
+function normCodigo(s: string) { return s.toUpperCase().replace(/[\s\-_.]/g, '') }
+
+// Achata os blocos de uma IT/PC num texto corrido p/ o parser de grandezas
+function flattenDoc(doc: DocumentoIT): string {
+  const ofBloco = (b: Bloco): string => {
+    switch (b.tipo) {
+      case 'h1': case 'h2': case 'h3':       return b.texto
+      case 'p':                              return b.texto
+      case 'destaque':                       return `${b.termo} ${b.texto}`
+      case 'ul': case 'ol':                  return b.itens.join(' ')
+      case 'img':                            return b.legenda
+      case 'tabela':                         return [...b.cabecalho, ...b.linhas.flat()].join(' ')
+      case 'definicoes':                     return b.itens.map(i => `${i.sigla} ${i.definicao}`).join(' ')
+      default:                               return ''
+    }
+  }
+  return [doc.titulo, ...doc.blocos.map(ofBloco)].join('\n')
+}
 
 function emptyItem(ponto: number): ItemChecagem {
   return { id: uid(), ponto, grandeza: '', unidade: '', valorReferencia: '', valorMedido: '', resultado: 'na' }
@@ -342,6 +363,7 @@ export default function NovaChecagemPage() {
 
   const [tab,            setTab]           = useState<Tab>('manual')
   const [equips,         setEquips]        = useState<EquipamentoEMC[]>([])
+  const [docsIT,         setDocsIT]        = useState<DocumentoIT[]>([])
   const [equipId,        setEquipId]       = useState('')
   const [nomeInstrumento, setNomeInstrumento] = useState('')
   const [laboratorio,    setLaboratorio]   = useState('')
@@ -378,6 +400,7 @@ export default function NovaChecagemPage() {
 
   useEffect(() => {
     fetch('/api/equipamentos').then(r=>r.json()).then(e=>setEquips(Array.isArray(e)?e:[])).catch(()=>{})
+    fetch('/api/instrucoes').then(r=>r.json()).then(d=>setDocsIT(Array.isArray(d)?d:[])).catch(()=>{})
   }, [])
 
   function handleEquipChange(id: string) {
@@ -553,6 +576,25 @@ export default function NovaChecagemPage() {
 
   const equip = equips.find(e=>e.id===equipId)
 
+  // IT/PC cujo código casa com algum procedimento do equipamento selecionado
+  const docsCasados = (() => {
+    const cods = (equip?.procedimentos ?? []).map(normCodigo)
+    if (!cods.length) return []
+    return docsIT.filter(d => d.codigo && cods.includes(normCodigo(d.codigo)))
+  })()
+
+  // Aplica as grandezas de uma IT/PC à tabela de pontos (reusa o parser de IT)
+  function aplicarIT(doc: DocumentoIT) {
+    const texto = flattenDoc(doc)
+    const novos = parsearGrandezasIT(texto)
+    if (!novos.length) { alert('Nenhuma grandeza reconhecida nesta IT/PC.'); return }
+    const meta = parsearMetadadosIT(texto)
+    setItens(novos)
+    if (meta.periodicidade) setPeriodicidade(meta.periodicidade)
+    if (meta.norma && !normaRef) setNormaRef(meta.norma)
+    setTab('manual')
+  }
+
   return (
     <div>
       <div className="page-header">
@@ -587,6 +629,30 @@ export default function NovaChecagemPage() {
             <input className="input font-mono" value={equip?.tag??''} readOnly placeholder="Auto"/>
           </div>
         </div>
+
+        {/* IT/PC vinculadas ao equipamento (casadas pelos códigos de procedimento) */}
+        {equip && (equip.procedimentos?.length ?? 0) > 0 && (
+          <div className="mb-4 rounded-xl border border-gold/20 p-3" style={{ background: 'rgba(232,185,75,0.05)' }}>
+            <p className="text-[10px] font-mono uppercase tracking-wider text-gold/80 mb-2">
+              Procedimentos do equipamento: {equip.procedimentos!.join(', ')}
+            </p>
+            {docsCasados.length > 0 ? (
+              <div className="flex flex-col gap-1.5">
+                {docsCasados.map(d => (
+                  <div key={d.id} className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[11px] text-white/70 font-mono">{d.codigo}</span>
+                    <span className="text-[11px] text-white/45 flex-1 min-w-0 truncate">{d.titulo}</span>
+                    <button type="button" onClick={()=>aplicarIT(d)} className="btn-primary text-[11px] py-1">
+                      <FileSearch size={11}/> Aplicar grandezas da IT
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[10px] text-white/35">Nenhuma IT/PC cadastrada com esse código. Cadastre em Procedimentos · Documentos para vincular.</p>
+            )}
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-4 mb-4">
           <div>
             <label className="text-[10px] font-mono tracking-[2px] uppercase text-white/40 block mb-1">Instrumento de medição</label>
