@@ -150,6 +150,7 @@ export default function EmendaPage() {
   const [cfg,         setCfg]         = useState<Cispr15Config>(DEFAULTS)
   const [dataEmenda,  setDataEmenda]  = useState(today())
   const [photosNovas, setPhotosNovas] = useState<(PhotoEntry | null | undefined)[]>([])
+  const [selectedDocxHtml, setSelectedDocxHtml] = useState<string | null>(null)
 
   type ResultSlot = { checked: boolean; html: string | null; name: string | null; loading: boolean }
   const emptySlot = (): ResultSlot => ({ checked: false, html: null, name: null, loading: false })
@@ -158,19 +159,56 @@ export default function EmendaPage() {
   })
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(RELATORIOS_KEY)
-      if (raw) {
-        const lista: RelatorioSalvo[] = JSON.parse(raw)
-        setRelatorios(lista)
-        if (lista.length > 0) {
-          const last = lista[lista.length - 1]
-          setSelectedId(last.id)
-          setCfg({ ...(last.currentCfg ?? last.cfg) })
-        }
+    async function load() {
+      const api = (window as any).electronAPI
+      let lista: RelatorioSalvo[] = []
+      // Lista vem da rede (índice compartilhado); fallback no localStorage deste PC
+      if (api?.getRelatorios) {
+        try {
+          const res = await api.getRelatorios()
+          if (res?.ok && Array.isArray(res.relatorios) && res.relatorios.length) lista = res.relatorios
+        } catch {}
       }
-    } catch {}
+      if (!lista.length) {
+        try { const raw = localStorage.getItem(RELATORIOS_KEY); if (raw) lista = JSON.parse(raw) } catch {}
+      }
+      setRelatorios(lista)
+      if (lista.length > 0) {
+        const last = lista[lista.length - 1]
+        setSelectedId(last.id)
+        setCfg({ ...(last.currentCfg ?? last.cfg) })
+        carregarAssets(last)
+      }
+    }
+    load()
   }, [])
+
+  /* Resolve fotos + DOCX do relatório (local → rede) e injeta as fotos no item da
+     lista, para a emenda mostrar/mesclar os originais mesmo em outro PC. */
+  async function carregarAssets(entry: RelatorioSalvo) {
+    let photos = entry.photos ?? []
+    let docxHtml = localStorage.getItem(RELATORIO_DOCX_PFX + entry.id)
+    if (!photos.length) {
+      try {
+        const raw = localStorage.getItem(RELATORIOS_KEY)
+        if (raw) { const f = (JSON.parse(raw) as RelatorioSalvo[]).find(r => r.id === entry.id); if (f?.photos?.length) photos = f.photos }
+      } catch {}
+    }
+    if (!photos.length || !docxHtml) {
+      const api = (window as any).electronAPI
+      if (api?.getRelatorioAssets) {
+        try {
+          const res = await api.getRelatorioAssets(entry.id)
+          if (res?.ok) {
+            if (!photos.length && Array.isArray(res.photos)) photos = res.photos
+            if (!docxHtml && res.docxHtml) docxHtml = res.docxHtml
+          }
+        } catch {}
+      }
+    }
+    setSelectedDocxHtml(docxHtml || null)
+    if (photos.length) setRelatorios(prev => prev.map(r => r.id === entry.id ? { ...r, photos } : r))
+  }
 
   const selected = useMemo(
     () => relatorios.find(r => r.id === selectedId) ?? null,
@@ -191,7 +229,9 @@ export default function EmendaPage() {
     if (r) {
       setCfg({ ...(r.currentCfg ?? r.cfg) })
       setPhotosNovas([])
+      setSelectedDocxHtml(null)
       setResultados({ conduzida: emptySlot(), loop: emptySlot(), anexoB: emptySlot() })
+      carregarAssets(r)
     }
   }
 
@@ -281,24 +321,37 @@ export default function EmendaPage() {
     localStorage.setItem(EMENDA_DRAFT_KEY, JSON.stringify(draft))
     localStorage.setItem(CFG_KEY, JSON.stringify(cfg))
 
-    // Commit emenda imediatamente para que apareça na aba de emendas antes do PDF
+    // Commit emenda imediatamente para que apareça na aba de emendas antes do PDF.
+    // Usa o estado (que vem da rede) — funciona mesmo num PC sem cache local.
     try {
-      const rawR = localStorage.getItem(RELATORIOS_KEY)
-      if (rawR) {
-        const lista: RelatorioSalvo[] = JSON.parse(rawR)
-        const idx = lista.findIndex(r => r.id === selected.id)
-        if (idx >= 0) {
-          const emendas = [...lista[idx].emendas]
-          if (!emendas.find(e => e.numero === emendaNum)) {
-            emendas.push({ numero: emendaNum, dataEmenda, alteracoes })
-          }
-          lista[idx] = { ...lista[idx], emendas, currentCfg: cfg }
-          localStorage.setItem(RELATORIOS_KEY, JSON.stringify(lista))
-          const api = (window as any).electronAPI
-          if (api) {
-            try { api.saveRelatorios(lista.map((r: RelatorioSalvo) => ({ ...r, photos: [] }))).catch(() => {}) } catch {}
-          }
+      const base: RelatorioSalvo[] = relatorios.length
+        ? relatorios
+        : (() => { try { return JSON.parse(localStorage.getItem(RELATORIOS_KEY) || '[]') } catch { return [] } })()
+      const lista: RelatorioSalvo[] = base.map(r => ({ ...r }))
+      const idx = lista.findIndex(r => r.id === selected.id)
+      if (idx >= 0) {
+        const emendas = [...(lista[idx].emendas ?? [])]
+        if (!emendas.find(e => e.numero === emendaNum)) {
+          emendas.push({ numero: emendaNum, dataEmenda, alteracoes })
         }
+        lista[idx] = { ...lista[idx], emendas, currentCfg: cfg }
+        setRelatorios(lista)
+        const api = (window as any).electronAPI
+        if (api?.saveRelatorios) {
+          try { api.saveRelatorios(lista.map((r: RelatorioSalvo) => ({ ...r, photos: [] }))).catch(() => {}) } catch {}
+        }
+        // Cache local: atualiza só a entrada deste id, preservando as fotos locais
+        try {
+          const rawLocal = localStorage.getItem(RELATORIOS_KEY)
+          if (rawLocal) {
+            const localList: RelatorioSalvo[] = JSON.parse(rawLocal)
+            const li = localList.findIndex(r => r.id === selected.id)
+            if (li >= 0) {
+              localList[li] = { ...localList[li], emendas, currentCfg: cfg }
+              localStorage.setItem(RELATORIOS_KEY, JSON.stringify(localList))
+            }
+          }
+        } catch {}
       }
     } catch {}
 
@@ -329,14 +382,23 @@ export default function EmendaPage() {
       htmlParts.push(filterDocxForResult(resultados.anexoB.html, 'anexoB'))
       if (resultados.anexoB.name) nameParts.push(resultados.anexoB.name)
     }
+    let finalDocxHtml: string | null
     if (htmlParts.length > 0) {
-      sessionStorage.setItem(DOCX_HTML_KEY, htmlParts.join('\n'))
+      finalDocxHtml = htmlParts.join('\n')
+      sessionStorage.setItem(DOCX_HTML_KEY, finalDocxHtml)
       sessionStorage.setItem(DOCX_NAME_KEY, nameParts.join(' + '))
     } else {
-      const docxHtml = localStorage.getItem(RELATORIO_DOCX_PFX + selected.id)
-      if (docxHtml) sessionStorage.setItem(DOCX_HTML_KEY, docxHtml)
+      finalDocxHtml = selectedDocxHtml ?? localStorage.getItem(RELATORIO_DOCX_PFX + selected.id)
+      if (finalDocxHtml) sessionStorage.setItem(DOCX_HTML_KEY, finalDocxHtml)
       else sessionStorage.removeItem(DOCX_HTML_KEY)
       sessionStorage.setItem(DOCX_NAME_KEY, selected.docxFilename ?? '')
+    }
+
+    // Atualiza os assets na rede com as fotos mescladas e o docx final,
+    // para o relatório emendado reabrir completo em qualquer PC.
+    const api2 = (window as any).electronAPI
+    if (api2?.saveRelatorioAssets) {
+      try { api2.saveRelatorioAssets(selected.id, mergedPhotos, finalDocxHtml).catch(() => {}) } catch {}
     }
 
     router.push('/cispr15/relatorio')
