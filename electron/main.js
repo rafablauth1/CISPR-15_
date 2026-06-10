@@ -544,63 +544,52 @@ async function applyUpdate(downloadUrl, version) {
   win?.setProgressBar(-1)
   win?.webContents.send('update:progress', -1)
 
-  const vbsPath = path.join(tmpDir, 'cispr15-run-update.vbs')
-  const q = s => s.replace(/"/g, '""')   // escapa aspas para VBScript
+  const batPath = path.join(tmpDir, 'cispr15-run-update.bat')
+  const exeName = path.basename(exePath)
 
-  // VBScript autossuficiente: extrai zip + copia + reinicia, sem PowerShell
-  const vbs = `
-Dim fso, wsh, sh, logPath
-logPath = "${q(logPath)}"
-Set fso = CreateObject("Scripting.FileSystemObject")
-Set wsh = CreateObject("WScript.Shell")
-Set sh  = CreateObject("Shell.Application")
+  // Script .bat autossuficiente: extrai (tar nativo do Windows 10+, fallback PowerShell),
+  // copia sobre a pasta do app e reinicia. Roda via cmd.exe — não depende de WSH/.vbs,
+  // que costuma estar bloqueado em PCs corporativos.
+  const bat = `@echo off
+chcp 65001 >nul
+set "LOG=${logPath}"
+echo %DATE% %TIME% Iniciando update v${version} >> "%LOG%"
+rem aguarda o app fechar para liberar os arquivos
+timeout /t 3 /nobreak >nul
 
-Sub Log(msg)
-  Dim f : Set f = fso.OpenTextFile(logPath, 8, True) : f.WriteLine Now & " " & msg : f.Close
-End Sub
+if exist "${extractDir}" rmdir /s /q "${extractDir}"
+mkdir "${extractDir}"
 
-Log "Iniciando update v${version}"
-WScript.Sleep 3000
+echo %DATE% %TIME% Extraindo (tar)... >> "%LOG%"
+tar -xf "${zipPath}" -C "${extractDir}" >> "%LOG%" 2>&1
+if errorlevel 1 (
+  echo %DATE% %TIME% tar falhou - tentando PowerShell >> "%LOG%"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${extractDir}' -Force" >> "%LOG%" 2>&1
+)
 
-Log "Extraindo zip..."
-If fso.FolderExists("${q(extractDir)}") Then fso.DeleteFolder "${q(extractDir)}", True
-fso.CreateFolder "${q(extractDir)}"
+rem trava de seguranca: so copia se a extracao gerou o executavel
+rem (evita /MIR apagar o app caso a extracao falhe)
+if not exist "${extractDir}\${exeName}" (
+  echo %DATE% %TIME% ERRO: extracao falhou - abortando para nao apagar o app >> "%LOG%"
+  start "" "${exePath}"
+  del /q "%~f0" >nul 2>&1
+  exit /b 1
+)
 
-' Tenta PowerShell primeiro (mais rapido)
-Dim rc
-rc = wsh.Run("powershell.exe -NoProfile -ExecutionPolicy Bypass -Command ""Expand-Archive -Path '${q(zipPath)}' -DestinationPath '${q(extractDir)}' -Force""", 0, True)
-Log "Expand-Archive rc=" & rc
+echo %DATE% %TIME% Copiando arquivos... >> "%LOG%"
+robocopy "${extractDir}" "${appDir}" /MIR /R:5 /W:2 >> "%LOG%" 2>&1
 
-If rc <> 0 Then
-  Log "PowerShell falhou - usando Shell.Application"
-  Dim zipNS, destNS
-  Set zipNS  = sh.NameSpace("${q(zipPath)}")
-  Set destNS = sh.NameSpace("${q(extractDir)}")
-  If Not IsNull(zipNS) And Not IsNull(destNS) Then
-    destNS.CopyHere zipNS.Items(), 4
-    WScript.Sleep 5000
-    Log "Shell.Application feito"
-  Else
-    Log "ERRO: zip ou destino nao encontrado"
-  End If
-End If
+echo %DATE% %TIME% Limpando... >> "%LOG%"
+del /q "${zipPath}" >nul 2>&1
+rmdir /s /q "${extractDir}" >nul 2>&1
 
-Log "Copiando arquivos..."
-rc = wsh.Run("robocopy ""${q(extractDir)}"" ""${q(appDir)}"" /MIR /R:3 /W:2", 0, True)
-Log "Robocopy rc=" & rc
-
-Log "Limpando..."
-On Error Resume Next
-fso.DeleteFile "${q(zipPath)}", True
-fso.DeleteFolder "${q(extractDir)}", True
-On Error GoTo 0
-
-Log "Reiniciando app..."
-wsh.Run """${q(exePath)}""", 1, False
-Log "Concluido."
+echo %DATE% %TIME% Reiniciando app... >> "%LOG%"
+start "" "${exePath}"
+echo %DATE% %TIME% Concluido. >> "%LOG%"
+del /q "%~f0" >nul 2>&1
 `
 
-  fs.writeFileSync(vbsPath, vbs, 'utf8')
+  fs.writeFileSync(batPath, bat, 'utf8')
 
   const { response } = await dialog.showMessageBox({
     type: 'info',
@@ -613,18 +602,27 @@ Log "Concluido."
 
   if (response !== 0) return
 
-  // shell.openPath usa ShellExecute do Windows — independente do processo Electron
-  const openErr = await shell.openPath(vbsPath)
-  if (openErr) {
-    dialog.showMessageBox({
-      type: 'error',
-      title: 'Erro ao iniciar atualização',
-      message: openErr,
-      buttons: ['OK'],
-    })
-    return
+  // Lança o .bat detached via cmd.exe — sobrevive ao fechamento do app.
+  // cmd raramente é bloqueado por política (ao contrário do WSH/.vbs).
+  let launched = false
+  try {
+    spawn('cmd.exe', ['/c', batPath], { detached: true, stdio: 'ignore', windowsHide: true }).unref()
+    launched = true
+  } catch (err) {
+    // Fallback: ShellExecute (.bat → cmd) caso o spawn falhe
+    const openErr = await shell.openPath(batPath)
+    if (!openErr) launched = true
+    else {
+      dialog.showMessageBox({
+        type: 'error',
+        title: 'Erro ao iniciar atualização',
+        message: openErr || String(err),
+        detail: `Atualize manualmente pela pasta de rede/pendrive.\nLog: ${logPath}`,
+        buttons: ['OK'],
+      })
+    }
   }
-  setTimeout(() => app.quit(), 800)
+  if (launched) setTimeout(() => app.quit(), 800)
 }
 
 async function runUpdateCheck(manual) {
