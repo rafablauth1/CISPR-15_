@@ -139,6 +139,9 @@ export function RelatoriosTab({ onCarregar, onVerPDF }: Props) {
     if (api && fromNetwork) {
       try { await api.saveRelatorios(updated) } catch {}
     }
+    if (api?.deleteRelatorioAssets) {
+      try { await api.deleteRelatorioAssets(id) } catch {}
+    }
   }
 
   // Opções únicas para filtros

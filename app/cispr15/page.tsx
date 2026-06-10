@@ -780,13 +780,19 @@ export default function Cispr15ConfigPage() {
       }
       setRelatoriosList(list)
 
-      // Salvar na rede (sem fotos/docxHtml para não pesar o arquivo)
+      // Salvar na rede: índice leve (sem fotos/docxHtml) + assets pesados por id,
+      // para qualquer PC reabrir o relatório completo.
       const api = (window as any).electronAPI
       if (api) {
         try {
           const netEntry: RelatorioSalvo = { ...entry, photos: [], }
           const netList = list.map(r => r.id === id ? netEntry : { ...r, photos: [] })
           await api.saveRelatorios(netList)
+        } catch {}
+        try {
+          if (api.saveRelatorioAssets) {
+            await api.saveRelatorioAssets(id, entry.photos, docx.html ?? null)
+          }
         } catch {}
       }
     } catch (e: any) {
@@ -797,14 +803,42 @@ export default function Cispr15ConfigPage() {
     }
   }
 
+  /* Resolve fotos + DOCX de um relatório: tenta local (PC que gerou) e, se faltar,
+     busca os assets na rede — assim qualquer PC reabre o relatório completo. */
+  async function resolverAssets(entry: RelatorioSalvo): Promise<{ photos: { name: string; base64: string }[]; docxHtml: string | null }> {
+    let photos = entry.photos ?? []
+    let docxHtml = localStorage.getItem(RELATORIO_DOCX_PFX + entry.id)
+    // Fallback local: lista completa no localStorage deste PC (com fotos base64)
+    if (!photos.length) {
+      try {
+        const raw = localStorage.getItem(RELATORIOS_KEY)
+        if (raw) { const found = (JSON.parse(raw) as RelatorioSalvo[]).find(r => r.id === entry.id); if (found?.photos?.length) photos = found.photos }
+      } catch {}
+    }
+    // Fallback rede: assets por id (outro PC)
+    if (!photos.length || !docxHtml) {
+      const api = (window as any).electronAPI
+      if (api?.getRelatorioAssets) {
+        try {
+          const res = await api.getRelatorioAssets(entry.id)
+          if (res?.ok) {
+            if (!photos.length && Array.isArray(res.photos)) photos = res.photos
+            if (!docxHtml && res.docxHtml) docxHtml = res.docxHtml
+          }
+        } catch {}
+      }
+    }
+    return { photos, docxHtml: docxHtml || null }
+  }
+
   /* ── carregar relatório salvo ── */
-  function handleCarregarRelatorio(entry: RelatorioSalvo) {
-    const docxHtml = localStorage.getItem(RELATORIO_DOCX_PFX + entry.id)
+  async function handleCarregarRelatorio(entry: RelatorioSalvo) {
+    const { photos: relPhotos, docxHtml } = await resolverAssets(entry)
     setCfg(entry.cfg)
-    setPhotos((entry.photos ?? []).map(p => ({ ...p, url: `data:image/jpeg;base64,${p.base64}` })))
+    setPhotos(relPhotos.map(p => ({ ...p, url: `data:image/jpeg;base64,${p.base64}` })))
     setDocx({ loading: false, html: docxHtml, filename: entry.docxFilename })
     localStorage.setItem(CFG_KEY, JSON.stringify(entry.cfg))
-    localStorage.setItem(PHOTOS_KEY, JSON.stringify(entry.photos ?? []))
+    try { localStorage.setItem(PHOTOS_KEY, JSON.stringify(relPhotos)) } catch {}
     localStorage.setItem(LOCKED_KEY, '1')
     localStorage.removeItem(EMENDA_DRAFT_KEY)
     if (docxHtml) sessionStorage.setItem(DOCX_HTML_KEY, docxHtml)
@@ -875,13 +909,13 @@ export default function Cispr15ConfigPage() {
   }
 
   /* ── ver PDF de relatório salvo ── */
-  function handleVerPDFRelatorio(entry: RelatorioSalvo) {
-    const docxHtml = localStorage.getItem(RELATORIO_DOCX_PFX + entry.id)
+  async function handleVerPDFRelatorio(entry: RelatorioSalvo) {
+    const { photos: relPhotos, docxHtml } = await resolverAssets(entry)
     setCfg(entry.cfg)
-    setPhotos((entry.photos ?? []).map(p => ({ ...p, url: `data:image/jpeg;base64,${p.base64}` })))
+    setPhotos(relPhotos.map(p => ({ ...p, url: `data:image/jpeg;base64,${p.base64}` })))
     setDocx({ loading: false, html: docxHtml, filename: entry.docxFilename })
     localStorage.setItem(CFG_KEY, JSON.stringify(entry.cfg))
-    localStorage.setItem(PHOTOS_KEY, JSON.stringify(entry.photos ?? []))
+    try { localStorage.setItem(PHOTOS_KEY, JSON.stringify(relPhotos)) } catch {}
     localStorage.setItem(LOCKED_KEY, '1')
     localStorage.removeItem(EMENDA_DRAFT_KEY)
     if (docxHtml) sessionStorage.setItem(DOCX_HTML_KEY, docxHtml)

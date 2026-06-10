@@ -860,6 +860,40 @@ ipcMain.handle('data:save-relatorios', (_, { relatorios }) => {
   catch (err) { return { ok: false, error: String(err) } }
 })
 
+/* Assets pesados (fotos + DOCX) por relatório — ficam num arquivo separado por id,
+   na pasta de rede, para qualquer PC reabrir o relatório completo sem inchar o índice. */
+function assetsFilePath(id) {
+  const safe = String(id).replace(/[^A-Za-z0-9._-]/g, '_')
+  const { dataFolder } = readSettings()
+  return path.join(dataFolder || getDefaultDataDir(), 'cispr15_assets', `${safe}.json`)
+}
+
+ipcMain.handle('data:save-relatorio-assets', (_, { id, photos, docxHtml }) => {
+  try {
+    const fp = assetsFilePath(id)
+    fs.mkdirSync(path.dirname(fp), { recursive: true })
+    fs.writeFileSync(fp, JSON.stringify({ photos: photos ?? [], docxHtml: docxHtml ?? null }), 'utf-8')
+    return { ok: true }
+  } catch (err) { return { ok: false, error: String(err) } }
+})
+
+ipcMain.handle('data:get-relatorio-assets', (_, { id }) => {
+  try {
+    const fp = assetsFilePath(id)
+    if (!fs.existsSync(fp)) return { ok: true, photos: [], docxHtml: null, found: false }
+    const data = JSON.parse(fs.readFileSync(fp, 'utf-8'))
+    return { ok: true, photos: data.photos ?? [], docxHtml: data.docxHtml ?? null, found: true }
+  } catch (err) { return { ok: false, error: String(err), photos: [], docxHtml: null, found: false } }
+})
+
+ipcMain.handle('data:delete-relatorio-assets', (_, { id }) => {
+  try {
+    const fp = assetsFilePath(id)
+    if (fs.existsSync(fp)) fs.rmSync(fp, { force: true })
+    return { ok: true }
+  } catch (err) { return { ok: false, error: String(err) } }
+})
+
 ipcMain.handle('data:get-agenda', () => {
   const { agendaFolder, dataFolder } = readSettings()
   const data = readAgendaFile()

@@ -32,6 +32,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveClientes:    (clientes)  => ipcRenderer.invoke('data:save-clientes',    { clientes }),
   getRelatorios:   ()          => ipcRenderer.invoke('data:get-relatorios'),
   saveRelatorios:  (relatorios) => ipcRenderer.invoke('data:save-relatorios', { relatorios }),
+  saveRelatorioAssets: (id, photos, docxHtml) => ipcRenderer.invoke('data:save-relatorio-assets', { id, photos, docxHtml }),
+  getRelatorioAssets:  (id)    => ipcRenderer.invoke('data:get-relatorio-assets',    { id }),
+  deleteRelatorioAssets: (id)  => ipcRenderer.invoke('data:delete-relatorio-assets', { id }),
   getAgenda:       ()          => ipcRenderer.invoke('data:get-agenda'),
   saveAgenda:      (agenda)    => ipcRenderer.invoke('data:save-agenda',      { agenda }),
   // OCR local (Windows.Media.Ocr)
