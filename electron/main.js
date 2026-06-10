@@ -492,13 +492,14 @@ function downloadFileHttps(url, dest, onProgress) {
         const total = parseInt(res.headers['content-length'] || '0', 10)
         let received = 0
         const stream = fs.createWriteStream(dest)
+        stream.on('error', reject)                         // captura EBUSY/arquivo travado
+        stream.on('finish', () => stream.close(() => resolve()))
         res.on('data', chunk => {
           received += chunk.length
-          stream.write(chunk)
           if (total > 0 && onProgress) onProgress(Math.round(received / total * 100))
         })
-        res.on('end', () => { stream.end(); resolve() })
         res.on('error', reject)
+        res.pipe(stream)                                   // só resolve após gravar tudo (finish)
       }).on('error', reject)
     }
     go(url)
@@ -528,11 +529,23 @@ const PS_EXE = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
 
 async function applyUpdate(downloadUrl, version) {
   const tmpDir     = os.tmpdir()
-  const zipPath    = path.join(tmpDir, `cispr15-update-${version}.zip`)
-  const extractDir = path.join(tmpDir, `cispr15-update-extracted`)
+  const stamp      = Date.now()
+  // Nomes ÚNICOS por tentativa: evita EBUSY quando um zip/.bat de uma tentativa
+  // anterior ficou travado (antivírus ou cmd pendente) com o mesmo nome fixo.
+  const zipPath    = path.join(tmpDir, `cispr15-update-${version}-${stamp}.zip`)
+  const extractDir = path.join(tmpDir, `cispr15-update-extracted-${stamp}`)
   const exePath    = app.getPath('exe')
   const appDir     = path.dirname(exePath)
   const logPath    = path.join(tmpDir, 'cispr15-update.log')
+
+  // Limpa restos de updates anteriores (best-effort; ignora os que estiverem travados)
+  try {
+    for (const f of fs.readdirSync(tmpDir)) {
+      if (/^cispr15-(update-.*\.zip|run-update.*\.bat|update-extracted)/.test(f)) {
+        try { fs.rmSync(path.join(tmpDir, f), { recursive: true, force: true }) } catch {}
+      }
+    }
+  } catch {}
 
   const win = BrowserWindow.getAllWindows()[0]
 
@@ -544,7 +557,7 @@ async function applyUpdate(downloadUrl, version) {
   win?.setProgressBar(-1)
   win?.webContents.send('update:progress', -1)
 
-  const batPath = path.join(tmpDir, 'cispr15-run-update.bat')
+  const batPath = path.join(tmpDir, `cispr15-run-update-${stamp}.bat`)
   const exeName = path.basename(exePath)
 
   // Script .bat autossuficiente: extrai (tar nativo do Windows 10+, fallback PowerShell),
@@ -554,8 +567,8 @@ async function applyUpdate(downloadUrl, version) {
 chcp 65001 >nul
 set "LOG=${logPath}"
 echo %DATE% %TIME% Iniciando update v${version} >> "%LOG%"
-rem aguarda o app fechar para liberar os arquivos
-timeout /t 3 /nobreak >nul
+rem aguarda o app fechar para liberar os arquivos (server filho + exe)
+timeout /t 5 /nobreak >nul
 
 if exist "${extractDir}" rmdir /s /q "${extractDir}"
 mkdir "${extractDir}"
@@ -622,7 +635,12 @@ del /q "%~f0" >nul 2>&1
       })
     }
   }
-  if (launched) setTimeout(() => app.quit(), 800)
+  if (launched) {
+    // Encerra o server filho (Next standalone) para liberar os arquivos do app
+    // antes do robocopy — senão resources/nextapp fica travado e a cópia falha.
+    try { if (serverProcess) serverProcess.kill() } catch {}
+    setTimeout(() => app.quit(), 800)
+  }
 }
 
 async function runUpdateCheck(manual) {
