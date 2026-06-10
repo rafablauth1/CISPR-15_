@@ -892,6 +892,41 @@ ipcMain.handle('data:delete-relatorio-assets', (_, { id }) => {
   } catch (err) { return { ok: false, error: String(err) } }
 })
 
+/* Exporta os arquivos do relatório (fotos + DOCX/HTML) para a pasta da EUT,
+   para o usuário ter os arquivos físicos mesmo reabrindo de outro PC. */
+ipcMain.handle('relatorio:export-files', async (_, { folderPath, numRelatorio, photos, docxHtml, docxName }) => {
+  try {
+    if (!folderPath) return { ok: false, error: 'Pasta da EUT não associada a este relatório.' }
+    const safeNum = String(numRelatorio || 'relatorio').replace(/[\\/:"*?<>|]/g, '_')
+    const outDir  = path.join(folderPath, `Arquivos_${safeNum}`)
+    fs.mkdirSync(outDir, { recursive: true })
+
+    let nFotos = 0
+    const lista = Array.isArray(photos) ? photos : []
+    for (let i = 0; i < lista.length; i++) {
+      const p = lista[i]
+      if (!p?.base64) continue
+      const raw  = String(p.base64).replace(/^data:image\/\w+;base64,/, '')
+      const ext  = (p.name && path.extname(p.name)) || '.jpg'
+      const base = (p.name ? path.basename(p.name, path.extname(p.name)) : `foto_${i + 1}`).replace(/[\\/:"*?<>|]/g, '_')
+      const fname = `${String(i + 1).padStart(2, '0')}_${base}${ext}`
+      fs.writeFileSync(path.join(outDir, fname), Buffer.from(raw, 'base64'))
+      nFotos++
+    }
+
+    let docxSaved = false
+    if (docxHtml) {
+      const docBase = (docxName ? path.basename(docxName, path.extname(docxName)) : `${safeNum}_radimation`).replace(/[\\/:"*?<>|]/g, '_')
+      const htmlDoc = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"></head><body>${docxHtml}</body></html>`
+      fs.writeFileSync(path.join(outDir, `${docBase}.doc`), htmlDoc, 'utf-8')
+      docxSaved = true
+    }
+
+    shell.openPath(outDir)
+    return { ok: true, outDir, nFotos, docxSaved }
+  } catch (err) { return { ok: false, error: String(err) } }
+})
+
 ipcMain.handle('data:get-agenda', () => {
   const { agendaFolder, dataFolder } = readSettings()
   const data = readAgendaFile()
