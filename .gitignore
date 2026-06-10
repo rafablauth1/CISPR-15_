@@ -11,4 +11,14 @@ pdfs/
 updates/
 releases/
 dist.rar
-build/
+
+# build/: versiona só o installer.nsh (referenciado pelo electron-builder), ignora o resto
+build/*
+!build/installer.nsh
+
+# cache incremental do TypeScript
+tsconfig.tsbuildinfo
+
+# temporários do Office e lixo
+~$*
+null
