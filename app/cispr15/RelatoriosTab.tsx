@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { FileText, Trash2, FolderOpen, AlertTriangle, ChevronDown, ChevronUp, Wifi, WifiOff, Lock, CheckCircle2, Loader2, PenLine, Save } from 'lucide-react'
+import { FileText, Trash2, FolderOpen, AlertTriangle, ChevronDown, ChevronUp, Wifi, WifiOff, Lock, CheckCircle2, Loader2, PenLine } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { type RelatorioSalvo, RELATORIOS_KEY, RELATORIO_DOCX_PFX } from './types'
 
@@ -30,8 +30,6 @@ export function RelatoriosTab({ onCarregar, onVerPDF }: Props) {
   const [signState,    setSignState]    = useState<Record<string, 'loading' | 'ok' | 'error'>>({})
   const [signMsg,      setSignMsg]      = useState<Record<string, string>>({})
   const [hasCert,      setHasCert]      = useState(false)
-  const [expState,     setExpState]     = useState<Record<string, 'loading' | 'ok' | 'error'>>({})
-  const [expMsg,       setExpMsg]       = useState<Record<string, string>>({})
 
   useEffect(() => {
     async function load() {
@@ -108,65 +106,6 @@ export function RelatoriosTab({ onCarregar, onVerPDF }: Props) {
     } catch (e: any) {
       setSignState(p => ({ ...p, [id]: 'error' }))
       setSignMsg(p => ({ ...p, [id]: e.message }))
-    }
-  }
-
-  /* Resolve fotos + DOCX de um relatório: local (PC que gerou) e, faltando, a rede por id. */
-  async function resolverAssets(entry: RelatorioSalvo): Promise<{ photos: { name: string; base64: string }[]; docxHtml: string | null }> {
-    let photos = entry.photos ?? []
-    let docxHtml = localStorage.getItem(RELATORIO_DOCX_PFX + entry.id)
-    if (!photos.length) {
-      try {
-        const raw = localStorage.getItem(RELATORIOS_KEY)
-        if (raw) { const f = (JSON.parse(raw) as RelatorioSalvo[]).find(r => r.id === entry.id); if (f?.photos?.length) photos = f.photos }
-      } catch {}
-    }
-    if (!photos.length || !docxHtml) {
-      const api = (window as any).electronAPI
-      if (api?.getRelatorioAssets) {
-        try {
-          const res = await api.getRelatorioAssets(entry.id)
-          if (res?.ok) {
-            if (!photos.length && Array.isArray(res.photos)) photos = res.photos
-            if (!docxHtml && res.docxHtml) docxHtml = res.docxHtml
-          }
-        } catch {}
-      }
-    }
-    return { photos, docxHtml: docxHtml || null }
-  }
-
-  /* Salva fotos + DOCX do relatório como arquivos físicos na pasta da EUT. */
-  async function salvarArquivos(id: string) {
-    const rel = lista.find(r => r.id === id)
-    if (!rel) return
-    if (!rel.eutFolderPath) {
-      setExpState(p => ({ ...p, [id]: 'error' }))
-      setExpMsg(p => ({ ...p, [id]: 'Pasta EUT não associada — carregue a pasta da EUT primeiro.' }))
-      return
-    }
-    const api = (window as any).electronAPI
-    if (!api?.exportRelatorioFiles) return
-    setExpState(p => ({ ...p, [id]: 'loading' }))
-    setExpMsg(p => ({ ...p, [id]: '' }))
-    try {
-      const { photos, docxHtml } = await resolverAssets(rel)
-      if (!photos.length && !docxHtml) {
-        setExpState(p => ({ ...p, [id]: 'error' }))
-        setExpMsg(p => ({ ...p, [id]: 'Sem fotos/DOCX disponíveis para este relatório.' }))
-        return
-      }
-      const res = await api.exportRelatorioFiles(rel.eutFolderPath, rel.numRelatorio, photos, docxHtml, rel.docxFilename)
-      if (res?.ok) {
-        setExpState(p => ({ ...p, [id]: 'ok' }))
-        setExpMsg(p => ({ ...p, [id]: `${res.nFotos} foto(s)${res.docxSaved ? ' + DOCX' : ''} salvos na pasta da EUT` }))
-      } else {
-        setExpState(p => ({ ...p, [id]: 'error' }))
-        setExpMsg(p => ({ ...p, [id]: res?.error ?? 'Erro ao salvar arquivos' }))
-      }
-    } catch (e: any) {
-      setExpState(p => ({ ...p, [id]: 'error' }))
-      setExpMsg(p => ({ ...p, [id]: e.message }))
     }
   }
 
@@ -377,22 +316,6 @@ export function RelatoriosTab({ onCarregar, onVerPDF }: Props) {
                       className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-gold/8 border border-gold/20 text-gold text-[11px] font-semibold hover:bg-gold/18 transition-all">
                       <FileText size={11} /> PDF
                     </button>
-                    {/* Salvar fotos + DOCX como arquivos na pasta da EUT */}
-                    {(() => {
-                      const es = expState[r.id]
-                      return (
-                        <button
-                          onClick={() => es !== 'loading' && salvarArquivos(r.id)}
-                          disabled={es === 'loading'}
-                          title="Salvar fotos e DOCX na pasta da EUT"
-                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-white/10 bg-white/3 text-white/55 text-[11px] font-semibold hover:bg-white/8 hover:text-white/80 transition-all disabled:opacity-50">
-                          {es === 'loading' ? <Loader2 size={11} className="animate-spin" /> :
-                           es === 'ok'      ? <CheckCircle2 size={11} className="text-teal" /> :
-                           <Save size={11} />}
-                          Arquivos
-                        </button>
-                      )
-                    })()}
                     {/* Assinar e Publicar — sempre visível */}
                     {(() => {
                       const ss = signState[r.id]
@@ -456,15 +379,6 @@ export function RelatoriosTab({ onCarregar, onVerPDF }: Props) {
                   </div>
                 )}
 
-                {/* feedback salvar arquivos */}
-                {expState[r.id] && expState[r.id] !== 'loading' && (
-                  <div className={cn(
-                    'px-4 pb-2 flex items-center gap-1.5 text-[10px] font-mono',
-                    expState[r.id] === 'ok' ? 'text-teal/80' : 'text-red-400/80'
-                  )}>
-                    {expState[r.id] === 'ok' ? <CheckCircle2 size={9} /> : <AlertTriangle size={9} />} {expMsg[r.id]}
-                  </div>
-                )}
 
 
 

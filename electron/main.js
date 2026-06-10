@@ -914,9 +914,11 @@ ipcMain.handle('data:delete-relatorio-assets', (_, { id }) => {
    para o usuário ter os arquivos físicos mesmo reabrindo de outro PC. */
 ipcMain.handle('relatorio:export-files', async (_, { folderPath, numRelatorio, photos, docxHtml, docxName }) => {
   try {
-    if (!folderPath) return { ok: false, error: 'Pasta da EUT não associada a este relatório.' }
+    // Mesma lógica do PDF: usa a pasta informada ou a pasta da EUT carregada (global)
+    const baseDir = folderPath || eutFolderPath
+    if (!baseDir) return { ok: false, error: 'Pasta da EUT não associada — carregue a pasta da EUT primeiro.' }
     const safeNum = String(numRelatorio || 'relatorio').replace(/[\\/:"*?<>|]/g, '_')
-    const outDir  = path.join(folderPath, `Arquivos_${safeNum}`)
+    const outDir  = path.join(baseDir, `Arquivos_${safeNum}`)
     fs.mkdirSync(outDir, { recursive: true })
 
     let nFotos = 0

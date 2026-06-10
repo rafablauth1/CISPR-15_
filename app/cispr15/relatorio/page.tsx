@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Printer, Upload, X, Loader2, FolderOpen, PenLine, CheckCircle2 } from 'lucide-react'
+import { ArrowLeft, Printer, Upload, X, Loader2, FolderOpen, PenLine, CheckCircle2, Save } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { finalizarMarcador, registrarTempo } from '@/lib/tempos'
 import {
@@ -182,6 +182,7 @@ export default function Cispr15RelatorioPage() {
   const [hasCert,      setHasCert]     = useState(false)
   const [signState,    setSignState]   = useState<'idle' | 'loading' | 'ok' | 'error'>('idle')
   const [signMsg,      setSignMsg]     = useState('')
+  const [savingFiles,  setSavingFiles] = useState<'idle' | 'loading' | 'ok' | 'error'>('idle')
   const photoRef    = useRef<HTMLInputElement>(null)
   const pastaRef    = useRef<HTMLInputElement>(null)
   const isPrintMode = useRef(false)
@@ -531,6 +532,30 @@ export default function Cispr15RelatorioPage() {
   const displayNum = emendaDraft
     ? formatEmendaNumero(cfg.numRelatorio, emendaDraft.emendaNum)
     : cfg.numRelatorio
+
+  /* Salva fotos + DOCX como arquivos na mesma pasta da EUT do PDF */
+  async function salvarArquivos() {
+    if (!cfg) return
+    const api = (window as any).electronAPI
+    if (!api?.exportRelatorioFiles) { alert('Disponível apenas no aplicativo.'); return }
+    const fotos = photos.map(p => ({ name: p.name, base64: (p.url.split(',')[1] ?? '') }))
+    if (!fotos.length && !docx.html) { alert('Sem fotos nem DOCX para salvar.'); return }
+    setSavingFiles('loading')
+    try {
+      const folderPath = emendaDraft?.eutFolderPath ?? eutFolder ?? null
+      const res = await api.exportRelatorioFiles(folderPath, displayNum || cfg.numRelatorio, fotos, docx.html, docx.filename)
+      if (res?.ok) {
+        setSavingFiles('ok')
+        setTimeout(() => setSavingFiles('idle'), 4000)
+      } else {
+        setSavingFiles('error')
+        alert('Erro ao salvar arquivos: ' + (res?.error ?? 'desconhecido'))
+      }
+    } catch (e: any) {
+      setSavingFiles('error')
+      alert('Erro ao salvar arquivos: ' + (e?.message ?? e))
+    }
+  }
 
   /* ── tabelas de limites CISPR 15 ── */
   const limCond1 = {
@@ -894,6 +919,18 @@ export default function Cispr15RelatorioPage() {
           {gerando
             ? <><Loader2 size={14} className="animate-spin" /> Gerando…</>
             : <><Printer size={14} /> Baixar PDF</>}
+        </button>
+
+        {/* Salvar fotos + DOCX na pasta da EUT (ao lado do Baixar PDF) */}
+        <button
+          disabled={savingFiles === 'loading'}
+          onClick={salvarArquivos}
+          title="Salvar as fotos e o DOCX na pasta da EUT (junto do PDF)"
+          className="btn-secondary flex items-center gap-2 px-4 py-2 text-sm disabled:opacity-60">
+          {savingFiles === 'loading' ? <Loader2 size={14} className="animate-spin" /> :
+           savingFiles === 'ok'      ? <CheckCircle2 size={14} className="text-green-400" /> :
+           <Save size={14} />}
+          {savingFiles === 'ok' ? 'Arquivos salvos' : 'Salvar arquivos'}
         </button>
 
         {/* Assinar e Publicar — apenas em modo emenda */}
