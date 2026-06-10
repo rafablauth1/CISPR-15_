@@ -47,6 +47,37 @@ function emptyItem(ponto: number): ItemChecagem {
   return { id: uid(), ponto, grandeza: '', unidade: '', valorReferencia: '', valorMedido: '', resultado: 'na' }
 }
 
+/* Pontos selecionáveis do certificado, vindos de itens (1D) OU da grade 2D (freq×nível).
+   Assim, mesmo certificados importados por PDF (que salvam só grade2D) podem ter os
+   pontos marcados com caixinha na checagem — sem precisar de OCR de novo. */
+export interface CertPonto {
+  grandeza: string; parametro: string; freq: string
+  vr: string; unidade: string; correcao: string; media: string
+}
+function getPontosCert(c: import('@/lib/certificados/tipos').Certificado | null): CertPonto[] {
+  if (!c) return []
+  if (c.itens?.length) {
+    return c.itens.map(l => ({
+      grandeza: l.grandeza || '', parametro: '', freq: '',
+      vr: l.valorNominal || '', unidade: l.unidade || '',
+      correcao: l.correcao || '', media: l.valorIndicado || '',
+    }))
+  }
+  const g = c.grade2D
+  if (g?.pontos?.length) {
+    return (g.pontos as any[]).map(p => ({
+      grandeza:  p.grandeza || p.tabela || g.eixo2Nome || '',
+      parametro: p.tabela || '',
+      freq:      p.eixo1 != null ? `${p.eixo1} ${p.eixo1Unidade || g.eixo1Unidade || ''}`.trim() : '',
+      vr:        p.eixo2 != null ? String(p.eixo2) : '',
+      unidade:   p.eixo2Unidade || g.eixo2Unidade || '',
+      correcao:  p.correcao != null ? String(p.correcao) : '',
+      media:     '',
+    }))
+  }
+  return []
+}
+
 /* ── Helpers numéricos ── */
 function parseN(s: string | undefined): number | null {
   if (!s) return null
@@ -390,6 +421,7 @@ export default function NovaChecagemPage() {
   const [certSel,        setCertSel]        = useState<Set<number>>(new Set())
   const [loading,        setLoading]       = useState(false)
   const [salvando,       setSalvando]      = useState(false)
+  const [editId,         setEditId]        = useState<string | null>(null)
   // Grade 2D de correção (interpolação bilinear)
   const [grade2DAtiva,   setGrade2DAtiva]  = useState(false)
   const [grade2DPontos,  setGrade2DPontos] = useState<PontoCalibracao2D[]>([])
@@ -401,6 +433,32 @@ export default function NovaChecagemPage() {
   useEffect(() => {
     fetch('/api/equipamentos').then(r=>r.json()).then(e=>setEquips(Array.isArray(e)?e:[])).catch(()=>{})
     fetch('/api/instrucoes').then(r=>r.json()).then(d=>setDocsIT(Array.isArray(d)?d:[])).catch(()=>{})
+  }, [])
+
+  // Modo edição: ?id=<checagem> → carrega a checagem existente nos campos (salva com PUT)
+  useEffect(() => {
+    const eid = new URLSearchParams(window.location.search).get('id')
+    if (!eid) return
+    setEditId(eid)
+    fetch(`/api/checagens/${eid}`).then(r=>r.json()).then((c) => {
+      if (!c || c.error) return
+      setEquipId(c.equipamentoId || '')
+      setNomeInstrumento(c.nomeInstrumento || '')
+      setLaboratorio(c.laboratorio || '')
+      setNumeroCert(c.numeroCertificado || '')
+      setDataCalibRef(c.dataCalibracaoRef || '')
+      setPadraoTag(c.padraoTag || '')
+      setTipoComp(c.tipoComparacao || 'direta')
+      setPapelRef(c.papelReferencia || 'gerador')
+      setResultadoGeral(c.resultadoGeral || 'pendente')
+      setData(c.data || new Date().toISOString().slice(0,10))
+      setResponsavel(c.responsavel || '')
+      if (typeof c.periodicidade === 'number') setPeriodicidade(c.periodicidade)
+      setNormaRef(c.normaReferencia || '')
+      setObs(c.obs || '')
+      if (Array.isArray(c.itens) && c.itens.length) setItens(c.itens)
+      setTab('manual')   // edição acontece na tabela manual
+    }).catch(()=>{})
   }, [])
 
   function handleEquipChange(id: string) {
@@ -416,6 +474,7 @@ export default function NovaChecagemPage() {
   }
 
   const modo = getModo(tipoComp, papelRef)
+  const pontosCert = getPontosCert(certPadrao)
 
   function addItem() { setItens(p=>[...p, emptyItem(p.length+1)]) }
   function removeItem(id: string) { setItens(p=>p.filter(i=>i.id!==id).map((i,idx)=>({...i,ponto:idx+1}))) }
@@ -457,6 +516,8 @@ export default function NovaChecagemPage() {
       } else {
         setCertPadraoMsg(`✓ Certificado ${mais.numero} (${mais.laboratorio}) — ${mais.itens.length} ponto(s)`)
       }
+      // Guia o usuário direto pro painel de marcar pontos (itens 1D ou grade 2D)
+      if (getPontosCert(mais).length) { setCertSel(new Set()); setShowCertImport(true) }
     } catch { setCertPadraoMsg('Erro ao buscar certificado.') }
   }
 
@@ -482,19 +543,20 @@ export default function NovaChecagemPage() {
     })
   }
 
-  // Importa os pontos selecionados do certificado como pontos de checagem.
-  // VR ← valorNominal; Média (base medida na calibração) ← valorIndicado; correção ← correcao.
+  // Importa os pontos marcados do certificado como pontos de checagem.
+  // Funciona tanto para itens 1D quanto para grade 2D (freq×nível).
+  // grandeza ← grandeza/parâmetro (+ freq); VR ← valor de referência; correção ← correção.
   function importarPontosDoCert() {
-    if (!certPadrao?.itens?.length) return
-    const selecionados = certPadrao.itens.filter((_, i) => certSel.has(i))
-    if (!selecionados.length) { alert('Selecione ao menos um ponto do certificado.'); return }
-    const novos = selecionados.map((linha, idx) => ({
+    const todos = getPontosCert(certPadrao)
+    const selecionados = todos.filter((_, i) => certSel.has(i))
+    if (!selecionados.length) { alert('Marque ao menos um ponto do certificado.'); return }
+    const novos = selecionados.map((p, idx) => ({
       ...emptyItem(idx + 1),
-      grandeza:        linha.grandeza || '',
-      unidade:         linha.unidade || '',
-      valorReferencia: linha.valorNominal || '',   // VR
-      mediaCalibracao: linha.valorIndicado || '',  // Média medida na calibração (base)
-      correcaoPadrao:  linha.correcao || '',
+      grandeza:        [p.grandeza, p.parametro].filter(Boolean).join(' · ') + (p.freq ? ` @ ${p.freq}` : ''),
+      unidade:         p.unidade || '',
+      valorReferencia: p.vr || '',          // VR
+      mediaCalibracao: p.media || '',       // média da calibração (quando 1D)
+      correcaoPadrao:  p.correcao || '',
     }))
     setItens(novos)
     setShowCertImport(false)
@@ -534,8 +596,8 @@ export default function NovaChecagemPage() {
     const { validarChecagem } = await import('@/lib/checagens/validacao')
     const status = validarChecagem(itensFinal, proximaChecagem, resultadoGeral)
     try {
-      const res = await fetch('/api/checagens', {
-        method:'POST', headers:{'Content-Type':'application/json'},
+      const res = await fetch(editId ? `/api/checagens/${editId}` : '/api/checagens', {
+        method: editId ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({
           equipamentoId:eq.id, equipamentoTag:eq.tag,
           nomeInstrumento, laboratorio, numeroCertificado:numeroCert,
@@ -548,7 +610,7 @@ export default function NovaChecagemPage() {
       })
       const saved = await res.json()
       if (saved.error) throw new Error(saved.error)
-      router.push(`/checagens/${saved.id}`)
+      router.push(`/checagens/${editId ?? saved.id}`)
     } catch(e:unknown) { alert('Erro ao salvar: '+String(e)) }
     finally { setSalvando(false) }
   }
@@ -600,7 +662,7 @@ export default function NovaChecagemPage() {
       <div className="page-header">
         <div>
           <p className="page-eyebrow">FOR 6405 · Rev 01</p>
-          <h1 className="page-title">Registro de Checagem Intermediária</h1>
+          <h1 className="page-title">{editId ? 'Editar Checagem Intermediária' : 'Registro de Checagem Intermediária'}</h1>
         </div>
         <div className="flex items-center gap-2">
           {(['manual','ocr'] as Tab[]).map(t => (
@@ -694,10 +756,10 @@ export default function NovaChecagemPage() {
                   className="btn-primary text-[11px] py-1">
                   <FileSearch size={11}/> Aplicar correções do certificado
                 </button>
-                {certPadrao.itens?.length > 0 && (
-                  <button type="button" onClick={() => { setCertSel(new Set(certPadrao.itens.map((_, i) => i))); setShowCertImport(true) }}
-                    className="btn-secondary text-[11px] py-1">
-                    <FileSearch size={11}/> Importar pontos do certificado ({certPadrao.itens.length})
+                {pontosCert.length > 0 && (
+                  <button type="button" onClick={() => { setCertSel(new Set()); setShowCertImport(true) }}
+                    className="btn-primary text-[11px] py-1">
+                    <FileSearch size={11}/> Marcar pontos do certificado ({pontosCert.length})
                   </button>
                 )}
               </div>
@@ -986,7 +1048,7 @@ export default function NovaChecagemPage() {
             </div>
             <div className="flex items-center justify-between px-4 py-2 border-b border-white/6">
               <div className="flex items-center gap-2">
-                <button type="button" onClick={() => setCertSel(new Set(certPadrao.itens.map((_, i) => i)))}
+                <button type="button" onClick={() => setCertSel(new Set(pontosCert.map((_, i) => i)))}
                   className="text-[11px] text-white/50 hover:text-white transition-colors">Todos</button>
                 <span className="text-white/15">·</span>
                 <button type="button" onClick={() => setCertSel(new Set())}
@@ -998,12 +1060,12 @@ export default function NovaChecagemPage() {
               <table className="w-full">
                 <thead className="tbl-head sticky top-0 z-10" style={{ background: '#0E1320' }}>
                   <tr>
-                    <th className="w-8"></th><th>Pt.</th><th>Grandeza</th>
-                    <th>VR (nominal)</th><th>Média (indicado)</th><th>Correção</th>
+                    <th className="w-8"></th><th>Pt.</th><th>Grandeza / Parâmetro</th>
+                    <th>Freq.</th><th>VR</th><th>Correção</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {certPadrao.itens.map((l, i) => {
+                  {pontosCert.map((p, i) => {
                     const sel = certSel.has(i)
                     return (
                       <tr key={i} onClick={() => toggleCertSel(i)}
@@ -1011,13 +1073,13 @@ export default function NovaChecagemPage() {
                         <td className="w-8 text-center">
                           <input type="checkbox" checked={sel} readOnly className="accent-gold pointer-events-none"/>
                         </td>
-                        <td className="font-mono text-[11px] text-white/40">{l.ponto}</td>
+                        <td className="font-mono text-[11px] text-white/40">{i + 1}</td>
                         <td className="text-white/70 text-[12px]">
-                          {l.grandeza} <span className="text-white/30 font-mono text-[10px]">{l.unidade}</span>
+                          {p.grandeza}{p.parametro && p.parametro !== p.grandeza && <span className="text-white/35"> · {p.parametro}</span>}
                         </td>
-                        <td className="font-mono text-[11px]">{l.valorNominal}</td>
-                        <td className="font-mono text-[11px] text-teal/80">{l.valorIndicado}</td>
-                        <td className="font-mono text-[11px] text-white/50">{l.correcao}</td>
+                        <td className="font-mono text-[11px] text-white/50">{p.freq || '—'}</td>
+                        <td className="font-mono text-[11px]">{p.vr} <span className="text-white/30 text-[10px]">{p.unidade}</span></td>
+                        <td className="font-mono text-[11px] text-white/50">{p.correcao}</td>
                       </tr>
                     )
                   })}

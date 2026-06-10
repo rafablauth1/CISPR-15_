@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, FileText } from 'lucide-react'
+import { ArrowLeft, FileText, Pencil, Trash2 } from 'lucide-react'
 import { fmt } from '@/lib/utils'
 import type { Checagem } from '@/lib/checagens/tipos'
 
@@ -39,6 +39,16 @@ export default function CheckagemDetalhePage() {
     <div className="flex items-center justify-center py-20 text-white/25 text-sm">Carregando...</div>
   )
 
+  async function excluir() {
+    if (!confirm(`Excluir a checagem de "${checagem?.nomeInstrumento || checagem?.equipamentoTag}"?\n\nEsta ação não pode ser desfeita.`)) return
+    try {
+      const res = await fetch(`/api/checagens/${id}`, { method: 'DELETE' })
+      const d = await res.json().catch(() => ({}))
+      if (d?.error) throw new Error(d.error)
+      router.push('/checagens')
+    } catch (e: any) { alert('Erro ao excluir: ' + (e?.message ?? e)) }
+  }
+
   const indireta = checagem.tipoComparacao === 'indireta'
 
   return (
@@ -57,9 +67,18 @@ export default function CheckagemDetalhePage() {
             <h1 className="page-title">{checagem.nomeInstrumento || checagem.equipamentoTag}</h1>
           </div>
         </div>
-        <button onClick={() => { console.log('TODO: gerar PDF', checagem.id) }} className="btn-secondary">
-          <FileText size={13}/> Gerar PDF
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => router.push(`/checagens/nova?id=${checagem.id}`)} className="btn-secondary">
+            <Pencil size={13}/> Editar
+          </button>
+          <button onClick={excluir}
+            className="btn-ghost px-3 py-2 text-red-400/80 hover:text-red-400 hover:bg-red-500/10 border border-red-500/20 rounded-lg">
+            <Trash2 size={13}/> Excluir
+          </button>
+          <button onClick={() => { console.log('TODO: gerar PDF', checagem.id) }} className="btn-secondary">
+            <FileText size={13}/> Gerar PDF
+          </button>
+        </div>
       </div>
 
       {/* Cabeçalho do formulário */}
