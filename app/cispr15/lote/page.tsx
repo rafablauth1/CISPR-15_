@@ -6,9 +6,9 @@ import {
   ArrowLeft, ArrowRight, X, Loader2, CheckCircle2, AlertTriangle,
   FolderOpen, Upload, ChevronDown, Users,
   Shield, ShieldCheck, ShieldX, Plus, Minus,
-  Lightbulb, Lamp, Trash2,
+  Lightbulb, Lamp, Trash2, CalendarRange,
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, normWatts } from '@/lib/utils'
 import { iniciarMarcadorSeAusente, finalizarMarcador, registrarTempo } from '@/lib/tempos'
 import {
   type LoteAmostra, type LoteConfig, type Cispr15Config, type RelatorioSalvo, type EquipamentoSalvo, type AgendaItem,
@@ -246,7 +246,9 @@ function AmostraCard({ index, amostra, expanded, onToggle, onChange, tipoLote, o
               <input className="input text-sm" value={amostra.identificador} onChange={set('identificador')} />
             </Row>
             <Row label="Potência">
-              <input className="input text-sm" value={amostra.potencia} onChange={set('potencia')} placeholder="Ex: 60W" />
+              <input className="input text-sm" value={amostra.potencia} onChange={set('potencia')}
+                onBlur={e => onChange({ ...amostra, potencia: normWatts(e.target.value) })}
+                placeholder="Ex: 60  (W automático)" />
             </Row>
             <Row label="Tensão de Alimentação">
               <input className="input text-sm" value={amostra.tensaoAlim} onChange={set('tensaoAlim')} />
@@ -309,7 +311,9 @@ function AmostraCard({ index, amostra, expanded, onToggle, onChange, tipoLote, o
                     <input className="input text-sm" value={amostra.driverIdentificador ?? ''} onChange={e => onChange({ ...amostra, driverIdentificador: e.target.value })} />
                   </Row>
                   <Row label="Potência">
-                    <input className="input text-sm" value={amostra.driverPotencia ?? ''} onChange={e => onChange({ ...amostra, driverPotencia: e.target.value })} placeholder="Ex: 60W" />
+                    <input className="input text-sm" value={amostra.driverPotencia ?? ''} onChange={e => onChange({ ...amostra, driverPotencia: e.target.value })}
+                      onBlur={e => onChange({ ...amostra, driverPotencia: normWatts(e.target.value) })}
+                      placeholder="Ex: 60  (W automático)" />
                   </Row>
                   <Row label="Tensão de Alimentação">
                     <input className="input text-sm" value={amostra.driverTensaoAlim ?? ''} onChange={e => onChange({ ...amostra, driverTensaoAlim: e.target.value })} />
@@ -453,6 +457,8 @@ export default function LotePage() {
   const [emitModal,   setEmitModal]   = useState<{ conformes: number; reprovadosNomes: string[] } | null>(null)
   const [importMae,   setImportMae]   = useState<{ loading: boolean; msg: string } | null>(null)
   const maeRef = useRef<HTMLInputElement>(null)
+  const [bulkInicio,  setBulkInicio]  = useState('')
+  const [bulkFim,     setBulkFim]     = useState('')
   const [gateOpen,    setGateOpen]    = useState(false)
   const [gateInput,   setGateInput]   = useState('')
   const [gateError,   setGateError]   = useState(false)
@@ -588,6 +594,19 @@ export default function LotePage() {
   function handleTipo(tipo: 'lampada' | 'luminaria') {
     if (!lote) return
     saveLote({ ...lote, tipo })
+  }
+
+  // Define o período (início/fim) de TODAS as amostras de uma vez
+  function aplicarPeriodoTodos() {
+    if (!lote) return
+    if (!bulkInicio && !bulkFim) { alert('Informe início e/ou fim para aplicar a todos.'); return }
+    if (bulkInicio && bulkFim && bulkFim < bulkInicio) { alert('Fim anterior ao início do período.'); return }
+    const amostras = lote.amostras.map(a => ({
+      ...a,
+      periodoInicio: bulkInicio || a.periodoInicio,
+      periodoFim:    bulkFim    || a.periodoFim,
+    }))
+    saveLote({ ...lote, amostras })
   }
 
   function updateAmostra(i: number, a: LoteAmostra) {
@@ -971,6 +990,29 @@ export default function LotePage() {
           <CheckCircle2 size={13} className="text-green-400 shrink-0" /> {importMae.msg}
         </div>
       )}
+
+      {/* Período de todas as amostras de uma vez */}
+      <div className="card p-4 mb-5 flex flex-wrap items-end gap-4">
+        <div className="flex items-center gap-2 text-gold">
+          <CalendarRange size={15} />
+          <span className="text-sm font-semibold">Período de todos os ensaios</span>
+        </div>
+        <div className="flex flex-col gap-1">
+          <Label>Início</Label>
+          <input className="input text-sm" type="date" value={bulkInicio} onChange={e => setBulkInicio(e.target.value)} />
+        </div>
+        <div className="flex flex-col gap-1">
+          <Label>Fim</Label>
+          <input
+            className={cn('input text-sm', bulkInicio && bulkFim && bulkFim < bulkInicio && 'border-red-500/50')}
+            type="date" value={bulkFim} onChange={e => setBulkFim(e.target.value)} />
+        </div>
+        <button type="button" onClick={aplicarPeriodoTodos}
+          className="px-3.5 py-2 rounded-lg text-xs font-semibold border border-gold/40 bg-gold/8 text-gold hover:bg-gold/14 transition-all">
+          Aplicar a todas ({lote.qtd})
+        </button>
+        <span className="text-[10px] text-white/30">Preenche início/fim de todas as amostras; campos vazios não sobrescrevem.</span>
+      </div>
 
       {/* Lista de amostras */}
       <div className="space-y-3">

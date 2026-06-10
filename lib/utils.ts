@@ -66,3 +66,13 @@ export function fmtSize(bytes: number): string {
 export function uid(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36)
 }
+
+// Potência: por padrão em W. Se o usuário digitar só o número, anexa "W".
+// Mantém intacto se já houver qualquer unidade/letra (kW, mW, etc.).
+export function normWatts(v: string): string {
+  const t = (v ?? '').trim()
+  if (!t) return t
+  if (/[a-zA-Z]/.test(t)) return t          // já tem unidade
+  if (/^[\d.,]+$/.test(t)) return t + 'W'   // número puro → vira "<n>W"
+  return t
+}

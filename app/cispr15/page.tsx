@@ -8,7 +8,7 @@ import {
   BookOpen, AlertTriangle, Lock, Settings, ScanText, RefreshCw, Plus, ChevronDown, Search,
   Shield, ShieldCheck, ShieldX,
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, normWatts } from '@/lib/utils'
 import {
   type Cispr15Config, type LoteConfig, type ClienteDB, type RelatorioSalvo,
   DEFAULTS,
@@ -1396,7 +1396,9 @@ export default function Cispr15ConfigPage() {
               </Row>
             )}
             <Row label="Potência Nominal">
-              <input className="input" value={cfg.potencia} onChange={set('potencia')} placeholder="Ex: 120W" />
+              <input className="input" value={cfg.potencia} onChange={set('potencia')}
+                onBlur={e => setCfg(prev => ({ ...prev, potencia: normWatts(e.target.value) }))}
+                placeholder="Ex: 120  (W automático)" />
             </Row>
             <Row label="Tensão de Alimentação">
               <input className="input" value={cfg.tensaoAlim} onChange={set('tensaoAlim')} placeholder="Ex: 90 a 305VAC" />
@@ -1451,7 +1453,9 @@ export default function Cispr15ConfigPage() {
                   <input className="input" value={cfg.driverIdentificador ?? ''} onChange={set('driverIdentificador')} placeholder="N° de série do driver" />
                 </Row>
                 <Row label="Potência Nominal">
-                  <input className="input" value={cfg.driverPotencia ?? ''} onChange={set('driverPotencia')} placeholder="Ex: 100W" />
+                  <input className="input" value={cfg.driverPotencia ?? ''} onChange={set('driverPotencia')}
+                    onBlur={e => setCfg(prev => ({ ...prev, driverPotencia: normWatts(e.target.value) }))}
+                    placeholder="Ex: 100  (W automático)" />
                 </Row>
                 <Row label="Tensão de Alimentação">
                   <input className="input" value={cfg.driverTensaoAlim ?? ''} onChange={set('driverTensaoAlim')} placeholder="Ex: 90 a 305VAC" />
