@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Trash2, Loader2, Upload, ScanText, Save, FileSearch, Grid3x3, X } from 'lucide-react'
+import { Plus, Trash2, Loader2, Upload, ScanText, Save, FileSearch, Grid3x3, X, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { addM } from '@/lib/utils'
 import { extrairTextoArquivo } from '@/lib/useOCR'
@@ -366,28 +366,30 @@ function TblHeader({ modo, grade2DAtiva, eixo1Nome, eixo1Unidade, eixo2Nome, eix
 interface EquipMin { id: string; tag: string; nome: string }
 function GrandezaSection({
   grandeza, items, modo, grade2DAtiva, eixo1Nome, eixo1Unidade, eixo2Nome, eixo2Unidade,
-  equips, instrumentoTag, certNum, onRename, onPickInstrumento, onAddItem, onChangeItem, onDeleteItem,
+  equips, instrumentoTag, certNum, grandezaOpcoes, onRename, onPickInstrumento, onAddItem, onChangeItem, onDeleteItem,
 }: {
   grandeza: string; items: ItemChecagem[]; modo: Modo
   grade2DAtiva?: boolean; eixo1Nome?: string; eixo1Unidade?: string; eixo2Nome?: string; eixo2Unidade?: string
-  equips: EquipMin[]; instrumentoTag?: string; certNum?: string
+  equips: EquipMin[]; instrumentoTag?: string; certNum?: string; grandezaOpcoes: string[]
   onRename: (oldName: string, newName: string) => void
   onPickInstrumento: (grandeza: string, equipId: string) => void
   onAddItem: (grandeza: string) => void
   onChangeItem: (id: string, i: ItemChecagem) => void
   onDeleteItem: (id: string) => void
 }) {
-  const [nome, setNome] = useState(grandeza)
-  useEffect(() => { setNome(grandeza) }, [grandeza])
   const equipSel = equips.find(e => e.tag === instrumentoTag)?.id ?? ''
   return (
     <div className="card overflow-hidden mb-4">
       <div className="px-4 py-3 border-b border-white/6 flex items-center gap-3 flex-wrap" style={{ background: 'rgba(212,175,55,0.05)' }}>
-        <input
-          className="input text-sm font-semibold flex-1 min-w-[180px]"
-          value={nome} onChange={e => setNome(e.target.value)}
-          onBlur={() => { if (nome !== grandeza) onRename(grandeza, nome) }}
-          placeholder="Nome da grandeza (ex: Tensão DC)" />
+        <select
+          className="input text-sm font-semibold flex-1 min-w-[180px] cursor-pointer"
+          value={grandeza}
+          onChange={e => onRename(grandeza, e.target.value)}
+          title="Escolha a grandeza (cadastrada no padrão)">
+          <option value="">— escolher grandeza —</option>
+          {grandezaOpcoes.map(g => <option key={g} value={g}>{g}</option>)}
+          {grandeza && !grandezaOpcoes.includes(grandeza) && <option value={grandeza}>{grandeza}</option>}
+        </select>
         <span className="text-[10px] font-mono text-white/30 shrink-0">{items.length} ponto(s)</span>
         <div className="flex items-center gap-2 shrink-0">
           <label className="text-[10px] font-mono uppercase tracking-wider text-white/40">Instrumento</label>
@@ -800,6 +802,20 @@ export default function NovaChecagemPage() {
 
   const equip = equips.find(e=>e.id===equipId)
 
+  // Grandezas SELECIONÁVEIS: as cadastradas no padrão (por TAG) e no equipamento,
+  // mais as já presentes nos itens. Evita depender do texto do OCR p/ a grandeza.
+  const grandezasDisponiveis = (() => {
+    const set = new Set<string>()
+    const add = (s?: string) => { const v = (s || '').trim(); if (v) set.add(v) }
+    const padrao = padraoTag.trim()
+      ? equips.find(e => (e.tag || '').trim().toLowerCase() === padraoTag.trim().toLowerCase())
+      : undefined
+    ;(padrao?.grandezas ?? []).forEach(g => add(g.nome))
+    ;(equip?.grandezas ?? []).forEach(g => add(g.nome))
+    itens.forEach(it => add(it.grandeza))
+    return [...set].sort((a, b) => a.localeCompare(b))
+  })()
+
   // IT/PC cujo código casa com algum procedimento do equipamento selecionado
   const docsCasados = (() => {
     const cods = (equip?.procedimentos ?? []).map(normCodigo)
@@ -1088,6 +1104,13 @@ export default function NovaChecagemPage() {
             </span>
           </div>
 
+          {grandezasDisponiveis.length === 0 && (
+            <div className="mb-3 px-3 py-2 rounded-lg bg-amber-500/8 border border-amber-500/20 text-amber-300/90 text-[11px] flex items-center gap-2">
+              <AlertTriangle size={12} className="shrink-0"/>
+              Nenhuma grandeza cadastrada para selecionar. Cadastre as grandezas no equipamento/padrão (ou informe o TAG do padrão) para que apareçam no seletor.
+            </div>
+          )}
+
           {gruposItens.length === 0 && (
             <div className="card p-6 text-center text-white/30 text-sm mb-4">
               Nenhum ponto ainda. Escolha um equipamento (carrega o template) ou adicione uma grandeza abaixo.
@@ -1102,6 +1125,7 @@ export default function NovaChecagemPage() {
               equips={equips}
               instrumentoTag={g.items[0]?.instrumentoTag}
               certNum={g.items[0]?.instrumentoCertNum}
+              grandezaOpcoes={grandezasDisponiveis}
               onRename={renomearGrandeza}
               onPickInstrumento={aplicarInstrumentoGrandeza}
               onAddItem={addItemGrandeza}
