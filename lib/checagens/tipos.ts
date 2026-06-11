@@ -17,9 +17,14 @@ export interface ItemChecagem {
   valorNominal?: string      // Direta ref=medidor: o que foi ajustado no instrumento
   valorReferencia: string    // O que a referência diz (gera ou lê)
   valorMedido: string        // O que o instrumento checado diz (lê ou gera)
-  // Indireto — correção do certificado da referência
+  // Correção ATIVA aplicada ao ponto. Agora vem do INSTRUMENTO de medição usado
+  // (não do padrão checado). Mantém o nome do campo p/ compatibilidade do cálculo.
   correcaoPadrao?: string
   valorCorrigido?: string    // valorReferencia + correcaoPadrao
+  // Instrumento de medição usado nesta grandeza (origem da correção)
+  instrumentoTag?: string
+  instrumentoCertNum?: string
+  incertezaInstrumento?: string
   // Importado do certificado: média (valor indicado) medida na calibração — base da checagem
   mediaCalibracao?: string
   // Legado

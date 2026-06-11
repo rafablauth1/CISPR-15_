@@ -205,10 +205,10 @@ function ITParser({ onAplicar }: {
 }
 
 /* ── Linha da tabela ── */
-function ItemRow({ item, modo, onChange, onDelete, grade2DAtiva, eixo1Nome, eixo2Nome }: {
+function ItemRow({ item, modo, onChange, onDelete, grade2DAtiva, eixo1Nome, eixo2Nome, hideGrandeza }: {
   item: ItemChecagem; modo: Modo
   onChange: (i: ItemChecagem) => void; onDelete: () => void
-  grade2DAtiva?: boolean; eixo1Nome?: string; eixo2Nome?: string
+  grade2DAtiva?: boolean; eixo1Nome?: string; eixo2Nome?: string; hideGrandeza?: boolean
 }) {
   function set(k: keyof ItemChecagem, v: string | number) {
     const next = { ...item, [k]: v }
@@ -230,14 +230,16 @@ function ItemRow({ item, modo, onChange, onDelete, grade2DAtiva, eixo1Nome, eixo
   return (
     <tr className={cn('tbl-row group/row', rowCls)}>
       <td className="w-10 text-center font-mono text-[11px] text-white/40">{item.ponto}</td>
-      <td>
-        <input className={inp} value={item.grandeza} onChange={e => set('grandeza', e.target.value)} placeholder="ex: Tensão DC"/>
-        {item.mediaCalibracao && (
-          <p className="text-[8px] text-teal/60 font-mono mt-0.5 px-1" title="Média medida na calibração (base da checagem)">
-            cal.: {item.mediaCalibracao}
-          </p>
-        )}
-      </td>
+      {!hideGrandeza && (
+        <td>
+          <input className={inp} value={item.grandeza} onChange={e => set('grandeza', e.target.value)} placeholder="ex: Tensão DC"/>
+          {item.mediaCalibracao && (
+            <p className="text-[8px] text-teal/60 font-mono mt-0.5 px-1" title="Média medida na calibração (base da checagem)">
+              cal.: {item.mediaCalibracao}
+            </p>
+          )}
+        </td>
+      )}
       <td className="w-20"><input className={cn(inp,'font-mono')} value={item.unidade} onChange={e => set('unidade', e.target.value)} placeholder="V"/></td>
 
       {modo === 'direta-gera' && <>
@@ -254,8 +256,11 @@ function ItemRow({ item, modo, onChange, onDelete, grade2DAtiva, eixo1Nome, eixo
 
       {modo === 'indireta' && <>
         {/* Caixa preta gera → ref lê VR, instrumento lê MM */}
-        <td className="w-28"><input className={cn(inp,'font-mono')} value={item.valorReferencia} onChange={e => set('valorReferencia', e.target.value)} placeholder="Leit. Ref."/></td>
-        <td className="w-24"><input className={cn(inp,'font-mono')} value={item.correcaoPadrao??''} onChange={e => set('correcaoPadrao', e.target.value)} placeholder="Corr. cert."/></td>
+        <td className="w-28"><input className={cn(inp,'font-mono')} value={item.valorReferencia} onChange={e => set('valorReferencia', e.target.value)} placeholder="VR (padrão)"/></td>
+        <td className="w-24">
+          <input className={cn(inp,'font-mono')} value={item.correcaoPadrao??''} onChange={e => set('correcaoPadrao', e.target.value)} placeholder="Corr. instr."/>
+          {item.incertezaInstrumento && <p className="text-[8px] text-white/35 font-mono mt-0.5 px-1" title="Incerteza do instrumento (U, k=2)">U: {item.incertezaInstrumento}</p>}
+        </td>
         <td className="w-28">
           <input className={cn(inp,'font-mono text-white/50')} value={item.valorCorrigido??''} onChange={e => set('valorCorrigido', e.target.value)} placeholder="auto"/>
         </td>
@@ -311,17 +316,18 @@ function ItemRow({ item, modo, onChange, onDelete, grade2DAtiva, eixo1Nome, eixo
 }
 
 /* ── Cabeçalho dinâmico da tabela ── */
-function TblHeader({ modo, grade2DAtiva, eixo1Nome, eixo1Unidade, eixo2Nome, eixo2Unidade }: {
+function TblHeader({ modo, grade2DAtiva, eixo1Nome, eixo1Unidade, eixo2Nome, eixo2Unidade, hideGrandeza }: {
   modo: Modo
   grade2DAtiva?: boolean
   eixo1Nome?: string; eixo1Unidade?: string
   eixo2Nome?: string; eixo2Unidade?: string
+  hideGrandeza?: boolean
 }) {
   return (
     <thead className="tbl-head">
       <tr>
         <th className="w-10 text-center">Pt.</th>
-        <th>Grandeza</th>
+        {!hideGrandeza && <th>Grandeza</th>}
         <th className="w-20">Unid.</th>
         {modo === 'direta-gera' && <>
           <th className="w-32">VR — Padrão (fonte)</th>
@@ -332,8 +338,8 @@ function TblHeader({ modo, grade2DAtiva, eixo1Nome, eixo1Unidade, eixo2Nome, eix
           <th className="w-32">VR — Padrão (indicador)</th>
         </>}
         {modo === 'indireta' && <>
-          <th className="w-28">Leit. Referência</th>
-          <th className="w-24">Corr. cert.</th>
+          <th className="w-28">VR — Padrão</th>
+          <th className="w-24">Corr. instrumento</th>
           <th className="w-28">Val. corrigido</th>
           <th className="w-28">Leit. Instrumento</th>
         </>}
@@ -353,6 +359,69 @@ function TblHeader({ modo, grade2DAtiva, eixo1Nome, eixo1Unidade, eixo2Nome, eix
         <th className="w-8"></th>
       </tr>
     </thead>
+  )
+}
+
+/* ── Seção de uma grandeza: título grande + instrumento + tabela de pontos ── */
+interface EquipMin { id: string; tag: string; nome: string }
+function GrandezaSection({
+  grandeza, items, modo, grade2DAtiva, eixo1Nome, eixo1Unidade, eixo2Nome, eixo2Unidade,
+  equips, instrumentoTag, certNum, onRename, onPickInstrumento, onAddItem, onChangeItem, onDeleteItem,
+}: {
+  grandeza: string; items: ItemChecagem[]; modo: Modo
+  grade2DAtiva?: boolean; eixo1Nome?: string; eixo1Unidade?: string; eixo2Nome?: string; eixo2Unidade?: string
+  equips: EquipMin[]; instrumentoTag?: string; certNum?: string
+  onRename: (oldName: string, newName: string) => void
+  onPickInstrumento: (grandeza: string, equipId: string) => void
+  onAddItem: (grandeza: string) => void
+  onChangeItem: (id: string, i: ItemChecagem) => void
+  onDeleteItem: (id: string) => void
+}) {
+  const [nome, setNome] = useState(grandeza)
+  useEffect(() => { setNome(grandeza) }, [grandeza])
+  const equipSel = equips.find(e => e.tag === instrumentoTag)?.id ?? ''
+  return (
+    <div className="card overflow-hidden mb-4">
+      <div className="px-4 py-3 border-b border-white/6 flex items-center gap-3 flex-wrap" style={{ background: 'rgba(212,175,55,0.05)' }}>
+        <input
+          className="input text-sm font-semibold flex-1 min-w-[180px]"
+          value={nome} onChange={e => setNome(e.target.value)}
+          onBlur={() => { if (nome !== grandeza) onRename(grandeza, nome) }}
+          placeholder="Nome da grandeza (ex: Tensão DC)" />
+        <span className="text-[10px] font-mono text-white/30 shrink-0">{items.length} ponto(s)</span>
+        <div className="flex items-center gap-2 shrink-0">
+          <label className="text-[10px] font-mono uppercase tracking-wider text-white/40">Instrumento</label>
+          <select className="input text-xs py-1 w-auto max-w-[260px] cursor-pointer"
+            value={equipSel} onChange={e => onPickInstrumento(grandeza, e.target.value)}>
+            <option value="">— escolher —</option>
+            {equips.map(eq => <option key={eq.id} value={eq.id}>{eq.tag} · {eq.nome}</option>)}
+          </select>
+        </div>
+        {instrumentoTag && (
+          <span className="text-[10px] font-mono text-teal/70 shrink-0" title="Correção vem do certificado deste instrumento">
+            corr. ← {instrumentoTag}{certNum ? ` · cert ${certNum}` : ''}
+          </span>
+        )}
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full" style={{ minWidth: grade2DAtiva ? 1000 : modo === 'indireta' ? 820 : 560 }}>
+          <TblHeader modo={modo} grade2DAtiva={grade2DAtiva} hideGrandeza
+            eixo1Nome={eixo1Nome} eixo1Unidade={eixo1Unidade} eixo2Nome={eixo2Nome} eixo2Unidade={eixo2Unidade} />
+          <tbody>
+            {items.map(it => (
+              <ItemRow key={it.id} item={it} modo={modo} hideGrandeza
+                grade2DAtiva={grade2DAtiva} eixo1Nome={eixo1Nome} eixo2Nome={eixo2Nome}
+                onChange={i => onChangeItem(it.id, i)} onDelete={() => onDeleteItem(it.id)} />
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="px-4 py-2 border-t border-white/5">
+        <button type="button" onClick={() => onAddItem(grandeza)} className="btn-ghost text-xs">
+          <Plus size={12} /> Ponto nesta grandeza
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -503,6 +572,77 @@ export default function NovaChecagemPage() {
     setItens(p=>p.map(i=>i.id===id?item:i))
   }
 
+  // Itens agrupados por grandeza (preserva a ordem de 1ª aparição)
+  const gruposItens = (() => {
+    const order: string[] = []
+    const map = new Map<string, ItemChecagem[]>()
+    itens.forEach(it => {
+      const k = it.grandeza || ''
+      if (!map.has(k)) { map.set(k, []); order.push(k) }
+      map.get(k)!.push(it)
+    })
+    return order.map(k => ({ key: k || '__sem__', grandeza: k, items: map.get(k)! }))
+  })()
+
+  function addItemGrandeza(grandeza: string) {
+    setItens(p => [...p, { ...emptyItem(p.length + 1), grandeza }])
+  }
+
+  function renomearGrandeza(oldName: string, newName: string) {
+    setItens(p => p.map(it => (it.grandeza || '') === oldName ? { ...it, grandeza: newName } : it))
+  }
+
+  // Casa a correção do certificado do INSTRUMENTO ao ponto (1D por VR mais próximo; 2D bilinear)
+  function matchCorrecaoInstrumento(cert: import('@/lib/certificados/tipos').Certificado, item: ItemChecagem): { correcao: string; incerteza: string } | null {
+    if (cert.itens?.length) {
+      const vr = parseN(item.valorReferencia)
+      let best = cert.itens[0]
+      if (vr !== null) {
+        best = cert.itens.reduce((a, b) =>
+          Math.abs((parseN(b.valorNominal) ?? Infinity) - vr) < Math.abs((parseN(a.valorNominal) ?? Infinity) - vr) ? b : a)
+      } else {
+        best = cert.itens.find(l => (l.grandeza || '').toLowerCase() === (item.grandeza || '').toLowerCase()) ?? cert.itens[0]
+      }
+      if (best) return { correcao: best.correcao || '', incerteza: best.incertezaExpandida || '' }
+    }
+    const g = cert.grade2D
+    if (g?.pontos?.length) {
+      const e1 = parseN(item.eixo1Valor), e2 = parseN(item.eixo2Valor ?? item.valorReferencia)
+      if (e1 !== null && e2 !== null) {
+        const corr = interpolarBilinear(e1, e2, g.pontos as unknown as PontoCalibracao2D[])
+        if (corr !== null) return { correcao: (corr >= 0 ? '+' : '') + corr.toPrecision(4), incerteza: '' }
+      }
+    }
+    return null
+  }
+
+  // Atribui um instrumento (do catálogo) a uma grandeza e preenche a correção dos pontos
+  async function aplicarInstrumentoGrandeza(grandeza: string, equipId: string) {
+    const eq = equips.find(e => e.id === equipId)
+    if (!equipId || !eq) {
+      // limpar atribuição
+      setItens(prev => prev.map(it => (it.grandeza || '') === grandeza
+        ? { ...it, instrumentoTag: undefined, instrumentoCertNum: undefined } : it))
+      return
+    }
+    let cert: import('@/lib/certificados/tipos').Certificado | null = null
+    try {
+      const certs = await fetch(`/api/certificados?tag=${encodeURIComponent(eq.tag)}`).then(r => r.json())
+      if (Array.isArray(certs) && certs.length) cert = certs.sort((a: {dataEmissao?:string}, b: {dataEmissao?:string}) => (b.dataEmissao || '').localeCompare(a.dataEmissao || ''))[0]
+    } catch {}
+    setItens(prev => prev.map(it => {
+      if ((it.grandeza || '') !== grandeza) return it
+      const base = { ...it, instrumentoTag: eq.tag, instrumentoCertNum: cert?.numero || '' }
+      if (!cert) return base
+      const m = matchCorrecaoInstrumento(cert, it)
+      if (!m) return base
+      const vr = parseN(base.valorReferencia), c = parseN(m.correcao)
+      const valorCorrigido = vr !== null && c !== null ? (vr + c).toPrecision(6).replace(/\.?0+$/, '') : base.valorCorrigido
+      return { ...base, correcaoPadrao: m.correcao, incertezaInstrumento: m.incerteza, valorCorrigido }
+    }))
+    if (!cert) alert(`Instrumento ${eq.tag}: nenhum certificado encontrado. Foi atribuído, mas a correção precisa ser digitada manualmente.`)
+  }
+
   // Ao informar TAG do padrão, busca o certificado mais recente válido
   async function handlePadraoTagChange(tag: string) {
     setPadraoTag(tag)
@@ -574,11 +714,13 @@ export default function NovaChecagemPage() {
       ...emptyItem(idx + 1),
       grandeza:        [p.grandeza, p.parametro].filter(Boolean).join(' · ') + (p.freq ? ` @ ${p.freq}` : ''),
       unidade:         p.unidade || '',
-      valorReferencia: p.vr || '',          // VR
+      valorReferencia: p.vr || '',          // VR — referência do certificado do padrão
       mediaCalibracao: p.media || '',       // média da calibração (quando 1D)
-      correcaoPadrao:  p.correcao || '',
+      // correção NÃO vem do padrão — será preenchida pelo instrumento de cada grandeza
     }))
     setItens(novos)
+    // Guarda o nº do certificado do padrão (referência) se ainda não informado
+    if (certPadrao?.numero && !numeroCert) setNumeroCert(certPadrao.numero)
     setShowCertImport(false)
     setCertSel(new Set())
     setTab('manual')
@@ -936,38 +1078,51 @@ export default function NovaChecagemPage() {
         </div>
       )}
 
-      {/* ── Tab Manual ── */}
+      {/* ── Tab Manual — seções por grandeza ── */}
       {tab === 'manual' && (
-        <div className="card overflow-hidden mb-4">
-          <div className="px-4 py-3 border-b border-white/5 flex items-center justify-between">
-            <p className="form-section">Pontos de medição</p>
-            <button type="button" onClick={addItem} className="btn-ghost text-xs"><Plus size={12}/> Linha</button>
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className="form-section">Pontos de medição — por grandeza</p>
+            <span className="text-[10px] font-mono text-white/30">
+              correção vem do instrumento de cada grandeza · referência (VR) vem do padrão
+            </span>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full" style={{ minWidth: grade2DAtiva ? 1100 : modo==='indireta' ? 900 : 650 }}>
-              <TblHeader modo={modo} grade2DAtiva={grade2DAtiva}
-                eixo1Nome={grade2DEixo1Nome} eixo1Unidade={grade2DEixo1Unidade}
-                eixo2Nome={grade2DEixo2Nome} eixo2Unidade={grade2DEixo2Unidade}/>
-              <tbody>
-                {itens.map(item=>(
-                  <ItemRow key={item.id} item={item} modo={modo}
-                    grade2DAtiva={grade2DAtiva}
-                    eixo1Nome={grade2DEixo1Nome} eixo2Nome={grade2DEixo2Nome}
-                    onChange={i=>updateItem(item.id,i)}
-                    onDelete={()=>removeItem(item.id)}/>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="px-4 py-3 border-t border-white/5 flex items-center gap-3">
-            <label className="text-[10px] font-mono tracking-[2px] uppercase text-white/40 flex-shrink-0">Obs. gerais</label>
-            <input className="input flex-1 text-sm" value={obs} onChange={e=>setObs(e.target.value)} placeholder="Observações…"/>
-          </div>
-          <div className="px-4 py-3 border-t border-white/5 flex justify-end">
-            <button type="button" onClick={()=>salvar(itens)} disabled={salvando} className="btn-primary">
-              {salvando&&<Loader2 size={13} className="animate-spin"/>}
-              <Save size={13}/> Registrar checagem
+
+          {gruposItens.length === 0 && (
+            <div className="card p-6 text-center text-white/30 text-sm mb-4">
+              Nenhum ponto ainda. Escolha um equipamento (carrega o template) ou adicione uma grandeza abaixo.
+            </div>
+          )}
+
+          {gruposItens.map(g => (
+            <GrandezaSection key={g.key} grandeza={g.grandeza} items={g.items} modo={modo}
+              grade2DAtiva={grade2DAtiva}
+              eixo1Nome={grade2DEixo1Nome} eixo1Unidade={grade2DEixo1Unidade}
+              eixo2Nome={grade2DEixo2Nome} eixo2Unidade={grade2DEixo2Unidade}
+              equips={equips}
+              instrumentoTag={g.items[0]?.instrumentoTag}
+              certNum={g.items[0]?.instrumentoCertNum}
+              onRename={renomearGrandeza}
+              onPickInstrumento={aplicarInstrumentoGrandeza}
+              onAddItem={addItemGrandeza}
+              onChangeItem={updateItem}
+              onDeleteItem={removeItem} />
+          ))}
+
+          <div className="card p-4 mb-4 space-y-3">
+            <button type="button" onClick={() => addItemGrandeza('')} className="btn-secondary text-xs">
+              <Plus size={12}/> Nova grandeza
             </button>
+            <div className="flex items-center gap-3 pt-2 border-t border-white/5">
+              <label className="text-[10px] font-mono tracking-[2px] uppercase text-white/40 flex-shrink-0">Obs. gerais</label>
+              <input className="input flex-1 text-sm" value={obs} onChange={e=>setObs(e.target.value)} placeholder="Observações…"/>
+            </div>
+            <div className="flex justify-end">
+              <button type="button" onClick={()=>salvar(itens)} disabled={salvando} className="btn-primary">
+                {salvando&&<Loader2 size={13} className="animate-spin"/>}
+                <Save size={13}/> Registrar checagem
+              </button>
+            </div>
           </div>
         </div>
       )}
