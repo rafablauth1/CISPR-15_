@@ -475,6 +475,16 @@ export default function NovaChecagemPage() {
 
   const modo = getModo(tipoComp, papelRef)
   const pontosCert = getPontosCert(certPadrao)
+  // Agrupa os pontos por grandeza, preservando o índice original (usado na seleção)
+  const gruposCert = (() => {
+    const map = new Map<string, { i: number; p: CertPonto }[]>()
+    pontosCert.forEach((p, i) => {
+      const key = p.grandeza?.trim() || 'Sem grandeza'
+      if (!map.has(key)) map.set(key, [])
+      map.get(key)!.push({ i, p })
+    })
+    return [...map.entries()].map(([grandeza, items]) => ({ grandeza, items }))
+  })()
 
   function addItem() { setItens(p=>[...p, emptyItem(p.length+1)]) }
   function removeItem(id: string) { setItens(p=>p.filter(i=>i.id!==id).map((i,idx)=>({...i,ponto:idx+1}))) }
@@ -539,6 +549,16 @@ export default function NovaChecagemPage() {
     setCertSel(prev => {
       const n = new Set(prev)
       if (n.has(i)) n.delete(i); else n.add(i)
+      return n
+    })
+  }
+
+  // Marca/desmarca todos os pontos de um grupo (grandeza) de uma vez
+  function toggleGrupoCert(indices: number[]) {
+    setCertSel(prev => {
+      const n = new Set(prev)
+      const allSel = indices.length > 0 && indices.every(i => n.has(i))
+      indices.forEach(i => { if (allSel) n.delete(i); else n.add(i) })
       return n
     })
   }
@@ -1064,26 +1084,45 @@ export default function NovaChecagemPage() {
                     <th>Freq.</th><th>VR</th><th>Correção</th>
                   </tr>
                 </thead>
-                <tbody>
-                  {pontosCert.map((p, i) => {
-                    const sel = certSel.has(i)
-                    return (
-                      <tr key={i} onClick={() => toggleCertSel(i)}
-                          className={cn('tbl-row cursor-pointer', sel && 'bg-gold/8')}>
+                {gruposCert.map(g => {
+                  const idxs    = g.items.map(it => it.i)
+                  const allSel  = idxs.length > 0 && idxs.every(i => certSel.has(i))
+                  const someSel = idxs.some(i => certSel.has(i))
+                  return (
+                    <tbody key={g.grandeza}>
+                      {/* Cabeçalho do grupo — clique marca/desmarca a grandeza inteira */}
+                      <tr className="cursor-pointer select-none" onClick={() => toggleGrupoCert(idxs)}
+                          style={{ background: 'rgba(212,175,55,0.07)' }}>
                         <td className="w-8 text-center">
-                          <input type="checkbox" checked={sel} readOnly className="accent-gold pointer-events-none"/>
+                          <input type="checkbox" checked={allSel}
+                            ref={el => { if (el) el.indeterminate = !allSel && someSel }}
+                            readOnly className="accent-gold pointer-events-none"/>
                         </td>
-                        <td className="font-mono text-[11px] text-white/40">{i + 1}</td>
-                        <td className="text-white/70 text-[12px]">
-                          {p.grandeza}{p.parametro && p.parametro !== p.grandeza && <span className="text-white/35"> · {p.parametro}</span>}
+                        <td colSpan={5} className="text-[11px] font-mono uppercase tracking-wider text-gold/80 py-1.5">
+                          {g.grandeza} <span className="text-white/30 normal-case">· {g.items.length} ponto(s)</span>
                         </td>
-                        <td className="font-mono text-[11px] text-white/50">{p.freq || '—'}</td>
-                        <td className="font-mono text-[11px]">{p.vr} <span className="text-white/30 text-[10px]">{p.unidade}</span></td>
-                        <td className="font-mono text-[11px] text-white/50">{p.correcao}</td>
                       </tr>
-                    )
-                  })}
-                </tbody>
+                      {g.items.map(({ i, p }) => {
+                        const sel = certSel.has(i)
+                        return (
+                          <tr key={i} onClick={() => toggleCertSel(i)}
+                              className={cn('tbl-row cursor-pointer', sel && 'bg-gold/8')}>
+                            <td className="w-8 text-center">
+                              <input type="checkbox" checked={sel} readOnly className="accent-gold pointer-events-none"/>
+                            </td>
+                            <td className="font-mono text-[11px] text-white/40">{i + 1}</td>
+                            <td className="text-white/70 text-[12px] pl-4">
+                              {p.parametro && p.parametro !== p.grandeza ? p.parametro : p.grandeza}
+                            </td>
+                            <td className="font-mono text-[11px] text-white/50">{p.freq || '—'}</td>
+                            <td className="font-mono text-[11px]">{p.vr} <span className="text-white/30 text-[10px]">{p.unidade}</span></td>
+                            <td className="font-mono text-[11px] text-white/50">{p.correcao}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  )
+                })}
               </table>
             </div>
             <div className="flex items-center justify-end gap-2 p-4 border-t border-white/8">
