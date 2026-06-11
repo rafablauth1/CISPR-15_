@@ -6,7 +6,7 @@ import {
   ArrowLeft, ArrowRight, X, Loader2, CheckCircle2, AlertTriangle,
   FolderOpen, Upload, ChevronDown, Users,
   Shield, ShieldCheck, ShieldX, Plus, Minus,
-  Lightbulb, Lamp, Trash2, CalendarRange,
+  Lightbulb, Lamp, Trash2, CalendarRange, Download,
 } from 'lucide-react'
 import { cn, normWatts } from '@/lib/utils'
 import { iniciarMarcadorSeAusente, finalizarMarcador, registrarTempo } from '@/lib/tempos'
@@ -457,8 +457,7 @@ export default function LotePage() {
   const [emitModal,   setEmitModal]   = useState<{ conformes: number; reprovadosNomes: string[] } | null>(null)
   const [importMae,   setImportMae]   = useState<{ loading: boolean; msg: string } | null>(null)
   const maeRef = useRef<HTMLInputElement>(null)
-  const [bulkInicio,  setBulkInicio]  = useState('')
-  const [bulkFim,     setBulkFim]     = useState('')
+  const [baixando,    setBaixando]    = useState<{ done: number; total: number; erros: string[] } | null>(null)
   const [gateOpen,    setGateOpen]    = useState(false)
   const [gateInput,   setGateInput]   = useState('')
   const [gateError,   setGateError]   = useState(false)
@@ -490,13 +489,23 @@ export default function LotePage() {
 
   useEffect(() => {
     iniciarMarcadorSeAusente('emissao') // cronômetro de emissão (vale para lote também)
-    try {
-      const raw = localStorage.getItem(LOTE_KEY)
-      if (raw) setLote(JSON.parse(raw))
-      else router.push('/cispr15')
-    } catch {
+    // Carrega o lote: no Electron o arquivo é a fonte autoritativa (não sofre com a
+    // cota do localStorage); na web, usa o localStorage.
+    async function loadLote() {
+      const api = (window as any).electronAPI
+      if (api?.getLote) {
+        try {
+          const res = await api.getLote()
+          if (res?.ok && res.lote) { setLote(res.lote); return }
+        } catch {}
+      }
+      try {
+        const raw = localStorage.getItem(LOTE_KEY)
+        if (raw) { setLote(JSON.parse(raw)); return }
+      } catch {}
       router.push('/cispr15')
     }
+    loadLote()
     // load equipment catalog
     async function loadEquip() {
       const api = (window as any).electronAPI
@@ -516,13 +525,20 @@ export default function LotePage() {
 
   function saveLote(next: LoteConfig) {
     setLote(next)
+    // Persistência robusta em arquivo (Electron) — não depende da cota do localStorage,
+    // então datas/fotos sobrevivem à navegação mesmo com o localStorage cheio.
+    const api = (window as any).electronAPI
+    if (api?.saveLoteFile) api.saveLoteFile(next).catch(() => {})
     try { localStorage.setItem(LOTE_KEY, JSON.stringify(next)) }
     catch {
       // Quota exceeded: try saving without docxHtml (keep it only in memory)
       try {
         const compact = { ...next, amostras: next.amostras.map(a => ({ ...a, docxHtml: null })) }
         localStorage.setItem(LOTE_KEY, JSON.stringify(compact))
-      } catch { alert('Armazenamento cheio — reduza o número de fotos.') }
+      } catch {
+        // No Electron o arquivo acima já guardou tudo; só alerta na web
+        if (!api) alert('Armazenamento cheio — reduza o número de fotos.')
+      }
     }
   }
 
@@ -599,12 +615,13 @@ export default function LotePage() {
   // Define o período (início/fim) de TODAS as amostras de uma vez
   function aplicarPeriodoTodos() {
     if (!lote) return
-    if (!bulkInicio && !bulkFim) { alert('Informe início e/ou fim para aplicar a todos.'); return }
-    if (bulkInicio && bulkFim && bulkFim < bulkInicio) { alert('Fim anterior ao início do período.'); return }
+    const bi = lote.bulkInicio ?? '', bf = lote.bulkFim ?? ''
+    if (!bi && !bf) { alert('Informe início e/ou fim para aplicar a todos.'); return }
+    if (bi && bf && bf < bi) { alert('Fim anterior ao início do período.'); return }
     const amostras = lote.amostras.map(a => ({
       ...a,
-      periodoInicio: bulkInicio || a.periodoInicio,
-      periodoFim:    bulkFim    || a.periodoFim,
+      periodoInicio: bi || a.periodoInicio,
+      periodoFim:    bf || a.periodoFim,
     }))
     saveLote({ ...lote, amostras })
   }
@@ -859,6 +876,82 @@ export default function LotePage() {
     }
   }
 
+  /* Monta o Cispr15Config de uma amostra (para gerar o PDF). */
+  function buildCfg(am: LoteAmostra): Cispr15Config {
+    return {
+      tipo: lote!.tipo, tensaoConfig: '127_220',
+      cliente: lote!.cliente, clienteRua: lote!.clienteRua ?? '',
+      clienteCidade: lote!.clienteCidade ?? '', clienteCep: lote!.clienteCep ?? '',
+      produto: am.produto, fabricante: am.fabricante, modelo: am.modelo,
+      identificador: am.identificador, lacre: '',
+      tensaoAlim: am.tensaoAlim, potencia: am.potencia, frequencia: am.frequencia,
+      temDriver: am.temDriver,
+      driverProduto: am.driverProduto, driverFabricante: am.driverFabricante,
+      driverModelo: am.driverModelo, driverIdentificador: am.driverIdentificador,
+      driverPotencia: am.driverPotencia, driverTensaoAlim: am.driverTensaoAlim,
+      driverFrequencia: am.driverFrequencia,
+      driverOrcamento: am.driverOrcamento, driverProtocolo: am.driverProtocolo,
+      documentacao: 'embalagem com especificações',
+      numRelatorio: am.numRelatorio, orcamento: am.orcamento, protocolo: am.protocolo,
+      periodoInicio: am.periodoInicio, periodoFim: am.periodoFim, dataEmissao: am.dataEmissao,
+      responsavel: lote!.responsavel,
+      resultadoConduzida: 'pass', resultadoLoop: 'pass', resultadoAnexoB: 'pass',
+    }
+  }
+
+  function bufToBase64(buf: ArrayBuffer): string {
+    const bytes = new Uint8Array(buf)
+    let bin = ''
+    const chunk = 0x8000
+    for (let i = 0; i < bytes.length; i += chunk) bin += String.fromCharCode(...bytes.subarray(i, i + chunk))
+    return btoa(bin)
+  }
+
+  /* Gera o PDF de cada amostra conforme e salva (PDF + DOCX + fotos) numa
+     subpasta por protocolo dentro da pasta-mãe escolhida. */
+  async function baixarPDFs() {
+    if (!lote) return
+    const api = (window as any).electronAPI
+    if (!api?.saveLotePdf || !api?.browseFolder) { alert('Disponível apenas no aplicativo.'); return }
+    const conformes = lote.amostras.filter(a => a.conformidade !== 'reprovado')
+    if (!conformes.length) { alert('Nenhuma amostra conforme para gerar PDF.'); return }
+    const sel = await api.browseFolder('Selecionar pasta-mãe para os PDFs do lote')
+    if (sel?.canceled || !sel?.folderPath) return
+    const pastaMae = sel.folderPath
+    const erros: string[] = []
+    setBaixando({ done: 0, total: conformes.length, erros: [] })
+    for (let k = 0; k < conformes.length; k++) {
+      const am  = conformes[k]
+      const ref = am.protocolo || am.produto || `Amostra ${k + 1}`
+      try {
+        const cfg = buildCfg(am)
+        const res = await fetch('/api/gerar-pdf', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cfg, photos: am.photos, docxHtml: am.docxHtml, docxName: am.docxFilename }),
+        })
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
+          throw new Error(j.error || `HTTP ${res.status}`)
+        }
+        const b64 = bufToBase64(await res.arrayBuffer())
+        const san = (v: string) => (v ?? '').replace(/[/\\:*?"<>|\s]/g, '_').replace(/_+/g, '_')
+        const filename = `${san(am.numRelatorio || am.protocolo || 'relatorio')}_${lote.tipo}.pdf`
+        const r = await api.saveLotePdf({
+          pastaMae, protocolo: am.protocolo, filename, pdfBase64: b64,
+          photos: am.photos, docxHtml: am.docxHtml, docxName: am.docxFilename, saveExtras: true,
+        })
+        if (!r?.ok) throw new Error(r?.error || 'falha ao salvar')
+      } catch (e: any) {
+        erros.push(`${ref}: ${e?.message || e}`)
+      }
+      setBaixando({ done: k + 1, total: conformes.length, erros: [...erros] })
+    }
+    try { api.openPath?.(pastaMae) } catch {}
+    if (erros.length) alert(`Concluído com ${erros.length} erro(s):\n` + erros.join('\n'))
+    setTimeout(() => setBaixando(null), 6000)
+  }
+
   function verPDFAmostra(i: number) {
     if (!lote) return
     const am = lote.amostras[i]
@@ -999,13 +1092,13 @@ export default function LotePage() {
         </div>
         <div className="flex flex-col gap-1">
           <Label>Início</Label>
-          <input className="input text-sm" type="date" value={bulkInicio} onChange={e => setBulkInicio(e.target.value)} />
+          <input className="input text-sm" type="date" value={lote.bulkInicio ?? ''} onChange={e => saveLote({ ...lote, bulkInicio: e.target.value })} />
         </div>
         <div className="flex flex-col gap-1">
           <Label>Fim</Label>
           <input
-            className={cn('input text-sm', bulkInicio && bulkFim && bulkFim < bulkInicio && 'border-red-500/50')}
-            type="date" value={bulkFim} onChange={e => setBulkFim(e.target.value)} />
+            className={cn('input text-sm', lote.bulkInicio && lote.bulkFim && lote.bulkFim < lote.bulkInicio && 'border-red-500/50')}
+            type="date" value={lote.bulkFim ?? ''} onChange={e => saveLote({ ...lote, bulkFim: e.target.value })} />
         </div>
         <button type="button" onClick={aplicarPeriodoTodos}
           className="px-3.5 py-2 rounded-lg text-xs font-semibold border border-gold/40 bg-gold/8 text-gold hover:bg-gold/14 transition-all">
@@ -1076,6 +1169,8 @@ export default function LotePage() {
         <button type="button" onClick={() => {
           if (!confirm('Limpar todos os dados do lote?')) return
           localStorage.removeItem(LOTE_KEY)
+          const api = (window as any).electronAPI
+          if (api?.clearLoteFile) api.clearLoteFile().catch(() => {})
           router.push('/cispr15')
         }}
           className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-red/20 bg-red/8 text-red-400 hover:bg-red/15 transition-all text-sm">
@@ -1085,6 +1180,12 @@ export default function LotePage() {
         <button type="button" onClick={() => router.push('/cispr15')}
           className="btn-secondary flex items-center gap-2 px-4 py-2.5 text-sm">
           <ArrowLeft size={13} /> Voltar
+        </button>
+        <button type="button" onClick={baixarPDFs} disabled={!!baixando || emitindo}
+          title="Gera o PDF de cada amostra conforme e salva (PDF + DOCX + fotos) na subpasta do protocolo"
+          className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-teal/30 bg-teal/8 text-teal hover:bg-teal/14 transition-all text-sm font-semibold disabled:opacity-50">
+          {baixando ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+          {baixando ? `Gerando ${baixando.done}/${baixando.total}…` : 'Baixar PDFs'}
         </button>
         <button type="button" onClick={iniciarEmissao} disabled={emitindo}
           className="btn-primary flex items-center gap-2 px-5 py-2.5 text-sm font-bold">

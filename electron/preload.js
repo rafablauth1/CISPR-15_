@@ -44,6 +44,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   exportRelatorioFiles: (folderPath, numRelatorio, photos, docxHtml, docxName) => ipcRenderer.invoke('relatorio:export-files', { folderPath, numRelatorio, photos, docxHtml, docxName }),
   getAgenda:       ()          => ipcRenderer.invoke('data:get-agenda'),
   saveAgenda:      (agenda)    => ipcRenderer.invoke('data:save-agenda',      { agenda }),
+
+  // Lote em andamento (arquivo local) + baixar PDFs do lote
+  getLote:         ()          => ipcRenderer.invoke('lote:get'),
+  saveLoteFile:    (lote)      => ipcRenderer.invoke('lote:save',  { lote }),
+  clearLoteFile:   ()          => ipcRenderer.invoke('lote:clear'),
+  saveLotePdf:     (args)      => ipcRenderer.invoke('lote:save-pdf', args),
   // OCR local (Windows.Media.Ocr)
   recognizeOcr:    (images)  => ipcRenderer.invoke('ocr:recognize', { images }),
   // Extração de texto de PDF (pdf-parse via main process)

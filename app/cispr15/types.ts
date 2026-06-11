@@ -74,6 +74,8 @@ export interface LoteConfig {
   clienteCep: string
   responsavel: string
   amostras: LoteAmostra[]
+  bulkInicio?: string   // período "de todos os ensaios" — persistido p/ sobreviver à navegação
+  bulkFim?: string
 }
 
 export function getTensoes(cfg: Cispr15Config): string[] {

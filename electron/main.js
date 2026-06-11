@@ -1109,6 +1109,73 @@ ipcMain.handle('data:save-agenda', (_, { agenda }) => {
   catch (err) { return { ok: false, error: String(err) } }
 })
 
+/* ─── lote em andamento (arquivo local — não depende da cota do localStorage,
+   por isso datas e fotos sobrevivem à navegação entre telas) ──────────────── */
+function loteFilePath() {
+  return path.join(getUserDataDir(), 'lote', 'cispr15_lote.json')
+}
+
+ipcMain.handle('lote:get', () => {
+  try {
+    const fp = loteFilePath()
+    if (fs.existsSync(fp)) return { ok: true, lote: JSON.parse(fs.readFileSync(fp, 'utf-8')) }
+    return { ok: true, lote: null }
+  } catch (err) { return { ok: false, error: String(err), lote: null } }
+})
+
+ipcMain.handle('lote:save', (_, { lote }) => {
+  try {
+    const fp = loteFilePath()
+    fs.mkdirSync(path.dirname(fp), { recursive: true })
+    fs.writeFileSync(fp, JSON.stringify(lote), 'utf-8')
+    return { ok: true }
+  } catch (err) { return { ok: false, error: String(err) } }
+})
+
+ipcMain.handle('lote:clear', () => {
+  try {
+    const fp = loteFilePath()
+    if (fs.existsSync(fp)) fs.rmSync(fp, { force: true })
+    return { ok: true }
+  } catch (err) { return { ok: false, error: String(err) } }
+})
+
+/* Grava o PDF (+ DOCX + fotos) de uma amostra na subpasta do protocolo,
+   dentro da pasta-mãe escolhida. Usado pelo "Baixar PDFs" do lote. */
+ipcMain.handle('lote:save-pdf', async (_, { pastaMae, protocolo, filename, pdfBase64, photos, docxHtml, docxName, saveExtras }) => {
+  try {
+    if (!pastaMae) return { ok: false, error: 'pasta-mãe não informada' }
+    const safeProto = (String(protocolo || 'sem-protocolo').replace(/[\\/:"*?<>|]/g, '_').trim()) || 'sem-protocolo'
+    const dir = path.join(pastaMae, safeProto)
+    fs.mkdirSync(dir, { recursive: true })
+
+    const safeName = String(filename || 'relatorio.pdf').replace(/[\\/:"*?<>|]/g, '_')
+    const rawPdf = String(pdfBase64 || '').replace(/^data:.*;base64,/, '')
+    fs.writeFileSync(path.join(dir, safeName), Buffer.from(rawPdf, 'base64'))
+
+    let nFotos = 0, docxSaved = false
+    if (saveExtras) {
+      const lista = Array.isArray(photos) ? photos : []
+      for (let i = 0; i < lista.length; i++) {
+        const p = lista[i]
+        if (!p?.base64) continue
+        const raw  = String(p.base64).replace(/^data:image\/\w+;base64,/, '')
+        const ext  = (p.name && path.extname(p.name)) || '.jpg'
+        const base = (p.name ? path.basename(p.name, path.extname(p.name)) : `foto_${i + 1}`).replace(/[\\/:"*?<>|]/g, '_')
+        fs.writeFileSync(path.join(dir, `${String(i + 1).padStart(2, '0')}_${base}${ext}`), Buffer.from(raw, 'base64'))
+        nFotos++
+      }
+      if (docxHtml) {
+        const docBase = (docxName ? path.basename(docxName, path.extname(docxName)) : `${safeProto}_radimation`).replace(/[\\/:"*?<>|]/g, '_')
+        const htmlDoc = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"></head><body>${docxHtml}</body></html>`
+        fs.writeFileSync(path.join(dir, `${docBase}.doc`), htmlDoc, 'utf-8')
+        docxSaved = true
+      }
+    }
+    return { ok: true, dir, nFotos, docxSaved }
+  } catch (err) { return { ok: false, error: String(err) } }
+})
+
 ipcMain.handle('settings:get-local-data-dir', () => getDefaultDataDir())
 
 /* ─── IPC: PDF ────────────────────────────────────────────────────────────── */

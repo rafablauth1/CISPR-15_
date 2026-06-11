@@ -1069,9 +1069,14 @@ export default function Cispr15ConfigPage() {
   }
 
   /* ── abrir lote ── */
-  function openLote() {
-    const existing = localStorage.getItem(LOTE_KEY)
-    if (!existing) {
+  async function openLote() {
+    const api = (window as any).electronAPI
+    // Lote existente? prioriza o arquivo (Electron) e o localStorage
+    let temLote = !!localStorage.getItem(LOTE_KEY)
+    if (!temLote && api?.getLote) {
+      try { const r = await api.getLote(); if (r?.ok && r.lote) temLote = true } catch {}
+    }
+    if (!temLote) {
       const config: LoteConfig = {
         tipo: cfg.tipo,
         qtd: 3,
@@ -1083,6 +1088,8 @@ export default function Cispr15ConfigPage() {
         amostras: Array.from({ length: 3 }, newAmostra),
       }
       localStorage.setItem(LOTE_KEY, JSON.stringify(config))
+      // grava o arquivo também (sobrescreve qualquer lote antigo do arquivo)
+      if (api?.saveLoteFile) { try { await api.saveLoteFile(config) } catch {} }
     }
     router.push('/cispr15/lote')
   }
