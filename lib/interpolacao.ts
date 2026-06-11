@@ -39,6 +39,12 @@ function clamp(v: number, min: number, max: number) {
   return Math.min(max, Math.max(min, v))
 }
 
+/** Extrai só a grandeza do cabeçalho, cortando no primeiro traço.
+ *  Ex.: "Medição de nível - coaxial 50Ω" → "Medição de nível" */
+function soGrandeza(s: string): string {
+  return (s || '').split(/\s*[-–—]\s*/)[0].trim()
+}
+
 /**
  * Interpolação linear entre dois pontos conhecidos.
  * Se x estiver fora do intervalo, usa o extremo mais próximo (sem extrapolação).
@@ -222,7 +228,7 @@ export function parsearCertificadoRBC(texto: string): {
         if (!firstEixo2Unidade && curEixo2Unidade) firstEixo2Unidade = curEixo2Unidade
         continue
       }
-      if (linha.startsWith('# GRANDEZA:')) { curGrandeza = linha.slice('# GRANDEZA:'.length).trim(); continue }
+      if (linha.startsWith('# GRANDEZA:')) { curGrandeza = soGrandeza(linha.slice('# GRANDEZA:'.length)); continue }
       if (linha.startsWith('# PARAM:'))    { tabelaAtual = linha.slice('# PARAM:'.length).trim();    continue }
       if (linha.startsWith('# UST:'))      { continue }
       if (linha.startsWith('#'))           { tabelaAtual = linha.slice(1).trim(); continue }
@@ -296,7 +302,7 @@ export function parsearCertificadoRBC(texto: string): {
     let curG = ''
     linhas.forEach((l, i) => {
       const t = l.trim()
-      if (reGrand.test(t)) curG = t
+      if (reGrand.test(t)) curG = soGrandeza(t)
       if (ehParam(l)) { inicios.push(i); grandezaDe[i] = curG }
     })
 
@@ -455,7 +461,7 @@ export function parsearCertificadoRBC(texto: string): {
         if (/^(configurac[a-z]*\s+da|av\.\s|telefone|fax\s*:|e-mail|website|labelo\/|laborat|periodo\s+de\s+calib|certif.*calibr|resultado[s]?\s+da|pagina\s+\d|numero\s+do\s+cert|acreditad)/.test(n)) continue
         // "Medição de ..." ou "Grandeza:" → grandeza
         if (/\bmedicao\s+de\b/.test(n) || /\bgrandeza[s]?\s*[:;]/.test(n)) {
-          curGrandeza = trimmed.replace(/grandeza[s]?\s*[:;]\s*/i, '').trim()
+          curGrandeza = soGrandeza(trimmed.replace(/grandeza[s]?\s*[:;]\s*/i, ''))
           headerOk = false; continue
         }
         // "Parâmetro: ..." ou "Parâmetro ..." (com ou sem dois-pontos)

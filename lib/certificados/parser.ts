@@ -9,6 +9,12 @@ function fmtCorrecao(n: number): string {
   return (n >= 0 ? '+' : '') + n.toPrecision(4).replace(/\.?0+$/, '')
 }
 
+/** Só a grandeza do cabeçalho, cortando no primeiro traço.
+ *  Ex.: "Medição de nível - coaxial 50Ω" → "Medição de nível" */
+function soGrandeza(s: string): string {
+  return (s || '').split(/\s*[-–—]\s*/)[0].trim()
+}
+
 /**
  * Tenta extrair linhas de correção de um texto OCR de certificado de calibração.
  * Suporta múltiplos formatos comuns de certificados (DARE, CHOMA, IMETRO, etc).
@@ -46,7 +52,7 @@ function parsearCertificadoVRMM(linhasRaw: string[]): LinhaCertificado[] {
   let curG = ''
   linhas.forEach((l, i) => {
     const t = l.trim()
-    if (reGrand.test(t)) curG = t
+    if (reGrand.test(t)) curG = soGrandeza(t)
     if (ehParam(l)) { inicios.push(i); grandezaDe[i] = curG }
   })
 
@@ -130,7 +136,7 @@ export function parsearCertificado(texto: string): LinhaCertificado[] {
     }
 
     for (const linha of linhas) {
-      if (linha.startsWith('# GRANDEZA:')) { curGrandeza = linha.slice('# GRANDEZA:'.length).trim(); continue }
+      if (linha.startsWith('# GRANDEZA:')) { curGrandeza = soGrandeza(linha.slice('# GRANDEZA:'.length)); continue }
       if (linha.startsWith('# PARAM:'))    { curParam    = linha.slice('# PARAM:'.length).trim();    continue }
       if (linha.startsWith('# HEADERS:')) {
         const cols = linha.slice('# HEADERS:'.length).trim().split('\t').map(s => s.trim())

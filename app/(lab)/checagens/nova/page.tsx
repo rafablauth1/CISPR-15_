@@ -550,7 +550,9 @@ export default function NovaChecagemPage() {
   const gruposCert = (() => {
     const map = new Map<string, { i: number; p: CertPonto }[]>()
     pontosCert.forEach((p, i) => {
-      const key = p.grandeza?.trim() || 'Sem grandeza'
+      // diferencia por grandeza + parâmetro (o parâmetro é capturado de forma
+      // confiável; a grandeza às vezes não, então sozinha agruparia tudo junto)
+      const key = [p.grandeza?.trim(), p.parametro?.trim()].filter(Boolean).join(' · ') || 'Sem grandeza'
       if (!map.has(key)) map.set(key, [])
       map.get(key)!.push({ i, p })
     })
