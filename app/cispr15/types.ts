@@ -326,6 +326,7 @@ export interface AgendaItem {
   recebidoPorEmc?: string   // entrega: quem recebeu (funcionário EMC)
   devolvidoPorEmc?: string  // devolução (após emissão): quem entregou (funcionário EMC)
   recebidoPorLum?: string   // devolução (após emissão): quem recebeu (funcionário LUM)
+  dataDevolucao?: string    // data da devolução (não necessariamente = data de emissão)
 }
 
 export const AGENDA_KEY       = 'cispr15_agenda_v1'

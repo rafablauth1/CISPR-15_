@@ -7,7 +7,7 @@ import {
   ArrowLeft, ArrowRight, Plus, Search, X, CheckCircle2, XCircle, Clock, Edit2,
   Trash2, ChevronDown, ChevronUp, FileText, Loader2, Download,
   Lightbulb, Lamp, Settings, Layers, RotateCcw, Link2, FileSearch,
-  AlertTriangle, Wifi, BarChart2, Tag, TrendingUp, Printer, ScanText,
+  AlertTriangle, Wifi, BarChart2, Tag, TrendingUp, Printer, ScanText, Lock,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
@@ -282,8 +282,8 @@ function toGrayscale(base64: string): Promise<string> {
   })
 }
 
-function ItemModal({ item, onSave, onClose, clientes, customTags, onCustomTagsChange }: {
-  item: AgendaItem; onSave: (i: AgendaItem) => void; onClose: () => void
+function ItemModal({ item, isNew, onSave, onClose, clientes, customTags, onCustomTagsChange }: {
+  item: AgendaItem; isNew: boolean; onSave: (i: AgendaItem) => void; onClose: () => void
   clientes: ClienteDB[]
   customTags: CustomTag[]
   onCustomTagsChange: (tags: CustomTag[]) => void
@@ -291,9 +291,27 @@ function ItemModal({ item, onSave, onClose, clientes, customTags, onCustomTagsCh
   const [form, setForm] = useState<AgendaItem>({
     fabricante: '', modelo: '', identificador: '', potencia: '', tensaoAlim: '', frequencia: '60Hz',
     clienteRua: '', clienteCidade: '', clienteCep: '', documentacao: '', tags: [],
-    entreguePorLum: '', recebidoPorEmc: '', devolvidoPorEmc: '', recebidoPorLum: '',
+    entreguePorLum: '', recebidoPorEmc: '', devolvidoPorEmc: '', recebidoPorLum: '', dataDevolucao: '',
     ...item,
   })
+
+  // Cadeia de custódia: um campo já registrado (preenchido e salvo) não pode mais
+  // ser alterado. Vale para os nomes e para as datas de entrega/devolução.
+  // Em item novo nada trava — trava só a partir da próxima abertura (edição).
+  const isLocked = (k: keyof AgendaItem) => !isNew && String(item[k] ?? '').trim() !== ''
+  function campoTravavel(k: keyof AgendaItem, type: 'text' | 'date', placeholder?: string) {
+    if (isLocked(k)) {
+      return (
+        <div className="relative">
+          <input type={type} className="input pr-7 cursor-not-allowed text-white/70"
+            value={(form[k] as string) ?? ''} readOnly tabIndex={-1}
+            title="Registrado — não pode ser alterado" />
+          <Lock size={11} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/30" />
+        </div>
+      )
+    }
+    return <input type={type} className="input" value={(form[k] as string) ?? ''} onChange={s(k)} placeholder={placeholder} />
+  }
   // métrica: tempo de preenchimento dos dados da amostra no cadastro
   const abertoEm = useRef(Date.now())
   function salvar() {
@@ -433,8 +451,16 @@ function ItemModal({ item, onSave, onClose, clientes, customTags, onCustomTagsCh
             <input className="input" value={form.orcamento} onChange={s('orcamento')} placeholder="Ex: 0887" inputMode="numeric" />
           </div>
           <div className="flex flex-col gap-1.5">
-            <Label>Data de Entrada</Label>
-            <input type="date" className="input" value={form.dataEntrada} onChange={handleEntrada} />
+            <Label>Data de Entrada {isLocked('dataEntrada') && <span className="normal-case text-white/20">(registrada)</span>}</Label>
+            {isLocked('dataEntrada') ? (
+              <div className="relative">
+                <input type="date" className="input pr-7 cursor-not-allowed text-white/70"
+                  value={form.dataEntrada} readOnly tabIndex={-1} title="Registrado — não pode ser alterado" />
+                <Lock size={11} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/30" />
+              </div>
+            ) : (
+              <input type="date" className="input" value={form.dataEntrada} onChange={handleEntrada} />
+            )}
           </div>
           <div className="flex flex-col gap-1.5">
             <Label>Previsão de Saída</Label>
@@ -521,17 +547,17 @@ function ItemModal({ item, onSave, onClose, clientes, customTags, onCustomTagsCh
         <div className="space-y-2">
           <p className="text-[10px] text-white/30 font-mono uppercase tracking-widest">Cadeia de Custódia da Amostra</p>
 
-          {/* Entrega: LUM → EMC */}
+          {/* Entrega: LUM → EMC (data de entrega = "Data de Entrada" acima) */}
           <div className="p-3 rounded-xl border border-white/6 bg-white/[0.015] space-y-2">
             <p className="text-[9px] text-teal/60 font-mono uppercase tracking-wider">Entrega da amostra · LUM → EMC</p>
             <div className="grid grid-cols-2 gap-3">
               <div className="flex flex-col gap-1.5">
                 <Label>Entregou <span className="normal-case text-white/20">(LUM)</span></Label>
-                <input className="input" value={form.entreguePorLum ?? ''} onChange={s('entreguePorLum')} placeholder="Funcionário LUM" />
+                {campoTravavel('entreguePorLum', 'text', 'Funcionário LUM')}
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label>Recebeu <span className="normal-case text-white/20">(EMC)</span></Label>
-                <input className="input" value={form.recebidoPorEmc ?? ''} onChange={s('recebidoPorEmc')} placeholder="Funcionário EMC" />
+                {campoTravavel('recebidoPorEmc', 'text', 'Funcionário EMC')}
               </div>
             </div>
           </div>
@@ -541,13 +567,17 @@ function ItemModal({ item, onSave, onClose, clientes, customTags, onCustomTagsCh
             <div className="p-3 rounded-xl border border-gold/15 bg-gold/3 space-y-2">
               <p className="text-[9px] text-gold/60 font-mono uppercase tracking-wider">Devolução após emissão · EMC → LUM</p>
               <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1.5 col-span-2">
+                  <Label>Data da Devolução <span className="normal-case text-white/20">(independente da emissão)</span></Label>
+                  {campoTravavel('dataDevolucao', 'date')}
+                </div>
                 <div className="flex flex-col gap-1.5">
                   <Label>Entregou p/ devolver <span className="normal-case text-white/20">(EMC)</span></Label>
-                  <input className="input" value={form.devolvidoPorEmc ?? ''} onChange={s('devolvidoPorEmc')} placeholder="Funcionário EMC" />
+                  {campoTravavel('devolvidoPorEmc', 'text', 'Funcionário EMC')}
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <Label>Recebeu <span className="normal-case text-white/20">(LUM)</span></Label>
-                  <input className="input" value={form.recebidoPorLum ?? ''} onChange={s('recebidoPorLum')} placeholder="Funcionário LUM" />
+                  {campoTravavel('recebidoPorLum', 'text', 'Funcionário LUM')}
                 </div>
               </div>
             </div>
@@ -556,6 +586,9 @@ function ItemModal({ item, onSave, onClose, clientes, customTags, onCustomTagsCh
               <Clock size={10} /> Os campos de devolução (EMC → LUM) aparecem após informar o N° do Relatório.
             </p>
           )}
+          <p className="text-[9px] text-white/25 flex items-center gap-1 px-1">
+            <Lock size={8} /> Datas e nomes registrados ficam bloqueados e não podem ser alterados.
+          </p>
         </div>
 
         {/* DUT / Amostra (expansível) */}
@@ -2921,7 +2954,7 @@ ${tableHtml}
         )
       })()}
 
-      {editItem && <ItemModal item={editItem} onSave={handleSave} onClose={() => setEditItem(null)} clientes={clientes} customTags={customTags} onCustomTagsChange={handleCustomTagsChange} />}
+      {editItem && <ItemModal item={editItem} isNew={!agenda.some(a => a.id === editItem.id)} onSave={handleSave} onClose={() => setEditItem(null)} clientes={clientes} customTags={customTags} onCustomTagsChange={handleCustomTagsChange} />}
       {showLote && <LoteModal onSave={handleSaveLote} onClose={() => setShowLote(false)} clientes={clientes} agenda={agenda} />}
       {showGerarLote && (
         <GerarLoteModal
