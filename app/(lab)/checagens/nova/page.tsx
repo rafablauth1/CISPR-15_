@@ -812,6 +812,7 @@ export default function NovaChecagemPage() {
       : undefined
     ;(padrao?.grandezas ?? []).forEach(g => add(g.nome))
     ;(equip?.grandezas ?? []).forEach(g => add(g.nome))
+    pontosCert.forEach(p => add(p.grandeza))   // grandezas que estão no certificado carregado
     itens.forEach(it => add(it.grandeza))
     return [...set].sort((a, b) => a.localeCompare(b))
   })()

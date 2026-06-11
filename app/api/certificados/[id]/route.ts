@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { lerJSON, escreverJSON } from '@/lib/dados'
 import type { Certificado } from '@/lib/certificados/tipos'
+import { registrarGrandezasDoCertificado } from '@/lib/certificados/registrar-grandezas'
 
 const ARQUIVO = 'certificados.json'
 
@@ -19,6 +20,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     if (idx < 0) return NextResponse.json({ error: 'Não encontrado' }, { status: 404 })
     lista[idx] = { ...lista[idx], ...body, id: params.id }
     escreverJSON(ARQUIVO, lista)
+    registrarGrandezasDoCertificado(lista[idx])   // mantém as grandezas do equipamento em dia
     return NextResponse.json(lista[idx])
   } catch (e: unknown) {
     return NextResponse.json({ error: String(e) }, { status: 500 })
