@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Settings, FolderOpen, FileSpreadsheet,
   CheckCircle2, AlertTriangle, Save, RotateCcw, Lock, ArrowRight,
-  Shield, RefreshCw, BadgeCheck,
+  Shield, RefreshCw, BadgeCheck, Database, History, Loader2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { type AppSettings, SETTINGS_DEFAULTS, SETTINGS_KEY, AUTH_KEY } from '@/app/cispr15/types'
@@ -48,6 +48,9 @@ export default function ConfiguracoesPage() {
   const [pfxInfo,      setPfxInfo]      = useState<{ subject: string; notAfter: string } | null>(null)
   const [pfxLoading,   setPfxLoading]   = useState(false)
   const [pfxError,     setPfxError]     = useState<string | null>(null)
+  const [backupStatus, setBackupStatus] = useState<{ kind: 'idle' | 'running' | 'restoring' | 'ok' | 'error'; msg: string }>({ kind: 'idle', msg: '' })
+  const [backups,      setBackups]      = useState<{ name: string; date: string | null; items: string[] }[]>([])
+  const [backupRoot,   setBackupRoot]   = useState('')
   const gateInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -132,6 +135,60 @@ export default function ConfiguracoesPage() {
     if (!api) return
     const res = await api.browseFolder('Selecionar pasta de atualização automática')
     if (!res.canceled) setSettings(s => ({ ...s, updateFolder: res.folderPath }))
+  }
+
+  async function browseBackupFolder() {
+    const api = (window as any).electronAPI
+    if (!api) return
+    const res = await api.browseFolder('Selecionar diretório de backup do banco de dados')
+    if (!res.canceled) setSettings(s => ({ ...s, backupFolder: res.folderPath }))
+  }
+
+  async function loadBackups() {
+    const api = (window as any).electronAPI
+    if (!api?.listBackups) return
+    try {
+      const res = await api.listBackups(settings.backupFolder || undefined)
+      if (res?.ok) { setBackups(res.backups ?? []); setBackupRoot(res.root ?? '') }
+    } catch {}
+  }
+
+  // Atualiza a lista de backups quando o diretório muda
+  useEffect(() => { if (isElectron) loadBackups() }, [isElectron, settings.backupFolder])
+
+  async function fazerBackup() {
+    const api = (window as any).electronAPI
+    if (!api?.backupNow) return
+    setBackupStatus({ kind: 'running', msg: '' })
+    try {
+      const res = await api.backupNow(settings.backupFolder || undefined)
+      if (res?.ok) {
+        setBackupStatus({ kind: 'ok', msg: `Backup criado em ${res.dir}` })
+        loadBackups()
+      } else setBackupStatus({ kind: 'error', msg: res?.error || 'Erro ao fazer backup' })
+    } catch (e: any) { setBackupStatus({ kind: 'error', msg: e.message }) }
+  }
+
+  async function restaurarBackup() {
+    const api = (window as any).electronAPI
+    if (!api?.restoreBackup) return
+    if (!confirm(
+      'Restaurar o backup MAIS RECENTE por cima dos dados atuais?\n\n' +
+      'Os dados atuais (relatórios, agenda, equipamentos, fotos) serão sobrescritos pelos do backup. ' +
+      'Use isto se os dados foram perdidos. Recomendado reabrir o app depois.'
+    )) return
+    setBackupStatus({ kind: 'restoring', msg: '' })
+    try {
+      const res = await api.restoreBackup(settings.backupFolder || undefined)
+      if (res?.ok) setBackupStatus({ kind: 'ok', msg: `Restaurado de ${res.from} (${(res.restored ?? []).join(', ') || 'nada'}). Reabra o app.` })
+      else setBackupStatus({ kind: 'error', msg: res?.error || 'Erro ao restaurar' })
+    } catch (e: any) { setBackupStatus({ kind: 'error', msg: e.message }) }
+  }
+
+  async function abrirPastaBackup() {
+    const api = (window as any).electronAPI
+    if (!api?.openBackupFolder) return
+    await api.openBackupFolder(settings.backupFolder || undefined)
   }
 
   async function listarCertificados() {
@@ -336,6 +393,95 @@ export default function ConfiguracoesPage() {
             </p>
           </div>
         </Section>
+
+        {/* Backup de Segurança */}
+        {isElectron && (
+          <Section title="Backup de Segurança">
+            <div className="space-y-2">
+              <Label>Diretório de backup</Label>
+              <div className="flex gap-2">
+                <input
+                  className="input flex-1 text-sm font-mono"
+                  value={settings.backupFolder}
+                  onChange={e => setSettings(s => ({ ...s, backupFolder: e.target.value }))}
+                  placeholder="Padrão: Documentos\CISPR15-Backups (escolha uma pasta de rede p/ mais segurança)"
+                />
+                <button type="button" onClick={browseBackupFolder}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-white/10 text-white/50 hover:text-teal hover:border-teal/30 transition-all text-xs shrink-0">
+                  <FolderOpen size={13} /> Procurar
+                </button>
+              </div>
+              <p className="text-[10px] text-white/25 font-mono">
+                Agrupa <span className="text-white/40">dados</span> (relatórios, equipamentos, checagens, fotos+DOCX),{' '}
+                <span className="text-white/40">agenda</span>, <span className="text-white/40">pdfs</span> e as configurações
+                numa cópia datada. Mantém os 20 backups mais recentes. Para sobreviver à perda do PC, aponte para uma pasta de rede ou pendrive.
+              </p>
+            </div>
+
+            <label className="flex items-center gap-3 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={settings.autoBackup}
+                onChange={e => setSettings(s => ({ ...s, autoBackup: e.target.checked }))}
+                className="w-4 h-4 rounded accent-gold cursor-pointer"
+              />
+              <div>
+                <p className="text-sm text-white/80 group-hover:text-white transition-colors">Backup automático ao abrir o app</p>
+                <p className="text-[10px] text-white/30 font-mono mt-0.5">Cria um backup no máximo 1× por dia, automaticamente (salve as configurações para valer).</p>
+              </div>
+            </label>
+
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <button type="button" onClick={fazerBackup} disabled={backupStatus.kind === 'running' || backupStatus.kind === 'restoring'}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg border border-teal/30 bg-teal/8 text-teal hover:bg-teal/14 transition-all text-sm font-semibold disabled:opacity-50">
+                {backupStatus.kind === 'running' ? <Loader2 size={13} className="animate-spin" /> : <Database size={13} />}
+                {backupStatus.kind === 'running' ? 'Fazendo backup…' : 'Fazer backup agora'}
+              </button>
+              <button type="button" onClick={restaurarBackup} disabled={backupStatus.kind === 'running' || backupStatus.kind === 'restoring' || backups.length === 0}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg border border-amber-500/30 bg-amber-500/8 text-amber-400 hover:bg-amber-500/14 transition-all text-sm font-semibold disabled:opacity-40">
+                {backupStatus.kind === 'restoring' ? <Loader2 size={13} className="animate-spin" /> : <History size={13} />}
+                {backupStatus.kind === 'restoring' ? 'Restaurando…' : 'Restaurar último backup'}
+              </button>
+              <button type="button" onClick={abrirPastaBackup}
+                className="flex items-center gap-2 px-3 py-2 rounded-lg border border-white/10 text-white/50 hover:text-white/80 hover:border-white/25 transition-all text-xs">
+                <FolderOpen size={13} /> Abrir pasta
+              </button>
+            </div>
+
+            {/* Lista de backups recentes */}
+            <div className="rounded-lg bg-white/3 border border-white/8 px-3 py-2 space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-white/35 font-mono uppercase tracking-wider">
+                  {backups.length} backup(s) · {backupRoot || '—'}
+                </span>
+                <button type="button" onClick={loadBackups} className="text-[10px] text-white/30 hover:text-teal font-mono flex items-center gap-1">
+                  <RefreshCw size={9} /> atualizar
+                </button>
+              </div>
+              {backups.slice(0, 5).map(b => (
+                <div key={b.name} className="flex items-center gap-2 text-[11px] text-white/45 font-mono">
+                  <Database size={9} className="text-white/25 shrink-0" />
+                  <span className="text-white/60">{b.date ? new Date(b.date).toLocaleString('pt-BR') : b.name}</span>
+                  <span className="text-white/25 truncate">{b.items.join(', ')}</span>
+                </div>
+              ))}
+              {backups.length === 0 && (
+                <p className="text-[11px] text-white/25">Nenhum backup ainda — clique em "Fazer backup agora".</p>
+              )}
+            </div>
+
+            {backupStatus.kind === 'ok' && (
+              <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-green/10 border border-green/20 text-green-400 text-[12px]">
+                <CheckCircle2 size={13} className="shrink-0 mt-0.5" /> {backupStatus.msg}
+              </div>
+            )}
+            {backupStatus.kind === 'error' && (
+              <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-[12px]">
+                <AlertTriangle size={13} className="shrink-0 mt-0.5" /> {backupStatus.msg}
+              </div>
+            )}
+          </Section>
+        )}
 
         {/* PDF / HTML */}
         <Section title="Saída de PDF e HTML">

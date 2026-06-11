@@ -27,6 +27,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   browseFolder:    (title)     => ipcRenderer.invoke('settings:browse-folder', { title }),
   getLocalDataDir: ()          => ipcRenderer.invoke('settings:get-local-data-dir'),
 
+  // Backup do banco de dados
+  backupNow:       (destBase)        => ipcRenderer.invoke('backup:run',        { destBase }),
+  listBackups:     (destBase)        => ipcRenderer.invoke('backup:list',       { destBase }),
+  restoreBackup:   (destBase, which) => ipcRenderer.invoke('backup:restore',    { destBase, which }),
+  openBackupFolder:(destBase)        => ipcRenderer.invoke('backup:open-folder',{ destBase }),
+
   // Dados de rede (clientes / relatórios / agenda)
   getClientes:     ()          => ipcRenderer.invoke('data:get-clientes'),
   saveClientes:    (clientes)  => ipcRenderer.invoke('data:save-clientes',    { clientes }),

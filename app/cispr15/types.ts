@@ -267,6 +267,8 @@ export interface AppSettings {
   certThumbprint: string
   pfxPath: string
   pfxPassword: string
+  backupFolder: string
+  autoBackup: boolean
 }
 
 export const SETTINGS_DEFAULTS: AppSettings = {
@@ -280,6 +282,8 @@ export const SETTINGS_DEFAULTS: AppSettings = {
   certThumbprint: '',
   pfxPath: '',
   pfxPassword: '',
+  backupFolder: '',
+  autoBackup: true,
 }
 
 export interface AgendaItem {

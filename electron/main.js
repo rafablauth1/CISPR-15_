@@ -58,7 +58,7 @@ let eutFolderPath = null
 
 /* ─── settings ────────────────────────────────────────────────────────────── */
 
-const SETTINGS_DEFAULTS = { excelPath: '', dataFolder: '', agendaFolder: '', pdfCopyFolder: '', pdfAutoSaveToEut: true, updateFolder: '', certThumbprint: '', pfxPath: '', pfxPassword: '' }
+const SETTINGS_DEFAULTS = { excelPath: '', dataFolder: '', agendaFolder: '', pdfCopyFolder: '', pdfAutoSaveToEut: true, updateFolder: '', certThumbprint: '', pfxPath: '', pfxPassword: '', backupFolder: '', autoBackup: true }
 
 /* pasta raiz do app:
    - dev:       …/cispr15-standalone/
@@ -217,6 +217,129 @@ function writeDataFile(filename, data) {
     catch (e) { lastErr = e }
   }
   throw lastErr
+}
+
+/* ─── backup do banco de dados ────────────────────────────────────────────── */
+
+/* Diretório de backup padrão — fora do %APPDATA%\cispr15-labelo, para sobreviver
+   caso alguém apague a pasta de dados. Pode ser trocado em Configurações. */
+function getDefaultBackupDir() {
+  try { return path.join(app.getPath('documents'), 'CISPR15-Backups') }
+  catch { return path.join(getUserDataDir(), '..', 'CISPR15-Backups') }
+}
+
+function backupRootDir(destBase) {
+  const base = destBase || readSettings().backupFolder || getDefaultBackupDir()
+  return path.join(base, 'CISPR15_Backups')
+}
+
+/* Todas as fontes de dados a serem incluídas no backup (deduplicadas por caminho).
+   'dados' já inclui a subpasta cispr15_assets (fotos+DOCX por relatório). */
+function getBackupSources() {
+  const s = readSettings()
+  const out = []
+  const seen = new Set()
+  const add = (name, p, type) => {
+    if (!p) return
+    const key = path.resolve(p).toLowerCase()
+    if (seen.has(key)) return
+    seen.add(key)
+    out.push({ name, path: p, type })
+  }
+  add('dados',         s.dataFolder,    'dir')
+  add('agenda',        s.agendaFolder,  'dir')
+  add('pdfs',          s.pdfCopyFolder, 'dir')
+  add('settings.json', getSettingsFile(), 'file')
+  return out
+}
+
+function timestampFolder() {
+  const d = new Date()
+  const p = n => String(n).padStart(2, '0')
+  return `backup_${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`
+}
+
+function listBackups(destBase) {
+  const root = backupRootDir(destBase)
+  try {
+    return fs.readdirSync(root, { withFileTypes: true })
+      .filter(e => e.isDirectory() && e.name.startsWith('backup_'))
+      .map(e => {
+        let manifest = null
+        try { manifest = JSON.parse(fs.readFileSync(path.join(root, e.name, 'manifest.json'), 'utf-8')) } catch {}
+        return { name: e.name, path: path.join(root, e.name), date: manifest?.date ?? null, items: manifest?.items ?? [] }
+      })
+      .sort((a, b) => b.name.localeCompare(a.name))
+  } catch { return [] }
+}
+
+function pruneBackups(destBase, keep = 20) {
+  const root = backupRootDir(destBase)
+  const all = listBackups(destBase)
+  for (const b of all.slice(keep)) {
+    try { fs.rmSync(b.path, { recursive: true, force: true }) } catch {}
+  }
+}
+
+function runBackup(destBase) {
+  const root = backupRootDir(destBase)
+  const dir  = path.join(root, timestampFolder())
+  fs.mkdirSync(dir, { recursive: true })
+  const sources = getBackupSources()
+  const items = []
+  for (const src of sources) {
+    try {
+      if (!fs.existsSync(src.path)) continue
+      const target = path.join(dir, src.name)
+      if (src.type === 'file') fs.copyFileSync(src.path, target)
+      else fs.cpSync(src.path, target, { recursive: true })
+      items.push(src.name)
+    } catch {}
+  }
+  const manifest = { date: new Date().toISOString(), version: app.getVersion(), items }
+  try { fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf-8') } catch {}
+  pruneBackups(destBase)
+  return { ok: true, dir, items }
+}
+
+/* Restaura um backup (o mais recente por padrão, ou o nomeado) por cima das
+   pastas de dados atuais. É o que recupera tudo se os dados sumirem. */
+function restoreBackup(destBase, which) {
+  const root = backupRootDir(destBase)
+  const all = listBackups(destBase)
+  if (!all.length) return { ok: false, error: 'Nenhum backup encontrado em ' + root }
+  const chosen = which ? all.find(b => b.name === which) : all[0]
+  if (!chosen) return { ok: false, error: 'Backup não encontrado: ' + which }
+  const s = readSettings()
+  const map = {
+    'dados':         { to: s.dataFolder,    type: 'dir'  },
+    'agenda':        { to: s.agendaFolder,  type: 'dir'  },
+    'pdfs':          { to: s.pdfCopyFolder, type: 'dir'  },
+    'settings.json': { to: getSettingsFile(), type: 'file' },
+  }
+  const restored = []
+  for (const [name, { to, type }] of Object.entries(map)) {
+    const from = path.join(chosen.path, name)
+    try {
+      if (!fs.existsSync(from) || !to) continue
+      if (type === 'file') { fs.mkdirSync(path.dirname(to), { recursive: true }); fs.copyFileSync(from, to) }
+      else { fs.mkdirSync(to, { recursive: true }); fs.cpSync(from, to, { recursive: true, force: true }) }
+      restored.push(name)
+    } catch {}
+  }
+  return { ok: true, restored, from: chosen.path, date: chosen.date }
+}
+
+/* Auto-backup ao abrir: roda no máximo 1×/dia (compara com o backup mais recente). */
+function maybeAutoBackup() {
+  try {
+    const s = readSettings()
+    if (!s.autoBackup) return
+    const all = listBackups()
+    const last = all[0]?.date ? new Date(all[0].date).getTime() : 0
+    if (Date.now() - last < 20 * 3600 * 1000) return // já há backup recente (<20h)
+    runBackup()
+  } catch {}
 }
 
 /* ─── utilitários ─────────────────────────────────────────────────────────── */
@@ -707,6 +830,8 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(buildMenu())
   createWindow()
   setupAutoUpdater()
+  // backup automático do banco (no máx. 1×/dia) — proteção contra perda de dados
+  try { maybeAutoBackup() } catch {}
 })
 
 app.on('window-all-closed', () => {
@@ -742,6 +867,32 @@ ipcMain.handle('settings:browse-folder', async (_, { title }) => {
   })
   if (canceled || !filePaths.length) return { canceled: true }
   return { folderPath: filePaths[0] }
+})
+
+/* ─── IPC: Backup ─────────────────────────────────────────────────────────── */
+
+ipcMain.handle('backup:run', (_, { destBase } = {}) => {
+  try { return runBackup(destBase) }
+  catch (err) { return { ok: false, error: String(err) } }
+})
+
+ipcMain.handle('backup:list', (_, { destBase } = {}) => {
+  try { return { ok: true, backups: listBackups(destBase), root: backupRootDir(destBase) } }
+  catch (err) { return { ok: false, error: String(err), backups: [] } }
+})
+
+ipcMain.handle('backup:restore', (_, { destBase, which } = {}) => {
+  try { return restoreBackup(destBase, which) }
+  catch (err) { return { ok: false, error: String(err) } }
+})
+
+ipcMain.handle('backup:open-folder', (_, { destBase } = {}) => {
+  try {
+    const root = backupRootDir(destBase)
+    fs.mkdirSync(root, { recursive: true })
+    shell.openPath(root)
+    return { ok: true, root }
+  } catch (err) { return { ok: false, error: String(err) } }
 })
 
 ipcMain.handle('settings:browse-pdf', async () => {
