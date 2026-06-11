@@ -774,14 +774,11 @@ export default function Cispr15ConfigPage() {
       }
       if (existingIdx >= 0) list[existingIdx] = entry
       else list.unshift(entry)
-      localStorage.setItem(RELATORIOS_KEY, JSON.stringify(list))
-      if (docx.html) {
-        try { localStorage.setItem(RELATORIO_DOCX_PFX + id, docx.html) } catch {}
-      }
       setRelatoriosList(list)
 
-      // Salvar na rede: índice leve (sem fotos/docxHtml) + assets pesados por id,
-      // para qualquer PC reabrir o relatório completo.
+      // 1) Salvar no sistema/rede PRIMEIRO — índice leve (sem fotos/docxHtml) + assets
+      //    pesados por id. Roda independente do localStorage: assim uma cota local cheia
+      //    não impede o salvamento das fotos/DOCX no sistema (senão o relatório reabria vazio).
       const api = (window as any).electronAPI
       if (api) {
         try {
@@ -794,6 +791,19 @@ export default function Cispr15ConfigPage() {
             await api.saveRelatorioAssets(id, entry.photos, docx.html ?? null)
           }
         } catch {}
+      }
+
+      // 2) Cache local (best-effort) — pode estourar a cota sem comprometer o save acima.
+      try {
+        localStorage.setItem(RELATORIOS_KEY, JSON.stringify(list))
+        if (docx.html) localStorage.setItem(RELATORIO_DOCX_PFX + id, docx.html)
+      } catch (e: any) {
+        const msg = String(e)
+        const quota = msg.includes('Quota') || msg.includes('quota') || msg.includes('QUOTA')
+        // No Electron os assets já foram salvos no sistema acima; só alerta na versão web.
+        if (quota && !api) {
+          alert('Aviso: armazenamento local cheio — fotos não salvas no histórico. O relatório foi registrado normalmente na planilha.')
+        }
       }
     } catch (e: any) {
       const msg = String(e)

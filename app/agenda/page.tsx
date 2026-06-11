@@ -291,6 +291,7 @@ function ItemModal({ item, onSave, onClose, clientes, customTags, onCustomTagsCh
   const [form, setForm] = useState<AgendaItem>({
     fabricante: '', modelo: '', identificador: '', potencia: '', tensaoAlim: '', frequencia: '60Hz',
     clienteRua: '', clienteCidade: '', clienteCep: '', documentacao: '', tags: [],
+    entreguePorLum: '', recebidoPorEmc: '', devolvidoPorEmc: '', recebidoPorLum: '',
     ...item,
   })
   // métrica: tempo de preenchimento dos dados da amostra no cadastro
@@ -514,6 +515,47 @@ function ItemModal({ item, onSave, onClose, clientes, customTags, onCustomTagsCh
               )}
             </div>
           </div>
+        </div>
+
+        {/* Cadeia de Custódia (LUM ⇄ EMC) */}
+        <div className="space-y-2">
+          <p className="text-[10px] text-white/30 font-mono uppercase tracking-widest">Cadeia de Custódia da Amostra</p>
+
+          {/* Entrega: LUM → EMC */}
+          <div className="p-3 rounded-xl border border-white/6 bg-white/[0.015] space-y-2">
+            <p className="text-[9px] text-teal/60 font-mono uppercase tracking-wider">Entrega da amostra · LUM → EMC</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1.5">
+                <Label>Entregou <span className="normal-case text-white/20">(LUM)</span></Label>
+                <input className="input" value={form.entreguePorLum ?? ''} onChange={s('entreguePorLum')} placeholder="Funcionário LUM" />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label>Recebeu <span className="normal-case text-white/20">(EMC)</span></Label>
+                <input className="input" value={form.recebidoPorEmc ?? ''} onChange={s('recebidoPorEmc')} placeholder="Funcionário EMC" />
+              </div>
+            </div>
+          </div>
+
+          {/* Devolução: EMC → LUM (somente após emissão) */}
+          {form.numRelatorio?.trim() ? (
+            <div className="p-3 rounded-xl border border-gold/15 bg-gold/3 space-y-2">
+              <p className="text-[9px] text-gold/60 font-mono uppercase tracking-wider">Devolução após emissão · EMC → LUM</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1.5">
+                  <Label>Entregou p/ devolver <span className="normal-case text-white/20">(EMC)</span></Label>
+                  <input className="input" value={form.devolvidoPorEmc ?? ''} onChange={s('devolvidoPorEmc')} placeholder="Funcionário EMC" />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label>Recebeu <span className="normal-case text-white/20">(LUM)</span></Label>
+                  <input className="input" value={form.recebidoPorLum ?? ''} onChange={s('recebidoPorLum')} placeholder="Funcionário LUM" />
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p className="text-[10px] text-white/25 flex items-center gap-1.5 px-1">
+              <Clock size={10} /> Os campos de devolução (EMC → LUM) aparecem após informar o N° do Relatório.
+            </p>
+          )}
         </div>
 
         {/* DUT / Amostra (expansível) */}
