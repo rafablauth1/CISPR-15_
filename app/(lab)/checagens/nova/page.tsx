@@ -261,43 +261,43 @@ function ItemRow({ item, modo, onChange, onDelete, grade2DAtiva, eixo1Nome, eixo
 
       {modo === 'direta-gera' && <>
         {/* Ref gera → VR = valor ajustado na ref, MM = leitura do instrumento */}
-        <td className="w-32"><input className={cn(inp,'font-mono')} value={item.valorReferencia} onChange={e => set('valorReferencia', e.target.value)} placeholder="VR (ref gera)"/></td>
-        <td className="w-32"><input className={cn(inp,'font-mono')} value={item.valorMedido} onChange={e => set('valorMedido', e.target.value)} placeholder="MM (instrumento lê)"/></td>
+        <td className="w-36"><input className={cn(inp,'font-mono')} title={item.valorReferencia} value={item.valorReferencia} onChange={e => set('valorReferencia', e.target.value)} placeholder="VR (ref gera)"/></td>
+        <td className="w-36"><input className={cn(inp,'font-mono')} title={item.valorMedido} value={item.valorMedido} onChange={e => set('valorMedido', e.target.value)} placeholder="MM (instrumento lê)"/></td>
       </>}
 
       {modo === 'direta-mede' && <>
         {/* Instrumento gera → VN = nominal ajustado, VR = o que ref mede */}
-        <td className="w-32"><input className={cn(inp,'font-mono')} value={item.valorNominal??''} onChange={e => set('valorNominal', e.target.value)} placeholder="VN (ajustado no inst.)"/></td>
-        <td className="w-32"><input className={cn(inp,'font-mono')} value={item.valorReferencia} onChange={e => set('valorReferencia', e.target.value)} placeholder="VR (ref mede)"/></td>
+        <td className="w-36"><input className={cn(inp,'font-mono')} title={item.valorNominal??''} value={item.valorNominal??''} onChange={e => set('valorNominal', e.target.value)} placeholder="VN (ajustado no inst.)"/></td>
+        <td className="w-36"><input className={cn(inp,'font-mono')} title={item.valorReferencia} value={item.valorReferencia} onChange={e => set('valorReferencia', e.target.value)} placeholder="VR (ref mede)"/></td>
       </>}
 
       {modo === 'indireta' && <>
         {/* Caixa preta gera → ref lê VR, instrumento lê MM */}
-        <td className="w-28"><input className={cn(inp,'font-mono')} value={item.valorReferencia} onChange={e => set('valorReferencia', e.target.value)} placeholder="VR (padrão)"/></td>
-        <td className="w-24">
-          <input className={cn(inp,'font-mono')} value={item.correcaoPadrao??''} onChange={e => set('correcaoPadrao', e.target.value)} placeholder="Corr. instr."/>
-        </td>
+        <td className="w-32"><input className={cn(inp,'font-mono')} title={item.valorReferencia} value={item.valorReferencia} onChange={e => set('valorReferencia', e.target.value)} placeholder="VR (padrão)"/></td>
         <td className="w-28">
-          <input className={cn(inp,'font-mono text-white/50')} value={item.valorCorrigido??''} onChange={e => set('valorCorrigido', e.target.value)} placeholder="auto"/>
+          <input className={cn(inp,'font-mono')} title={item.correcaoPadrao??''} value={item.correcaoPadrao??''} onChange={e => set('correcaoPadrao', e.target.value)} placeholder="Corr. instr."/>
         </td>
-        <td className="w-28"><input className={cn(inp,'font-mono')} value={item.valorMedido} onChange={e => set('valorMedido', e.target.value)} placeholder="Leit. Instrumento"/></td>
+        <td className="w-32">
+          <input className={cn(inp,'font-mono text-white/50')} title={item.valorCorrigido??''} value={item.valorCorrigido??''} onChange={e => set('valorCorrigido', e.target.value)} placeholder="auto"/>
+        </td>
+        <td className="w-32"><input className={cn(inp,'font-mono')} title={item.valorMedido} value={item.valorMedido} onChange={e => set('valorMedido', e.target.value)} placeholder="Leit. Instrumento"/></td>
       </>}
 
       {/* Colunas de interpolação 2D — só quando grade ativa */}
       {grade2DAtiva && <>
-        <td className="w-28">
-          <input className={cn(inp,'font-mono')} type="number" value={item.eixo1Valor??''}
+        <td className="w-32">
+          <input className={cn(inp,'font-mono')} type="number" title={item.eixo1Valor??''} value={item.eixo1Valor??''}
             onChange={e => set('eixo1Valor', e.target.value)}
             placeholder={eixo1Nome??'Eixo 1'}/>
         </td>
-        <td className="w-28">
-          <input className={cn(inp,'font-mono')} type="number" value={item.eixo2Valor??''}
+        <td className="w-32">
+          <input className={cn(inp,'font-mono')} type="number" title={item.eixo2Valor??''} value={item.eixo2Valor??''}
             onChange={e => set('eixo2Valor', e.target.value)}
             placeholder={eixo2Nome??'Eixo 2'}/>
         </td>
         <td className="w-28">
           <input className={cn(inp,'font-mono text-teal/70')} readOnly
-            value={item.correcaoPadrao??''} placeholder="auto"/>
+            title={item.correcaoPadrao??''} value={item.correcaoPadrao??''} placeholder="auto"/>
         </td>
       </>}
 
@@ -428,7 +428,7 @@ function GrandezaSection({
         )}
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full" style={{ minWidth: grade2DAtiva ? 1000 : modo === 'indireta' ? 820 : 560 }}>
+        <table className="w-full" style={{ minWidth: grade2DAtiva ? 1140 : modo === 'indireta' ? 940 : 660 }}>
           <TblHeader modo={modo} grade2DAtiva={grade2DAtiva} hideGrandeza
             eixo1Nome={eixo1Nome} eixo1Unidade={eixo1Unidade} eixo2Nome={eixo2Nome} eixo2Unidade={eixo2Unidade} />
           <tbody>
