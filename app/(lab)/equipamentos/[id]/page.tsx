@@ -19,7 +19,9 @@ function StatusPill({ status }: { status: string }) {
   if (status === 'calibrar-antes-uso') return <span className="badge-warning">Calibrar antes do uso</span>
   return <span className="badge-danger">Fora de uso</span>
 }
-function StatusChecBadge({ status }: { status: string }) {
+function StatusChecBadge({ status, resultado }: { status: string; resultado?: string }) {
+  // Sem resultado (checagem não realizada) → Pendente, nunca "Aprovada".
+  if (resultado === 'pendente' || !resultado) return <span className="badge text-white/40">Pendente</span>
   if (status === 'reprovado') return <span className="badge-danger">Reprovada</span>
   if (status === 'atencao')   return <span className="badge-warning">Atenção</span>
   return <span className="badge-success">Aprovada</span>
@@ -49,7 +51,7 @@ function GrandezaModal({ inicial, onSalvar, onFechar }: {
         </div>
         <form onSubmit={submit}>
           <div className="grid grid-cols-2 gap-3 mb-3">
-            {([['Nome *','text','nome','ex: Tensão DC'],['Símbolo','text','simbolo','ex: V'],['Unidade *','text','unidade','ex: V, dBµV']] as [string,string,keyof GrandezaForm,string][]).map(([label,type,key,ph])=>(
+            {([['Nome *','text','nome','ex: Tensão DC'],['Unidade *','text','unidade','ex: V, dBµV'],['Faixa mín.','number','faixaMin','0'],['Faixa máx.','number','faixaMax','100'],['Incerteza exp.','text','incertezaExpandida','ex: ± 0,05 V']] as [string,string,keyof GrandezaForm,string][]).map(([label,type,key,ph])=>(
               <div key={key}>
                 <label className="text-[10px] font-mono tracking-[2px] uppercase text-white/40 block mb-1">{label}</label>
                 <input type={type} className="input" placeholder={ph} value={String(form[key]??'')}
@@ -381,15 +383,13 @@ export default function EquipamentoDetalhePage() {
             <p className="text-white/25 text-sm py-8 text-center">Nenhuma grandeza cadastrada.</p>
           ):(
             <table className="w-full">
-              <thead className="tbl-head"><tr><th>Nome</th><th>Símbolo</th><th>Unidade</th><th>Faixa</th><th>Resolução</th><th>Incerteza exp.</th><th></th></tr></thead>
+              <thead className="tbl-head"><tr><th>Nome</th><th>Unidade</th><th>Faixa</th><th>Incerteza exp.</th><th></th></tr></thead>
               <tbody>
                 {equip.grandezas.map(g=>(
                   <tr key={g.id} className="tbl-row group/g cursor-pointer" onClick={()=>{setGrandezaAlvo(g);setModalG('edit')}}>
                     <td className="font-medium text-white/80">{g.nome}</td>
-                    <td className="font-mono text-[11px]">{g.simbolo}</td>
                     <td className="font-mono text-[11px]">{g.unidade}</td>
                     <td className="font-mono text-[11px]">{g.faixaMin} — {g.faixaMax}</td>
-                    <td className="font-mono text-[11px]">{g.resolucao}</td>
                     <td className="font-mono text-[11px]">{g.incertezaExpandida}</td>
                     <td>
                       <button type="button" onClick={e=>{e.stopPropagation();excluirGrandeza(g.id)}} className="opacity-0 group-hover/g:opacity-100 text-white/25 hover:text-red-400 p-1">
@@ -485,8 +485,8 @@ export default function EquipamentoDetalhePage() {
                     <td className="font-mono text-[11px]">{fmt(c.data)}</td>
                     <td className="text-white/70">{c.responsavel||'—'}</td>
                     <td className="font-mono text-[10px] uppercase text-white/40">{c.tipoComparacao}</td>
-                    <td>{c.resultadoGeral==='satisfatorio'?<span className="badge-success">Satisfatório</span>:c.resultadoGeral==='insatisfatorio'?<span className="badge-danger">Insatisfatório</span>:<span className="text-white/30 text-[11px]">Pendente</span>}</td>
-                    <td><StatusChecBadge status={c.status}/></td>
+                    <td>{c.resultadoGeral==='satisfatorio'?<span className="badge-success">Satisfatório</span>:c.resultadoGeral==='insatisfatorio'?<span className="badge-danger">Insatisfatório</span>:c.resultadoGeral==='parcial'?<span className="badge text-amber-400 border border-amber-500/30 bg-amber-500/8">Parcial</span>:<span className="text-white/30 text-[11px]">Pendente</span>}</td>
+                    <td><StatusChecBadge status={c.status} resultado={c.resultadoGeral}/></td>
                   </tr>
                 ))}
               </tbody>
