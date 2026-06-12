@@ -869,17 +869,23 @@ export default function NovaChecagemPage() {
     try { planos = await fetch(`/api/planos?equipamentoId=${encodeURIComponent(equip.id)}`).then(r => r.json()) } catch {}
     if (!Array.isArray(planos) || !planos.length) { alert('Nenhum plano de calibração cadastrado para este equipamento.'); return }
     const plano = planos[0]   // a API retorna o mais recente primeiro
-    // Casa por GRANDEZA OU PARÂMETRO: o item da checagem traz "grandeza · parâmetro
-    // @ freq"; no plano o que está pode ser a grandeza OU o parâmetro. Compara o
-    // texto inteiro normalizado (só alfanumérico) por inclusão nos dois sentidos.
-    const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '')
+    // Casa por SOBREPOSIÇÃO DE PALAVRAS (grandeza/parâmetro). Tolera variações de
+    // texto entre certificado e plano (ex.: "Exatidão da Frequência Gerada" ↔
+    // "Exatidão da Frequência do Sinal Gerado"). Escolhe a linha com maior overlap.
+    const sigTokens = (s: string) =>
+      new Set((s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length >= 4))
     const matchLinha = (itemGrandeza: string): PontoPlano | undefined => {
-      const i = norm(itemGrandeza)
-      if (i.length < 4) return undefined
-      return plano.pontos.find(p => {
-        const pg = norm(p.grandeza)
-        return pg.length >= 6 && (i.includes(pg) || pg.includes(i))
-      })
+      const it = sigTokens(itemGrandeza)
+      if (!it.size) return undefined
+      let best: PontoPlano | undefined; let bestScore = 0
+      for (const p of plano.pontos) {
+        const pt = sigTokens(p.grandeza)
+        if (!pt.size) continue
+        let common = 0; pt.forEach(t => { if (it.has(t)) common++ })
+        const score = common / Math.min(it.size, pt.size)
+        if (common >= 2 && score > bestScore) { bestScore = score; best = p }
+      }
+      return bestScore >= 0.5 ? best : undefined
     }
     let n = 0
     const novos = itens.map(it => {
