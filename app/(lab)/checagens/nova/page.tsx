@@ -10,7 +10,7 @@ import type { EquipamentoEMC } from '@/lib/equipamentos/tipos'
 import type { DocumentoIT, Bloco } from '@/lib/instrucoes/tipos'
 import type { ItemChecagem, TipoComparacao, PapelReferencia, ResultadoGeral } from '@/lib/checagens/tipos'
 import { TEMPLATES } from '@/lib/checagens/templates'
-import { parsearGrandezasIT, parsearMetadadosIT } from '@/lib/checagens/parser-it'
+import { parsearGrandezasIT, parsearMetadadosIT, parsearGrandezasMedidasIT } from '@/lib/checagens/parser-it'
 import { Grade2DCertificado } from '@/components/Grade2DCertificado'
 import { interpolarBilinear, type PontoCalibracao2D } from '@/lib/interpolacao'
 
@@ -532,11 +532,26 @@ export default function NovaChecagemPage() {
     }).catch(()=>{})
   }, [])
 
-  function handleEquipChange(id: string) {
+  async function handleEquipChange(id: string) {
     setEquipId(id)
     const eq = equips.find(e=>e.id===id)
     if (!eq) return
     setNomeInstrumento(eq.nome)
+    // Puxa automaticamente o ÚLTIMO certificado vigente do equipamento (nº + data + lab)
+    try {
+      const certs = await fetch(`/api/certificados?equipamentoId=${encodeURIComponent(eq.id)}`).then(r=>r.json())
+      if (Array.isArray(certs) && certs.length) {
+        const hoje = new Date().toISOString().slice(0,10)
+        const vigentes = certs.filter((c:{dataValidade?:string}) => !c.dataValidade || c.dataValidade >= hoje)
+        const escolha = (vigentes.length ? vigentes : certs)
+          .sort((a:{dataEmissao?:string}, b:{dataEmissao?:string}) => (b.dataEmissao||'').localeCompare(a.dataEmissao||''))[0]
+        if (escolha) {
+          if (escolha.numero)      setNumeroCert(escolha.numero)
+          if (escolha.dataEmissao) setDataCalibRef(escolha.dataEmissao)
+          if (escolha.laboratorio) setLaboratorio(escolha.laboratorio)
+        }
+      }
+    } catch {}
     const tpl = TEMPLATES[eq.subgrupoId]
     if (tpl) {
       setPeriodicidade(Math.round(tpl.periodicidadePadrao / 30))
@@ -799,6 +814,24 @@ export default function NovaChecagemPage() {
       const texto = await extrairTextoArquivo(file)
       setOcrTexto(texto)
     } catch(e:unknown) { alert('Erro OCR: '+String(e)) }
+    finally { setLoading(false) }
+  }
+
+  // Importa uma IT de Checagem (CHK): lê a seção "Grandezas medidas" e cria
+  // uma seção por grandeza (limpa, sem depender de OCR de tabela).
+  async function importarITchk(file: File) {
+    setLoading(true)
+    try {
+      const texto = await extrairTextoArquivo(file)
+      const grandezas = parsearGrandezasMedidasIT(texto)
+      const meta = parsearMetadadosIT(texto)
+      if (!grandezas.length) { alert('Não encontrei a seção "Grandezas medidas" na IT. Confira o arquivo.'); return }
+      setItens(grandezas.map((g, i) => ({ ...emptyItem(i + 1), grandeza: g })))
+      if (meta.tag && !padraoTag) setPadraoTag(meta.tag)
+      if (meta.periodicidade) setPeriodicidade(meta.periodicidade)
+      if (meta.norma && !normaRef) setNormaRef(meta.norma)
+      setTab('manual')
+    } catch (e: unknown) { alert('Erro ao ler IT: ' + String(e)) }
     finally { setLoading(false) }
   }
 
@@ -1207,6 +1240,19 @@ export default function NovaChecagemPage() {
       {/* ── Tab OCR ── */}
       {tab==='ocr'&&(
         <div className="card p-5 mb-4 space-y-4">
+          {/* Importar IT de Checagem (CHK) — extrai as grandezas da seção "Grandezas medidas" */}
+          <div className="rounded-xl border border-teal/20 p-3" style={{ background: 'rgba(45,212,191,0.05)' }}>
+            <p className="text-[11px] text-teal/80 font-semibold mb-1 flex items-center gap-1.5">
+              <FileSearch size={12}/> Importar IT de Checagem (CHK)
+            </p>
+            <p className="text-[10px] text-white/40 mb-2">Lê a seção “Grandezas medidas” da IT e cria uma seção por grandeza na aba Manual.</p>
+            <label className="btn-secondary text-xs cursor-pointer inline-flex">
+              <Upload size={12}/> Selecionar IT (.pdf)
+              <input type="file" accept=".pdf,image/*" className="hidden"
+                onChange={e=>{ const f=e.target.files?.[0]; if(f) importarITchk(f); e.currentTarget.value='' }}/>
+            </label>
+          </div>
+
           <p className="form-section">Importar via OCR</p>
           <div className="flex gap-3">
             <input ref={ocrRef} type="file" accept="image/*,.pdf" className="hidden"

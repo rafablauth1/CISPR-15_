@@ -145,6 +145,24 @@ export function parsearGrandezasIT(texto: string): ItemChecagem[] {
 }
 
 /**
+ * Extrai a lista de grandezas da seção "3.2 Grandezas medidas" de uma IT CHK.
+ * É a fonte limpa/autoritativa (ex.: "Corrente Alternada, Frequência, Resistência
+ * Elétrica, Tensão Contínua…"), melhor que adivinhar por padrões no texto todo.
+ */
+export function parsearGrandezasMedidasIT(texto: string): string[] {
+  const idx = texto.search(/grandezas\s+medidas/i)
+  if (idx < 0) return []
+  let rest = texto.slice(idx).replace(/grandezas\s+medidas\s*[:\-]?/i, '')
+  // corta na próxima seção (ex.: "3.3", "Avaliação", "Self-Test", "Descrição do processo")
+  const stop = rest.search(/\n\s*\d+\.\d+\s|\bavalia[çc][aã]o\b|\bself[\s-]?test\b|\bdescri[çc][aã]o\s+do\s+processo\b/i)
+  if (stop > 0) rest = rest.slice(0, stop)
+  return rest
+    .split(/[,;\n]+/)
+    .map(s => s.replace(/\s+/g, ' ').trim())
+    .filter(s => s && /[a-zA-Zà-ÿÀ-ÿ]{3,}/.test(s) && !/^[\d(]/.test(s))
+}
+
+/**
  * Extrai também metadados básicos da IT (TAG, periodicidade, norma).
  */
 export function parsearMetadadosIT(texto: string): {
