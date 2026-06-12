@@ -120,6 +120,22 @@ function fmtErro(e: number | null, criterioMax?: number) {
   return { text, ok }
 }
 
+/* Resultado automático: ponto = ok/nok pelo |erro| ≤ critério; geral = satisfatório /
+   insatisfatório / parcial (alguns ok, outros nok). 'na' = sem erro/critério. */
+function avaliarItem(item: ItemChecagem, modo: Modo): 'ok' | 'nok' | 'na' {
+  const erro = calcErro(item, modo)
+  if (erro === null || item.criterioMax === undefined) return 'na'
+  return Math.abs(erro) <= item.criterioMax ? 'ok' : 'nok'
+}
+function avaliarGeral(itens: ItemChecagem[], modo: Modo): ResultadoGeral {
+  const av = itens.map(i => avaliarItem(i, modo)).filter(r => r !== 'na')
+  if (!av.length) return 'pendente'
+  const oks = av.filter(r => r === 'ok').length
+  if (oks === av.length) return 'satisfatorio'
+  if (oks === 0) return 'insatisfatorio'
+  return 'parcial'
+}
+
 /* ── Componente: Parser de IT ── */
 function ITParser({ onAplicar }: {
   onAplicar: (itens: ItemChecagem[], meta: { tag: string; periodicidade: number | null; norma: string }) => void
@@ -299,11 +315,17 @@ function ItemRow({ item, modo, onChange, onDelete, grade2DAtiva, eixo1Nome, eixo
           onChange={e => set('criterioMax', e.target.value ? Number(e.target.value) : '')}/>
       </td>
       <td className="w-28">
-        <select className={cn(inp,'cursor-pointer')} value={item.resultado} onChange={e => set('resultado', e.target.value)}>
-          <option value="na">—</option>
-          <option value="ok">Satisfatório</option>
-          <option value="nok">Insatisfatório</option>
-        </select>
+        {(() => {
+          const r = avaliarItem(item, modo)
+          return (
+            <span className={cn('font-mono text-[10px] px-2 py-0.5 rounded whitespace-nowrap',
+              r === 'ok'  && 'text-green-400 bg-green-500/8',
+              r === 'nok' && 'text-red-400 bg-red-500/8',
+              r === 'na'  && 'text-white/25')}>
+              {r === 'ok' ? 'Satisfatório' : r === 'nok' ? 'Insatisfatório' : '—'}
+            </span>
+          )
+        })()}
       </td>
       <td><input className={inp} value={item.observacoes??''} onChange={e => set('observacoes', e.target.value)} placeholder="Obs."/></td>
       <td className="w-8">
@@ -560,6 +582,7 @@ export default function NovaChecagemPage() {
   }
 
   const modo = getModo(tipoComp, papelRef)
+  const resultadoGeralAuto = avaliarGeral(itens, modo)
   const pontosCert = getPontosCert(certPadrao)
   // Agrupa os pontos por grandeza, preservando o índice original (usado na seleção)
   const gruposCert = (() => {
@@ -775,7 +798,10 @@ export default function NovaChecagemPage() {
     setSalvando(true)
     const proximaChecagem = addM(data, periodicidade)   // periodicidade já em meses
     const { validarChecagem } = await import('@/lib/checagens/validacao')
-    const status = validarChecagem(itensFinal, proximaChecagem, resultadoGeral)
+    // Resultado calculado automaticamente (ponto a ponto + geral)
+    const itensAvaliados = itensFinal.map(i => ({ ...i, resultado: avaliarItem(i, modo) }))
+    const geral = avaliarGeral(itensFinal, modo)
+    const status = validarChecagem(itensAvaliados, proximaChecagem, geral)
     try {
       const res = await fetch(editId ? `/api/checagens/${editId}` : '/api/checagens', {
         method: editId ? 'PUT' : 'POST', headers:{'Content-Type':'application/json'},
@@ -785,8 +811,8 @@ export default function NovaChecagemPage() {
           dataCalibracaoRef:dataCalibRef, padraoTag,
           grupoId:eq.grupoId, subgrupoId:eq.subgrupoId,
           data, responsavel, tipoComparacao:tipoComp, papelReferencia:papelRef,
-          resultadoGeral, periodicidade, proximaChecagem, fonte:tab,
-          normaReferencia:normaRef||undefined, status, itens:itensFinal, obs:obs||undefined,
+          resultadoGeral:geral, periodicidade, proximaChecagem, fonte:tab,
+          normaReferencia:normaRef||undefined, status, itens:itensAvaliados, obs:obs||undefined,
         }),
       })
       const saved = await res.json()
@@ -1082,17 +1108,19 @@ export default function NovaChecagemPage() {
             </div>
           )}
 
-          {/* Resultado */}
+          {/* Resultado geral — calculado automaticamente dos pontos */}
           <div className="pt-2 border-t border-white/6">
-            <p className="text-[10px] font-mono tracking-[2px] uppercase text-white/40 mb-2">Resultado geral</p>
-            <div className="flex gap-5">
-              {([['satisfatorio','Satisfatório','text-green-400'],['insatisfatorio','Insatisfatório','text-red-400'],['pendente','Pendente','text-white/40']] as [ResultadoGeral,string,string][]).map(([v,l,cls])=>(
-                <label key={v} className="flex items-center gap-2 cursor-pointer">
-                  <input type="radio" name="resultGeral" value={v} checked={resultadoGeral===v} onChange={()=>setResultadoGeral(v)} className="accent-gold"/>
-                  <span className={cn('text-sm',cls)}>{l}</span>
-                </label>
-              ))}
-            </div>
+            <p className="text-[10px] font-mono tracking-[2px] uppercase text-white/40 mb-2">Resultado geral <span className="text-white/25 normal-case">(automático)</span></p>
+            {(() => {
+              const map: Record<ResultadoGeral, [string, string]> = {
+                satisfatorio:   ['Satisfatório', 'text-green-400 bg-green-500/8 border-green/25'],
+                parcial:        ['Parcialmente Satisfatório', 'text-amber-400 bg-amber-500/8 border-amber-500/30'],
+                insatisfatorio: ['Insatisfatório', 'text-red-400 bg-red-500/8 border-red/25'],
+                pendente:       ['Pendente — preencha medidas e critérios', 'text-white/40 border-white/10'],
+              }
+              const [label, cls] = map[resultadoGeralAuto]
+              return <span className={cn('inline-flex items-center px-3 py-1.5 rounded-lg border text-sm font-semibold', cls)}>{label}</span>
+            })()}
           </div>
         </div>
 

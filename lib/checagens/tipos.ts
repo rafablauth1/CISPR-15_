@@ -4,7 +4,7 @@ export type StatusChecagem  = 'aprovado' | 'atencao' | 'reprovado'
 export type FonteImportacao = 'manual' | 'excel' | 'ocr'
 export type TipoComparacao  = 'direta' | 'indireta'
 export type PapelReferencia = 'gerador' | 'medidor'  // só para comparação direta
-export type ResultadoGeral  = 'satisfatorio' | 'insatisfatorio' | 'pendente'
+export type ResultadoGeral  = 'satisfatorio' | 'insatisfatorio' | 'pendente' | 'parcial'
 
 export interface ItemChecagem {
   id: string

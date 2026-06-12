@@ -21,6 +21,7 @@ function ResultadoBadge({ r }: { r: string }) {
 function ResultGeralBadge({ r }: { r: string }) {
   if (r === 'satisfatorio')   return <span className="badge-success">Satisfatório</span>
   if (r === 'insatisfatorio') return <span className="badge-danger">Insatisfatório</span>
+  if (r === 'parcial')        return <span className="badge text-amber-400 border border-amber-500/30 bg-amber-500/8">Parcialmente Satisfatório</span>
   return <span className="badge text-white/40">Pendente</span>
 }
 
