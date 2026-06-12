@@ -49,7 +49,7 @@ function GrandezaModal({ inicial, onSalvar, onFechar }: {
         </div>
         <form onSubmit={submit}>
           <div className="grid grid-cols-2 gap-3 mb-3">
-            {([['Nome *','text','nome','ex: Tensão DC'],['Símbolo','text','simbolo','ex: V'],['Unidade *','text','unidade','ex: V, dBµV'],['Resolução','text','resolucao','ex: 0,001']] as [string,string,keyof GrandezaForm,string][]).map(([label,type,key,ph])=>(
+            {([['Nome *','text','nome','ex: Tensão DC'],['Símbolo','text','simbolo','ex: V'],['Unidade *','text','unidade','ex: V, dBµV']] as [string,string,keyof GrandezaForm,string][]).map(([label,type,key,ph])=>(
               <div key={key}>
                 <label className="text-[10px] font-mono tracking-[2px] uppercase text-white/40 block mb-1">{label}</label>
                 <input type={type} className="input" placeholder={ph} value={String(form[key]??'')}

@@ -11,6 +11,7 @@ import type { DocumentoIT, Bloco } from '@/lib/instrucoes/tipos'
 import type { ItemChecagem, TipoComparacao, PapelReferencia, ResultadoGeral } from '@/lib/checagens/tipos'
 import { TEMPLATES } from '@/lib/checagens/templates'
 import { parsearGrandezasIT, parsearMetadadosIT, parsearGrandezasMedidasIT } from '@/lib/checagens/parser-it'
+import { type PlanoCalibracao, type PontoPlano, limiteAbsoluto } from '@/lib/planos/tipos'
 import { Grade2DCertificado } from '@/components/Grade2DCertificado'
 import { interpolarBilinear, type PontoCalibracao2D } from '@/lib/interpolacao'
 
@@ -259,7 +260,6 @@ function ItemRow({ item, modo, onChange, onDelete, grade2DAtiva, eixo1Nome, eixo
         <td className="w-28"><input className={cn(inp,'font-mono')} value={item.valorReferencia} onChange={e => set('valorReferencia', e.target.value)} placeholder="VR (padrão)"/></td>
         <td className="w-24">
           <input className={cn(inp,'font-mono')} value={item.correcaoPadrao??''} onChange={e => set('correcaoPadrao', e.target.value)} placeholder="Corr. instr."/>
-          {item.incertezaInstrumento && <p className="text-[8px] text-white/35 font-mono mt-0.5 px-1" title="Incerteza do instrumento (U, k=2)">U: {item.incertezaInstrumento}</p>}
         </td>
         <td className="w-28">
           <input className={cn(inp,'font-mono text-white/50')} value={item.valorCorrigido??''} onChange={e => set('valorCorrigido', e.target.value)} placeholder="auto"/>
@@ -835,6 +835,39 @@ export default function NovaChecagemPage() {
     finally { setLoading(false) }
   }
 
+  // Importa o critério de aprovação do PLANO DE CALIBRAÇÃO do equipamento:
+  // casa por grandeza e define o critério (±) de cada ponto da checagem.
+  async function importarCriteriosPlano() {
+    if (!equip) { alert('Selecione o equipamento primeiro.'); return }
+    let planos: PlanoCalibracao[] = []
+    try { planos = await fetch(`/api/planos?equipamentoId=${encodeURIComponent(equip.id)}`).then(r => r.json()) } catch {}
+    if (!Array.isArray(planos) || !planos.length) { alert('Nenhum plano de calibração cadastrado para este equipamento.'); return }
+    const plano = planos[0]   // a API retorna o mais recente primeiro
+    const matchLinha = (g: string): PontoPlano | undefined => {
+      const base = (g || '').toLowerCase().split('·')[0].split('@')[0].trim()
+      if (!base) return undefined
+      return plano.pontos.find(p => {
+        const pg = (p.grandeza || '').toLowerCase().trim()
+        return pg && (pg === base || base.includes(pg) || pg.includes(base))
+      })
+    }
+    let n = 0
+    const novos = itens.map(it => {
+      const linha = matchLinha(it.grandeza)
+      if (!linha) return it
+      const vr = parseFloat((it.valorReferencia || '').replace(',', '.'))
+      const lim = limiteAbsoluto(linha, isFinite(vr) ? vr : 0)
+      n++
+      return {
+        ...it,
+        criterioMax: lim ?? it.criterioMax,
+        observacoes: it.observacoes || (linha.criterioTexto ? `Critério (plano): ${linha.criterioTexto}` : it.observacoes),
+      }
+    })
+    setItens(novos)
+    alert(n ? `${n} ponto(s) com critério importado do plano de calibração.` : 'Nenhuma grandeza da checagem casou com o plano.')
+  }
+
   const equip = equips.find(e=>e.id===equipId)
 
   // Grandezas SELECIONÁVEIS: as cadastradas no padrão (por TAG) e no equipamento,
@@ -1133,11 +1166,18 @@ export default function NovaChecagemPage() {
       {/* ── Tab Manual — seções por grandeza ── */}
       {tab === 'manual' && (
         <div className="mb-4">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
             <p className="form-section">Pontos de medição — por grandeza</p>
-            <span className="text-[10px] font-mono text-white/30">
-              correção vem do instrumento de cada grandeza · referência (VR) vem do padrão
-            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-[10px] font-mono text-white/30">
+                correção ← instrumento · referência (VR) ← padrão
+              </span>
+              <button type="button" onClick={importarCriteriosPlano}
+                title="Traz o critério de aprovação do plano de calibração do equipamento"
+                className="btn-secondary text-[11px] py-1 flex items-center gap-1.5">
+                <FileSearch size={11}/> Importar critérios do plano
+              </button>
+            </div>
           </div>
 
           {grandezasDisponiveis.length === 0 && (
