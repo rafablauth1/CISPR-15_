@@ -913,6 +913,30 @@ ipcMain.handle('shell:open-path', async (_, { path: p }) => {
 
 /* ─── IPC: extração de texto de PDF (pdf-parse, sem Python) ──────────────── */
 
+/* Layout posicionado: cada item de texto com (x,y). Usado para reconstruir
+   tabelas de PDF gerados por Excel (ex.: FOR 6400), onde o texto linear vem
+   fora de ordem mas a grade por coordenadas é fiel. */
+ipcMain.handle('pdf:extract-layout', async (_, { base64 }) => {
+  try {
+    const pdfBuffer = Buffer.from(base64, 'base64')
+    const pdfParse  = require('pdf-parse')
+    const items = []
+    let pageIdx = 0
+    await pdfParse(pdfBuffer, {
+      pagerender: (pageData) =>
+        pageData.getTextContent({ normalizeWhitespace: true, disableCombineTextItems: false }).then(tc => {
+          const p = pageIdx++
+          for (const it of (tc.items || [])) {
+            const s = (it.str || '').trim()
+            if (s) items.push({ s, x: Math.round(it.transform[4]), y: Math.round(it.transform[5]), page: p })
+          }
+          return ''
+        }),
+    })
+    return { ok: true, items }
+  } catch (err) { return { ok: false, error: String(err), items: [] } }
+})
+
 ipcMain.handle('pdf:extract-text', async (_, { base64 }) => {
   try {
     const pdfBuffer = Buffer.from(base64, 'base64')

@@ -18,6 +18,62 @@ export function parsearCriterio(s: string): Partial<PontoPlano> {
   return out
 }
 
+/* ── Parser por LAYOUT (x,y) — para PDFs do FOR 6400 gerados via Excel ──────
+   Colunas: 1=Grandeza · 2=Faixa/Pontos de calibração · 3=Critério de aprovação.
+   Cada linha (grandeza) ocupa várias linhas de y; ancoramos a linha pelo CRITÉRIO
+   (um por linha, bem espaçados) e atribuímos grandeza/pontos ao critério + próximo. */
+export interface LayoutItem { s: string; x: number; y: number; page?: number }
+
+export function parsearPlanoLayout(items: LayoutItem[]): { pontos: PontoPlano[]; obs: string } {
+  if (!items?.length) return { pontos: [], obs: '' }
+  // só a 1ª página (a tabela do FOR 6400 cabe numa página)
+  const page0 = Math.min(...items.map(i => i.page ?? 0))
+  const its = items.filter(i => (i.page ?? 0) === page0)
+
+  const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+  // Cabeçalho da tabela: âncora na palavra "Grandeza"; as colunas são lidas só na
+  // FAIXA DE Y do cabeçalho (evita casar com o título "…critérios de aprovação").
+  const gItem = its.find(i => /^grandeza/.test(norm(i.s)))
+  const headerY = gItem ? gItem.y : Math.max(...its.map(i => i.y))
+  const band = its.filter(i => Math.abs(i.y - headerY) <= 12)
+  const findX = (re: RegExp, def: number) => { const m = band.find(i => re.test(norm(i.s))); return m ? m.x : def }
+  const gX = gItem ? gItem.x : findX(/^grandeza/, 64)
+  const pX = findX(/pontos de calibra|faixa de medi/, 174)
+  const cX = findX(/^crit[eé]rio/, 306)
+  const dX = findX(/^data/, 415)
+  // fronteiras (pontos médios entre centros de coluna)
+  const b1 = (gX + pX) / 2, b2 = (pX + cX) / 2, b3 = (cX + dX) / 2
+  const col = (x: number) => x < b1 ? 'g' : x < b2 ? 'p' : x < b3 ? 'c' : 'ign'
+
+  // região da tabela: entre o cabeçalho e a seção de observações
+  const obsItem = its.find(i => /observa/.test(norm(i.s)) && i.y < headerY)
+  const obsY = obsItem ? obsItem.y : 0
+  const corpo = its.filter(i => i.y < headerY - 10 && i.y > obsY + 2)
+
+  const criterios = corpo.filter(i => col(i.x) === 'c').sort((a, b) => b.y - a.y)
+  const grands    = corpo.filter(i => col(i.x) === 'g')
+  const pts       = corpo.filter(i => col(i.x) === 'p')
+  if (!criterios.length) return { pontos: [], obs: extrairObs(its, obsY) }
+
+  const nearestCrit = (y: number) =>
+    criterios.reduce((best, c) => Math.abs(c.y - y) < Math.abs(best.y - y) ? c : best, criterios[0])
+
+  const linhas: PontoPlano[] = criterios.map(c => {
+    const g = grands.filter(i => nearestCrit(i.y) === c).sort((a, b) => b.y - a.y || a.x - b.x).map(i => i.s).join(' ').replace(/\s+/g, ' ').trim()
+    const p = pts.filter(i => nearestCrit(i.y) === c).sort((a, b) => b.y - a.y || a.x - b.x).map(i => i.s).join(' · ').replace(/\s+/g, ' ').trim()
+    const parsed = parsearCriterio(c.s)
+    return { id: uid(), grandeza: g, unidade: parsed.unidade || '', pontosTexto: p, ...parsed }
+  })
+  return { pontos: linhas, obs: extrairObs(its, obsY) }
+}
+
+function extrairObs(its: LayoutItem[], obsY: number): string {
+  if (!obsY) return ''
+  return its.filter(i => i.y < obsY - 2 && i.y > 45)  // entre Observações e o rodapé
+    .sort((a, b) => b.y - a.y || a.x - b.x)
+    .map(i => i.s).join(' ').replace(/\s+/g, ' ').trim()
+}
+
 const RE_GRANDEZA = /(exatid|linearidade|resposta|estabilidade|n[ií]vel|frequ[eê]ncia|pot[eê]ncia|tens[aã]o|corrente|resist[eê]ncia|modula|amplitude|impedanc|atenua|ru[ií]do|distor|ganho|temperatura|umidade|press[aã]o|tempo|fase)/i
 
 const BLACKLIST = /(^|\b)(for\s*6400|identifica|dados para|observa|grandeza\s*$|^data$|crit[eé]rio|respons[aá]vel|faixa de medi|pontos de calibra|nome do|tag do|revis[aã]o|elaborado|aprovado|p[aá]gina|an[aá]lise cr[ií]tica|informa[çc])/i

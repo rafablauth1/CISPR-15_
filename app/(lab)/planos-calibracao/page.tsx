@@ -2,11 +2,11 @@
 
 import { useEffect, useState } from 'react'
 import { Target, Plus, Trash2, Save, Loader2, Pencil, ScanText } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, fileToBase64 } from '@/lib/utils'
 import { extrairTextoArquivo } from '@/lib/useOCR'
 import type { EquipamentoEMC } from '@/lib/equipamentos/tipos'
 import { type PlanoCalibracao, type PontoPlano } from '@/lib/planos/tipos'
-import { parsearPlanoOCR } from '@/lib/planos/parser'
+import { parsearPlanoOCR, parsearPlanoLayout } from '@/lib/planos/parser'
 
 function uid() { return Math.random().toString(36).slice(2) + Date.now().toString(36) }
 function pontoVazio(): PontoPlano {
@@ -67,6 +67,20 @@ export default function PlanosCalibracaoPage() {
   async function importarOCR(file: File) {
     setOcrLoading(true)
     try {
+      const api = (window as unknown as { electronAPI?: { extractPdfLayout?: (b: string) => Promise<{ ok: boolean; items: { s: string; x: number; y: number; page?: number }[] }> } }).electronAPI
+      const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf'
+      // 1) Layout por coordenadas (PDF gerado de Excel — FOR 6400): reconstrói a grade fielmente
+      if (api?.extractPdfLayout && isPdf) {
+        try {
+          const b64 = await fileToBase64(file)
+          const res = await api.extractPdfLayout(b64)
+          if (res?.ok && Array.isArray(res.items) && res.items.length) {
+            const { pontos, obs } = parsearPlanoLayout(res.items)
+            if (pontos.length) { setEditing(p => p ? { ...p, pontos, obs: obs || p.obs } : p); return }
+          }
+        } catch {}
+      }
+      // 2) Fallback: texto linear + heurística por proximidade
       const texto = await extrairTextoArquivo(file)
       const linhas = parsearPlanoOCR(texto)
       if (!linhas.length) { alert('Não identifiquei grandezas/critérios no documento. Revise ou preencha manualmente.'); return }
