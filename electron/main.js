@@ -1178,37 +1178,6 @@ ipcMain.handle('lote:save-pdf', async (_, { pastaMae, protocolo, filename, pdfBa
 
 ipcMain.handle('settings:get-local-data-dir', () => getDefaultDataDir())
 
-/* ─── PDF dos certificados (anexo) — guardados por id na pasta de dados ─────── */
-function certPdfDir() {
-  const { dataFolder } = readSettings()
-  return path.join(dataFolder || getDefaultDataDir(), 'certificados-pdf')
-}
-function certPdfPath(id) {
-  const safe = String(id || '').replace(/[^A-Za-z0-9._-]/g, '_')
-  return path.join(certPdfDir(), `${safe}.pdf`)
-}
-ipcMain.handle('cert:save-pdf', (_, { id, base64 }) => {
-  try {
-    if (!id || !base64) return { ok: false, error: 'sem id/arquivo' }
-    fs.mkdirSync(certPdfDir(), { recursive: true })
-    const raw = String(base64).replace(/^data:.*;base64,/, '')
-    fs.writeFileSync(certPdfPath(id), Buffer.from(raw, 'base64'))
-    return { ok: true, path: certPdfPath(id) }
-  } catch (err) { return { ok: false, error: String(err) } }
-})
-ipcMain.handle('cert:has-pdf', (_, { id }) => {
-  try { return { ok: true, has: fs.existsSync(certPdfPath(id)) } }
-  catch { return { ok: true, has: false } }
-})
-ipcMain.handle('cert:open-pdf', (_, { id }) => {
-  try {
-    const fp = certPdfPath(id)
-    if (!fs.existsSync(fp)) return { ok: false, error: 'PDF não anexado a este certificado.' }
-    shell.openPath(fp)
-    return { ok: true }
-  } catch (err) { return { ok: false, error: String(err) } }
-})
-
 /* ─── IPC: PDF ────────────────────────────────────────────────────────────── */
 
 /* Rodapé nativo (margem de página reservada — igual ao Word): aparece em TODAS

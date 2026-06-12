@@ -36,6 +36,7 @@ export interface Certificado {
     pontos: PontoCorrecao2D[]
   }
   obs?: string
-  pdfNome?: string             // nome original do PDF anexado (o arquivo fica salvo por id na pasta do app)
+  pdfNome?: string             // nome do PDF (exibição)
+  pdfPath?: string             // caminho ORIGINAL do PDF (rede/local) — só referência, não copia o arquivo
   criadoEm: string
 }

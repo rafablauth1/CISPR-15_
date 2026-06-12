@@ -27,11 +27,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   browseFolder:    (title)     => ipcRenderer.invoke('settings:browse-folder', { title }),
   getLocalDataDir: ()          => ipcRenderer.invoke('settings:get-local-data-dir'),
 
-  // PDF anexo do certificado
-  saveCertPdf:     (id, base64) => ipcRenderer.invoke('cert:save-pdf', { id, base64 }),
-  hasCertPdf:      (id)         => ipcRenderer.invoke('cert:has-pdf',  { id }),
-  openCertPdf:     (id)         => ipcRenderer.invoke('cert:open-pdf', { id }),
-
   // Backup do banco de dados
   backupNow:       (destBase)        => ipcRenderer.invoke('backup:run',        { destBase }),
   listBackups:     (destBase)        => ipcRenderer.invoke('backup:list',       { destBase }),

@@ -84,7 +84,7 @@ function CertificadoModal({ equipamentoId, equipamentoTag, onSalvo, onFechar }: 
   const [ocrLoading,  setOcrLoading]  = useState(false)
   const [saving,      setSaving]      = useState(false)
   const [err,         setErr]         = useState('')
-  const [pdfBase64,   setPdfBase64]   = useState('')
+  const [pdfPath,     setPdfPath]     = useState('')
   const [pdfNome,     setPdfNome]     = useState('')
 
   function uid() { return Math.random().toString(36).slice(2) }
@@ -92,15 +92,11 @@ function CertificadoModal({ equipamentoId, equipamentoTag, onSalvo, onFechar }: 
   async function handleOCR(file: File) {
     setOcrLoading(true)
     try {
-      // guarda o PDF para anexar ao certificado (abrir depois pelo equipamento)
-      if (/\.pdf$/i.test(file.name)) {
-        try {
-          const b64: string = await new Promise((res, rej) => {
-            const r = new FileReader(); r.onload = () => res(r.result as string); r.onerror = rej; r.readAsDataURL(file)
-          })
-          setPdfBase64(b64); setPdfNome(file.name)
-        } catch {}
-      }
+      // guarda só a REFERÊNCIA do arquivo (caminho original), sem copiar.
+      // No Electron, o File expõe .path (caminho real, inclusive de rede).
+      setPdfNome(file.name)
+      const fpath = (file as unknown as { path?: string }).path
+      if (fpath) setPdfPath(fpath)
       const texto = await extrairTextoArquivo(file)
       setOcrText(texto)
       // Auto-preenche campos
@@ -127,13 +123,10 @@ function CertificadoModal({ equipamentoId, equipamentoTag, onSalvo, onFechar }: 
     try {
       const res = await fetch('/api/certificados', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ equipamentoId, equipamentoTag, numero, laboratorio, dataEmissao, dataValidade: dataValidade||undefined, normaRastreabilidade:norma||undefined, itens, obs:obs||undefined, pdfNome: pdfNome||undefined }),
+        body: JSON.stringify({ equipamentoId, equipamentoTag, numero, laboratorio, dataEmissao, dataValidade: dataValidade||undefined, normaRastreabilidade:norma||undefined, itens, obs:obs||undefined, pdfNome: pdfNome||undefined, pdfPath: pdfPath||undefined }),
       })
       const d = await res.json()
       if (d.error) throw new Error(d.error)
-      // anexa o PDF do certificado (guardado por id na pasta do app)
-      const api = (window as any).electronAPI
-      if (api?.saveCertPdf && pdfBase64 && d.id) { try { await api.saveCertPdf(d.id, pdfBase64) } catch {} }
       onSalvo()
     } catch(e:unknown) { setErr(String(e)) }
     finally { setSaving(false) }
@@ -440,9 +433,9 @@ export default function EquipamentoDetalhePage() {
                       <p className="text-[11px] text-white/40">{cert.laboratorio} · Emitido em {fmt(cert.dataEmissao)}</p>
                     </div>
                     <div className="flex items-center gap-1">
-                      {cert.pdfNome && (
-                        <button type="button" title={`Abrir ${cert.pdfNome}`}
-                          onClick={async()=>{ const api=(window as any).electronAPI; if(!api?.openCertPdf){alert('Disponível apenas no aplicativo.');return} const r=await api.openCertPdf(cert.id); if(!r?.ok) alert(r?.error||'PDF não encontrado') }}
+                      {cert.pdfPath && (
+                        <button type="button" title={cert.pdfNome ? `Abrir ${cert.pdfNome}` : cert.pdfPath}
+                          onClick={async()=>{ const api=(window as any).electronAPI; if(!api?.openPath){alert('Disponível apenas no aplicativo.');return} const r=await api.openPath(cert.pdfPath); if(r && r.ok===false) alert('Não foi possível abrir:\n'+cert.pdfPath) }}
                           className="btn-ghost px-2 py-1.5 text-teal/70 hover:text-teal flex items-center gap-1 text-[11px]">
                           <FileText size={12}/> Abrir PDF
                         </button>
