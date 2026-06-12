@@ -84,12 +84,23 @@ function CertificadoModal({ equipamentoId, equipamentoTag, onSalvo, onFechar }: 
   const [ocrLoading,  setOcrLoading]  = useState(false)
   const [saving,      setSaving]      = useState(false)
   const [err,         setErr]         = useState('')
+  const [pdfBase64,   setPdfBase64]   = useState('')
+  const [pdfNome,     setPdfNome]     = useState('')
 
   function uid() { return Math.random().toString(36).slice(2) }
 
   async function handleOCR(file: File) {
     setOcrLoading(true)
     try {
+      // guarda o PDF para anexar ao certificado (abrir depois pelo equipamento)
+      if (/\.pdf$/i.test(file.name)) {
+        try {
+          const b64: string = await new Promise((res, rej) => {
+            const r = new FileReader(); r.onload = () => res(r.result as string); r.onerror = rej; r.readAsDataURL(file)
+          })
+          setPdfBase64(b64); setPdfNome(file.name)
+        } catch {}
+      }
       const texto = await extrairTextoArquivo(file)
       setOcrText(texto)
       // Auto-preenche campos
@@ -116,10 +127,13 @@ function CertificadoModal({ equipamentoId, equipamentoTag, onSalvo, onFechar }: 
     try {
       const res = await fetch('/api/certificados', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ equipamentoId, equipamentoTag, numero, laboratorio, dataEmissao, dataValidade: dataValidade||undefined, normaRastreabilidade:norma||undefined, itens, obs:obs||undefined }),
+        body: JSON.stringify({ equipamentoId, equipamentoTag, numero, laboratorio, dataEmissao, dataValidade: dataValidade||undefined, normaRastreabilidade:norma||undefined, itens, obs:obs||undefined, pdfNome: pdfNome||undefined }),
       })
       const d = await res.json()
       if (d.error) throw new Error(d.error)
+      // anexa o PDF do certificado (guardado por id na pasta do app)
+      const api = (window as any).electronAPI
+      if (api?.saveCertPdf && pdfBase64 && d.id) { try { await api.saveCertPdf(d.id, pdfBase64) } catch {} }
       onSalvo()
     } catch(e:unknown) { setErr(String(e)) }
     finally { setSaving(false) }
@@ -425,9 +439,18 @@ export default function EquipamentoDetalhePage() {
                       </div>
                       <p className="text-[11px] text-white/40">{cert.laboratorio} · Emitido em {fmt(cert.dataEmissao)}</p>
                     </div>
-                    <button onClick={async()=>{ if(confirm('Excluir certificado?')) { await fetch(`/api/certificados/${cert.id}`,{method:'DELETE'}); setCertificados(p=>p.filter(c=>c.id!==cert.id)) } }} className="btn-ghost p-1.5 hover:text-red-400 text-white/25">
-                      <Trash2 size={13}/>
-                    </button>
+                    <div className="flex items-center gap-1">
+                      {cert.pdfNome && (
+                        <button type="button" title={`Abrir ${cert.pdfNome}`}
+                          onClick={async()=>{ const api=(window as any).electronAPI; if(!api?.openCertPdf){alert('Disponível apenas no aplicativo.');return} const r=await api.openCertPdf(cert.id); if(!r?.ok) alert(r?.error||'PDF não encontrado') }}
+                          className="btn-ghost px-2 py-1.5 text-teal/70 hover:text-teal flex items-center gap-1 text-[11px]">
+                          <FileText size={12}/> Abrir PDF
+                        </button>
+                      )}
+                      <button onClick={async()=>{ if(confirm('Excluir certificado?')) { await fetch(`/api/certificados/${cert.id}`,{method:'DELETE'}); setCertificados(p=>p.filter(c=>c.id!==cert.id)) } }} className="btn-ghost p-1.5 hover:text-red-400 text-white/25">
+                        <Trash2 size={13}/>
+                      </button>
+                    </div>
                   </div>
                   {cert.itens.length>0&&(
                     <table className="w-full">
