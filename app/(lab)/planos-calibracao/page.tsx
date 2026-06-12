@@ -1,0 +1,231 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { Target, Plus, Trash2, Save, Loader2, X, Pencil, ChevronDown } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import type { EquipamentoEMC } from '@/lib/equipamentos/tipos'
+import {
+  type PlanoCalibracao, type PontoPlano, tolTexto, faixaAceitavel,
+} from '@/lib/planos/tipos'
+
+function uid() { return Math.random().toString(36).slice(2) + Date.now().toString(36) }
+function pontoVazio(): PontoPlano {
+  return { id: uid(), grandeza: '', unidade: '', valorNominal: '', tolPercentual: '', tolFixo: '', tolPpm: '', obs: '' }
+}
+function fmtN(n: number) {
+  if (!isFinite(n)) return '—'
+  return Math.abs(n) < 1e-4 && n !== 0 ? n.toExponential(2) : String(parseFloat(n.toPrecision(6)))
+}
+
+export default function PlanosCalibracaoPage() {
+  const [equips,  setEquips]  = useState<EquipamentoEMC[]>([])
+  const [planos,  setPlanos]  = useState<PlanoCalibracao[]>([])
+  const [editing, setEditing] = useState<PlanoCalibracao | null>(null)
+  const [salvando, setSalvando] = useState(false)
+  const [loading, setLoading] = useState(true)
+
+  async function load() {
+    setLoading(true)
+    try {
+      const [e, p] = await Promise.all([
+        fetch('/api/equipamentos').then(r => r.json()),
+        fetch('/api/planos').then(r => r.json()),
+      ])
+      setEquips(Array.isArray(e) ? e : [])
+      setPlanos(Array.isArray(p) ? p : [])
+    } catch {} finally { setLoading(false) }
+  }
+  useEffect(() => { load() }, [])
+
+  function novo() {
+    setEditing({ id: '', equipamentoId: '', equipamentoTag: '', nome: '', pontos: [pontoVazio()], criadoEm: '' })
+  }
+
+  async function salvar() {
+    if (!editing) return
+    if (!editing.equipamentoId) { alert('Selecione o equipamento.'); return }
+    setSalvando(true)
+    try {
+      const body = { ...editing }
+      const res = await fetch(editing.id ? `/api/planos/${editing.id}` : '/api/planos', {
+        method: editing.id ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const d = await res.json()
+      if (d.error) throw new Error(d.error)
+      setEditing(null)
+      await load()
+    } catch (e: unknown) { alert('Erro ao salvar: ' + String(e)) }
+    finally { setSalvando(false) }
+  }
+
+  async function excluir(id: string) {
+    if (!confirm('Excluir este plano de calibração?')) return
+    await fetch(`/api/planos/${id}`, { method: 'DELETE' })
+    setPlanos(p => p.filter(x => x.id !== id))
+  }
+
+  /* ── Editor ── */
+  if (editing) {
+    const equip = equips.find(e => e.id === editing.equipamentoId)
+    const grandezasEquip = (equip?.grandezas ?? []).map(g => g.nome)
+    const set = (patch: Partial<PlanoCalibracao>) => setEditing(p => p ? { ...p, ...patch } : p)
+    const setPonto = (id: string, patch: Partial<PontoPlano>) =>
+      setEditing(p => p ? { ...p, pontos: p.pontos.map(pt => pt.id === id ? { ...pt, ...patch } : pt) } : p)
+    const addPonto = () => setEditing(p => p ? { ...p, pontos: [...p.pontos, pontoVazio()] } : p)
+    const delPonto = (id: string) => setEditing(p => p ? { ...p, pontos: p.pontos.filter(pt => pt.id !== id) } : p)
+    const inp = 'input text-[11px] py-1 px-2 h-7'
+
+    return (
+      <div>
+        <div className="page-header">
+          <div>
+            <p className="page-eyebrow">Planos de Calibração</p>
+            <h1 className="page-title">{editing.id ? 'Editar plano' : 'Novo plano de calibração'}</h1>
+          </div>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => setEditing(null)} className="btn-secondary">Cancelar</button>
+            <button type="button" onClick={salvar} disabled={salvando} className="btn-primary">
+              {salvando ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>} Salvar
+            </button>
+          </div>
+        </div>
+
+        {/* Cabeçalho */}
+        <div className="card p-5 mb-4">
+          <div className="grid grid-cols-3 gap-4">
+            <div className="col-span-2">
+              <label className="text-[10px] font-mono tracking-[2px] uppercase text-white/40 block mb-1">Equipamento *</label>
+              <select className="input" value={editing.equipamentoId}
+                onChange={e => { const eq = equips.find(x => x.id === e.target.value); set({ equipamentoId: e.target.value, equipamentoTag: eq?.tag ?? '' }) }}>
+                <option value="">Selecione…</option>
+                {equips.map(e => <option key={e.id} value={e.id}>{e.tag} — {e.nome}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-[10px] font-mono tracking-[2px] uppercase text-white/40 block mb-1">Nome do plano (opcional)</label>
+              <input className="input" value={editing.nome ?? ''} onChange={e => set({ nome: e.target.value })} placeholder="ex: Plano padrão"/>
+            </div>
+          </div>
+        </div>
+
+        {/* Pontos */}
+        <div className="card overflow-hidden mb-4">
+          <div className="px-4 py-3 border-b border-white/5 flex items-center justify-between">
+            <p className="form-section">Pontos e tolerâncias</p>
+            <button type="button" onClick={addPonto} className="btn-ghost text-xs"><Plus size={12}/> Ponto</button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full" style={{ minWidth: 920 }}>
+              <thead className="tbl-head">
+                <tr>
+                  <th className="w-10 text-center">#</th>
+                  <th>Grandeza</th>
+                  <th className="w-20">Unid.</th>
+                  <th className="w-28">Valor nominal</th>
+                  <th className="w-20" title="Percentual da leitura">Tol. %</th>
+                  <th className="w-24" title="Valor fixo na unidade">± fixo</th>
+                  <th className="w-20" title="Partes por milhão">ppm</th>
+                  <th className="w-40">Tolerância · Faixa aceitável</th>
+                  <th>Obs.</th>
+                  <th className="w-8"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {editing.pontos.map((pt, i) => {
+                  const faixa = faixaAceitavel(pt)
+                  return (
+                    <tr key={pt.id} className="tbl-row group/row">
+                      <td className="text-center font-mono text-[11px] text-white/40">{i + 1}</td>
+                      <td>
+                        <input className={inp} list={`gr-${pt.id}`} value={pt.grandeza}
+                          onChange={e => setPonto(pt.id, { grandeza: e.target.value })} placeholder="ex: Tensão DC"/>
+                        <datalist id={`gr-${pt.id}`}>{grandezasEquip.map(g => <option key={g} value={g}/>)}</datalist>
+                      </td>
+                      <td><input className={cn(inp,'font-mono')} value={pt.unidade} onChange={e => setPonto(pt.id, { unidade: e.target.value })} placeholder="V"/></td>
+                      <td><input className={cn(inp,'font-mono')} value={pt.valorNominal} onChange={e => setPonto(pt.id, { valorNominal: e.target.value })} placeholder="10"/></td>
+                      <td><input className={cn(inp,'font-mono')} value={pt.tolPercentual ?? ''} onChange={e => setPonto(pt.id, { tolPercentual: e.target.value })} placeholder="0,5"/></td>
+                      <td><input className={cn(inp,'font-mono')} value={pt.tolFixo ?? ''} onChange={e => setPonto(pt.id, { tolFixo: e.target.value })} placeholder="0,02"/></td>
+                      <td><input className={cn(inp,'font-mono')} value={pt.tolPpm ?? ''} onChange={e => setPonto(pt.id, { tolPpm: e.target.value })} placeholder="10"/></td>
+                      <td className="font-mono text-[10px] text-teal/80">
+                        {tolTexto(pt)}
+                        {faixa && <span className="text-white/40 block">[{fmtN(faixa.min)} ; {fmtN(faixa.max)}]</span>}
+                      </td>
+                      <td><input className={inp} value={pt.obs ?? ''} onChange={e => setPonto(pt.id, { obs: e.target.value })} placeholder="—"/></td>
+                      <td>
+                        <button type="button" onClick={() => delPonto(pt.id)}
+                          className="opacity-0 group-hover/row:opacity-100 text-white/25 hover:text-red-400 p-0.5 transition-all">
+                          <Trash2 size={12}/>
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="px-4 py-3 border-t border-white/5 flex items-center gap-3">
+            <label className="text-[10px] font-mono tracking-[2px] uppercase text-white/40 flex-shrink-0">Obs. gerais</label>
+            <input className="input flex-1 text-sm" value={editing.obs ?? ''} onChange={e => set({ obs: e.target.value })} placeholder="Observações…"/>
+          </div>
+        </div>
+
+        <p className="text-[11px] text-white/30 px-1">
+          Limite absoluto (±) = |nominal|·%/100 + |± fixo| + |nominal|·ppm/10⁶. Preencha só o que se aplica a cada grandeza.
+        </p>
+      </div>
+    )
+  }
+
+  /* ── Lista ── */
+  return (
+    <div>
+      <div className="page-header">
+        <div>
+          <p className="page-eyebrow">Qualidade</p>
+          <h1 className="page-title flex items-center gap-2"><Target size={20} className="text-gold"/> Planos de Calibração</h1>
+          <p className="page-sub">Pontos, especificações e limites que cada certificado de calibração deve conter.</p>
+        </div>
+        <button type="button" onClick={novo} className="btn-primary"><Plus size={14}/> Novo plano</button>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center h-40"><Loader2 size={22} className="animate-spin text-white/20"/></div>
+      ) : planos.length === 0 ? (
+        <div className="card p-8 text-center text-white/40 text-sm">
+          Nenhum plano de calibração ainda. Clique em “Novo plano”.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {planos.map(p => {
+            const equip = equips.find(e => e.id === p.equipamentoId)
+            return (
+              <div key={p.id} className="card p-4">
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-[12px] text-gold">{p.equipamentoTag || equip?.tag || '—'}</span>
+                      <span className="text-[13px] text-white/80 font-semibold">{equip?.nome ?? p.nome ?? 'Plano'}</span>
+                      {p.nome && equip?.nome && <span className="text-[11px] text-white/35">· {p.nome}</span>}
+                    </div>
+                    <p className="text-[11px] text-white/40 mt-0.5">{p.pontos.length} ponto(s) · {[...new Set(p.pontos.map(pt => pt.grandeza).filter(Boolean))].length} grandeza(s)</p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button type="button" onClick={() => setEditing(p)} className="btn-ghost px-2 py-1.5 text-[11px] flex items-center gap-1"><Pencil size={12}/> Editar</button>
+                    <button type="button" onClick={() => excluir(p.id)} className="btn-ghost p-1.5 hover:text-red-400 text-white/25"><Trash2 size={13}/></button>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {[...new Set(p.pontos.map(pt => pt.grandeza).filter(Boolean))].map(g => (
+                    <span key={g} className="text-[10px] font-mono px-2 py-0.5 rounded border border-white/10 text-white/50">{g}</span>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
