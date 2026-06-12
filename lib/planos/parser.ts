@@ -7,11 +7,13 @@ function uid() { return Math.random().toString(36).slice(2) + Date.now().toStrin
 export function parsearCriterio(s: string): Partial<PontoPlano> {
   const t = s.replace(/\s+/g, ' ').trim()
   const out: Partial<PontoPlano> = { criterioTexto: t.replace(/^±\s*/, '± ') }
+  const temPM = /±/.test(t)   // "mais ou menos" → tolerância FIXA (absoluta), mesmo se a unidade for %
   const m = t.match(/±?\s*([\d.,]+)\s*(ppm|%|dB[m]?|Hz|kHz|MHz|GHz|mV|µV|uV|V|mA|µA|uA|A|Ω|ohm|°C|s|ms|µs)?/i)
   if (m) {
     const valor = m[1]
     const un = (m[2] || '').trim()
-    if (/ppm/i.test(un)) out.tolPpm = valor
+    if (temPM) { out.tolFixo = valor; if (un) out.unidade = un }
+    else if (/ppm/i.test(un)) out.tolPpm = valor
     else if (un === '%') out.tolPercentual = valor
     else { out.tolFixo = valor; if (un) out.unidade = un }
   }
