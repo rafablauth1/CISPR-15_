@@ -2,8 +2,9 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { Upload, Loader2, Trash2, Plus, ScanText, TableIcon } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { cn, fileToBase64 } from '@/lib/utils'
 import { extrairTextoArquivo } from '@/lib/useOCR'
+import { corrigirGrandezasPorLayout } from '@/lib/certificados/layout'
 import {
   interpolarBilinear,
   parsearTabelaCertificado2D,
@@ -84,9 +85,20 @@ export function Grade2DCertificado({
     try {
       const texto = await extrairTextoArquivo(file)
       setTextoOCR(texto)
+      // Layout posicionado (PDF): corrige a GRANDEZA de cada ponto pela posição na
+      // tabela (cabeçalho acima do "Parâmetro:"), em vez do texto embaralhado.
+      let layoutItems: { s: string; x: number; y: number; page?: number }[] | null = null
+      try {
+        const api = (window as unknown as { electronAPI?: { extractPdfLayout?: (b: string) => Promise<{ ok: boolean; items: { s: string; x: number; y: number; page?: number }[] }> } }).electronAPI
+        if (api?.extractPdfLayout && /\.pdf$/i.test(file.name)) {
+          const res = await api.extractPdfLayout(await fileToBase64(file))
+          if (res?.ok && res.items?.length) layoutItems = res.items
+        }
+      } catch {}
+      const fix = (pts: PontoCalibracao2D[]) => layoutItems ? corrigirGrandezasPorLayout(pts, layoutItems) : pts
       const rbc = parsearCertificadoRBC(texto)
       if (rbc.pontos.length >= 3) {
-        onChange(rbc.pontos)
+        onChange(fix(rbc.pontos))
         onEixoChange('eixo1Nome',    rbc.eixo1Nome)
         onEixoChange('eixo1Unidade', rbc.eixo1Unidade)
         onEixoChange('eixo2Nome',    rbc.eixo2Nome)
@@ -95,7 +107,7 @@ export function Grade2DCertificado({
       } else {
         const detectados = parsearTabelaCertificado2D(texto)
         if (detectados.length) {
-          onChange(detectados)
+          onChange(fix(detectados))
           setBloqueado(true); setAba('grade')
         } else {
           setAba('ocr')

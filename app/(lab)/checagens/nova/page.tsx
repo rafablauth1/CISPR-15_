@@ -843,12 +843,16 @@ export default function NovaChecagemPage() {
     try { planos = await fetch(`/api/planos?equipamentoId=${encodeURIComponent(equip.id)}`).then(r => r.json()) } catch {}
     if (!Array.isArray(planos) || !planos.length) { alert('Nenhum plano de calibração cadastrado para este equipamento.'); return }
     const plano = planos[0]   // a API retorna o mais recente primeiro
-    const matchLinha = (g: string): PontoPlano | undefined => {
-      const base = (g || '').toLowerCase().split('·')[0].split('@')[0].trim()
-      if (!base) return undefined
+    // Casa por GRANDEZA OU PARÂMETRO: o item da checagem traz "grandeza · parâmetro
+    // @ freq"; no plano o que está pode ser a grandeza OU o parâmetro. Compara o
+    // texto inteiro normalizado (só alfanumérico) por inclusão nos dois sentidos.
+    const norm = (s: string) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '')
+    const matchLinha = (itemGrandeza: string): PontoPlano | undefined => {
+      const i = norm(itemGrandeza)
+      if (i.length < 4) return undefined
       return plano.pontos.find(p => {
-        const pg = (p.grandeza || '').toLowerCase().trim()
-        return pg && (pg === base || base.includes(pg) || pg.includes(base))
+        const pg = norm(p.grandeza)
+        return pg.length >= 6 && (i.includes(pg) || pg.includes(i))
       })
     }
     let n = 0
