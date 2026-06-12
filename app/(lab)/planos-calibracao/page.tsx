@@ -1,20 +1,16 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Target, Plus, Trash2, Save, Loader2, X, Pencil, ChevronDown } from 'lucide-react'
+import { Target, Plus, Trash2, Save, Loader2, Pencil, ScanText } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { extrairTextoArquivo } from '@/lib/useOCR'
 import type { EquipamentoEMC } from '@/lib/equipamentos/tipos'
-import {
-  type PlanoCalibracao, type PontoPlano, tolTexto, faixaAceitavel,
-} from '@/lib/planos/tipos'
+import { type PlanoCalibracao, type PontoPlano } from '@/lib/planos/tipos'
+import { parsearPlanoOCR } from '@/lib/planos/parser'
 
 function uid() { return Math.random().toString(36).slice(2) + Date.now().toString(36) }
 function pontoVazio(): PontoPlano {
-  return { id: uid(), grandeza: '', unidade: '', valorNominal: '', tolPercentual: '', tolFixo: '', tolPpm: '', obs: '' }
-}
-function fmtN(n: number) {
-  if (!isFinite(n)) return '—'
-  return Math.abs(n) < 1e-4 && n !== 0 ? n.toExponential(2) : String(parseFloat(n.toPrecision(6)))
+  return { id: uid(), grandeza: '', unidade: '', pontosTexto: '', tolPercentual: '', tolFixo: '', tolPpm: '', criterioTexto: '', obs: '' }
 }
 
 export default function PlanosCalibracaoPage() {
@@ -23,6 +19,7 @@ export default function PlanosCalibracaoPage() {
   const [editing, setEditing] = useState<PlanoCalibracao | null>(null)
   const [salvando, setSalvando] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [ocrLoading, setOcrLoading] = useState(false)
 
   async function load() {
     setLoading(true)
@@ -66,6 +63,18 @@ export default function PlanosCalibracaoPage() {
     setPlanos(p => p.filter(x => x.id !== id))
   }
 
+  // Importa pontos/critérios de um documento de plano (FOR 6400) via OCR — best-effort.
+  async function importarOCR(file: File) {
+    setOcrLoading(true)
+    try {
+      const texto = await extrairTextoArquivo(file)
+      const linhas = parsearPlanoOCR(texto)
+      if (!linhas.length) { alert('Não identifiquei grandezas/critérios no documento. Revise ou preencha manualmente.'); return }
+      setEditing(p => p ? { ...p, pontos: linhas } : p)
+    } catch (e: unknown) { alert('Erro no OCR: ' + String(e)) }
+    finally { setOcrLoading(false) }
+  }
+
   /* ── Editor ── */
   if (editing) {
     const equip = equips.find(e => e.id === editing.equipamentoId)
@@ -85,6 +94,11 @@ export default function PlanosCalibracaoPage() {
             <h1 className="page-title">{editing.id ? 'Editar plano' : 'Novo plano de calibração'}</h1>
           </div>
           <div className="flex items-center gap-2">
+            <label className={cn('btn-secondary cursor-pointer', ocrLoading && 'opacity-60 pointer-events-none')}>
+              {ocrLoading ? <Loader2 size={14} className="animate-spin"/> : <ScanText size={14}/>} Importar (OCR)
+              <input type="file" accept=".pdf,image/*,.txt" className="hidden"
+                onChange={e=>{ const f=e.target.files?.[0]; if(f) importarOCR(f); e.currentTarget.value='' }}/>
+            </label>
             <button type="button" onClick={() => setEditing(null)} className="btn-secondary">Cancelar</button>
             <button type="button" onClick={salvar} disabled={salvando} className="btn-primary">
               {salvando ? <Loader2 size={14} className="animate-spin"/> : <Save size={14}/>} Salvar
@@ -117,51 +131,43 @@ export default function PlanosCalibracaoPage() {
             <button type="button" onClick={addPonto} className="btn-ghost text-xs"><Plus size={12}/> Ponto</button>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full" style={{ minWidth: 920 }}>
+            <table className="w-full" style={{ minWidth: 1040 }}>
               <thead className="tbl-head">
                 <tr>
                   <th className="w-10 text-center">#</th>
-                  <th>Grandeza</th>
-                  <th className="w-20">Unid.</th>
-                  <th className="w-28">Valor nominal</th>
-                  <th className="w-20" title="Percentual da leitura">Tol. %</th>
-                  <th className="w-24" title="Valor fixo na unidade">± fixo</th>
-                  <th className="w-20" title="Partes por milhão">ppm</th>
-                  <th className="w-40">Tolerância · Faixa aceitável</th>
-                  <th>Obs.</th>
+                  <th className="w-44">Grandeza</th>
+                  <th>Pontos de calibração</th>
+                  <th className="w-28">Critério</th>
+                  <th className="w-16" title="Unidade do critério">Unid.</th>
+                  <th className="w-14" title="Percentual da leitura">%</th>
+                  <th className="w-20" title="Valor fixo">± fixo</th>
+                  <th className="w-14" title="Partes por milhão">ppm</th>
                   <th className="w-8"></th>
                 </tr>
               </thead>
               <tbody>
-                {editing.pontos.map((pt, i) => {
-                  const faixa = faixaAceitavel(pt)
-                  return (
-                    <tr key={pt.id} className="tbl-row group/row">
-                      <td className="text-center font-mono text-[11px] text-white/40">{i + 1}</td>
-                      <td>
-                        <input className={inp} list={`gr-${pt.id}`} value={pt.grandeza}
-                          onChange={e => setPonto(pt.id, { grandeza: e.target.value })} placeholder="ex: Tensão DC"/>
-                        <datalist id={`gr-${pt.id}`}>{grandezasEquip.map(g => <option key={g} value={g}/>)}</datalist>
-                      </td>
-                      <td><input className={cn(inp,'font-mono')} value={pt.unidade} onChange={e => setPonto(pt.id, { unidade: e.target.value })} placeholder="V"/></td>
-                      <td><input className={cn(inp,'font-mono')} value={pt.valorNominal} onChange={e => setPonto(pt.id, { valorNominal: e.target.value })} placeholder="10"/></td>
-                      <td><input className={cn(inp,'font-mono')} value={pt.tolPercentual ?? ''} onChange={e => setPonto(pt.id, { tolPercentual: e.target.value })} placeholder="0,5"/></td>
-                      <td><input className={cn(inp,'font-mono')} value={pt.tolFixo ?? ''} onChange={e => setPonto(pt.id, { tolFixo: e.target.value })} placeholder="0,02"/></td>
-                      <td><input className={cn(inp,'font-mono')} value={pt.tolPpm ?? ''} onChange={e => setPonto(pt.id, { tolPpm: e.target.value })} placeholder="10"/></td>
-                      <td className="font-mono text-[10px] text-teal/80">
-                        {tolTexto(pt)}
-                        {faixa && <span className="text-white/40 block">[{fmtN(faixa.min)} ; {fmtN(faixa.max)}]</span>}
-                      </td>
-                      <td><input className={inp} value={pt.obs ?? ''} onChange={e => setPonto(pt.id, { obs: e.target.value })} placeholder="—"/></td>
-                      <td>
-                        <button type="button" onClick={() => delPonto(pt.id)}
-                          className="opacity-0 group-hover/row:opacity-100 text-white/25 hover:text-red-400 p-0.5 transition-all">
-                          <Trash2 size={12}/>
-                        </button>
-                      </td>
-                    </tr>
-                  )
-                })}
+                {editing.pontos.map((pt, i) => (
+                  <tr key={pt.id} className="tbl-row group/row">
+                    <td className="text-center font-mono text-[11px] text-white/40">{i + 1}</td>
+                    <td>
+                      <input className={inp} list={`gr-${pt.id}`} value={pt.grandeza}
+                        onChange={e => setPonto(pt.id, { grandeza: e.target.value })} placeholder="ex: Exatidão da Frequência"/>
+                      <datalist id={`gr-${pt.id}`}>{grandezasEquip.map(g => <option key={g} value={g}/>)}</datalist>
+                    </td>
+                    <td><input className={cn(inp,'font-mono')} value={pt.pontosTexto} onChange={e => setPonto(pt.id, { pontosTexto: e.target.value })} placeholder="(0,1; 0,5; …) MHz"/></td>
+                    <td><input className={cn(inp,'font-mono')} value={pt.criterioTexto ?? ''} onChange={e => setPonto(pt.id, { criterioTexto: e.target.value })} placeholder="± 1 dB"/></td>
+                    <td><input className={cn(inp,'font-mono')} value={pt.unidade} onChange={e => setPonto(pt.id, { unidade: e.target.value })} placeholder="dB"/></td>
+                    <td><input className={cn(inp,'font-mono')} value={pt.tolPercentual ?? ''} onChange={e => setPonto(pt.id, { tolPercentual: e.target.value })} placeholder="0,5"/></td>
+                    <td><input className={cn(inp,'font-mono')} value={pt.tolFixo ?? ''} onChange={e => setPonto(pt.id, { tolFixo: e.target.value })} placeholder="1"/></td>
+                    <td><input className={cn(inp,'font-mono')} value={pt.tolPpm ?? ''} onChange={e => setPonto(pt.id, { tolPpm: e.target.value })} placeholder="10"/></td>
+                    <td>
+                      <button type="button" onClick={() => delPonto(pt.id)}
+                        className="opacity-0 group-hover/row:opacity-100 text-white/25 hover:text-red-400 p-0.5 transition-all">
+                        <Trash2 size={12}/>
+                      </button>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -172,7 +178,8 @@ export default function PlanosCalibracaoPage() {
         </div>
 
         <p className="text-[11px] text-white/30 px-1">
-          Limite absoluto (±) = |nominal|·%/100 + |± fixo| + |nominal|·ppm/10⁶. Preencha só o que se aplica a cada grandeza.
+          Critério pode ser texto livre (ex.: “± 1 dB”) e/ou estruturado (% · ± fixo · ppm) p/ o app calcular limites depois.
+          O “Importar (OCR)” lê o FOR 6400 — como a tabela do PDF sai fora de ordem, <b>revise as associações</b>.
         </p>
       </div>
     )

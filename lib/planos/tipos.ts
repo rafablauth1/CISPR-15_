@@ -1,16 +1,17 @@
-// Plano de Calibração: define, por equipamento, os pontos + tolerâncias que um
-// certificado de calibração deve conter (a "régua" para validar certificados).
+// Plano de Calibração (modelo FOR 6400): por equipamento, cada linha é uma
+// GRANDEZA com seus pontos de calibração e o critério de aprovação (limite).
 
 export interface PontoPlano {
   id: string
   grandeza: string
-  unidade: string
-  valorNominal: string
-  // Tolerância flexível (qualquer combinação). Limite absoluto (±) =
-  //   |nominal|·(tolPercentual/100) + |tolFixo| + |nominal|·(tolPpm/1e6)
-  tolPercentual?: string   // % da leitura/valor nominal
-  tolFixo?: string         // valor fixo absoluto, na unidade da grandeza
-  tolPpm?: string          // partes por milhão do valor nominal
+  unidade: string          // unidade do critério (dB, %, Hz, V…)
+  pontosTexto: string      // lista de pontos/faixa, ex.: "(0,1; 0,3; …; 3000) MHz · Nível: 0 dBm"
+  // Critério de aprovação (tolerância flexível). Qualquer combinação:
+  //   limite ± = |valor|·(tolPercentual/100) + |tolFixo| + |valor|·(tolPpm/1e6)
+  tolPercentual?: string   // % da leitura
+  tolFixo?: string         // valor fixo absoluto (na unidade)
+  tolPpm?: string          // partes por milhão
+  criterioTexto?: string   // critério como aparece no documento (ex.: "± 1 dB"), p/ casos fora do padrão
   obs?: string
 }
 
@@ -29,15 +30,9 @@ const num = (s?: string): number => {
   return isFinite(n) ? n : 0
 }
 
-/** Limite absoluto (±) de um ponto, combinando %, fixo e ppm. null se não houver tolerância. */
-export function limiteAbsoluto(p: PontoPlano): number | null {
-  const nominal = Math.abs(num(p.valorNominal))
-  const lim = nominal * num(p.tolPercentual) / 100 + Math.abs(num(p.tolFixo)) + nominal * num(p.tolPpm) / 1e6
-  return lim > 0 ? lim : null
-}
-
-/** Texto curto da tolerância (ex.: "±(0,5% + 2)" ou "±0,05" ou "±10 ppm"). */
+/** Texto do critério: usa o criterioTexto se houver; senão monta de %/fixo/ppm. */
 export function tolTexto(p: PontoPlano): string {
+  if (p.criterioTexto?.trim()) return p.criterioTexto.trim()
   const partes: string[] = []
   if (num(p.tolPercentual)) partes.push(`${p.tolPercentual}%`)
   if (num(p.tolPpm))        partes.push(`${p.tolPpm} ppm`)
@@ -46,10 +41,9 @@ export function tolTexto(p: PontoPlano): string {
   return partes.length === 1 ? `±${partes[0]}` : `±(${partes.join(' + ')})`
 }
 
-/** Faixa aceitável [min, max] de um ponto, se houver nominal + tolerância. */
-export function faixaAceitavel(p: PontoPlano): { min: number; max: number } | null {
-  const nominal = num(p.valorNominal)
-  const lim = limiteAbsoluto(p)
-  if (lim === null || !isFinite(nominal)) return null
-  return { min: nominal - lim, max: nominal + lim }
+/** Limite absoluto (±) para um valor medido, combinando %, fixo e ppm. null se não houver. */
+export function limiteAbsoluto(p: PontoPlano, valor: number): number | null {
+  const v = Math.abs(valor)
+  const lim = v * num(p.tolPercentual) / 100 + Math.abs(num(p.tolFixo)) + v * num(p.tolPpm) / 1e6
+  return lim > 0 ? lim : null
 }
