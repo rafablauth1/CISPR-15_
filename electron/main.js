@@ -281,23 +281,24 @@ function pruneBackups(destBase, keep = 20) {
   }
 }
 
-function runBackup(destBase) {
+async function runBackup(destBase) {
   const root = backupRootDir(destBase)
   const dir  = path.join(root, timestampFolder())
-  fs.mkdirSync(dir, { recursive: true })
+  await fs.promises.mkdir(dir, { recursive: true })
   const sources = getBackupSources()
   const items = []
   for (const src of sources) {
     try {
       if (!fs.existsSync(src.path)) continue
       const target = path.join(dir, src.name)
-      if (src.type === 'file') fs.copyFileSync(src.path, target)
-      else fs.cpSync(src.path, target, { recursive: true })
+      // cópia ASSÍNCRONA (libuv threadpool) — não bloqueia o processo principal/UI
+      if (src.type === 'file') await fs.promises.copyFile(src.path, target)
+      else await fs.promises.cp(src.path, target, { recursive: true })
       items.push(src.name)
     } catch {}
   }
   const manifest = { date: new Date().toISOString(), version: app.getVersion(), items }
-  try { fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf-8') } catch {}
+  try { await fs.promises.writeFile(path.join(dir, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf-8') } catch {}
   pruneBackups(destBase)
   return { ok: true, dir, items }
 }
@@ -330,15 +331,16 @@ function restoreBackup(destBase, which) {
   return { ok: true, restored, from: chosen.path, date: chosen.date }
 }
 
-/* Auto-backup ao abrir: roda no máximo 1×/dia (compara com o backup mais recente). */
-function maybeAutoBackup() {
+/* Auto-backup ao abrir: roda no máximo 1×/dia (compara com o backup mais recente).
+   Assíncrono e adiado (não bloqueia o carregamento nem a digitação). */
+async function maybeAutoBackup() {
   try {
     const s = readSettings()
     if (!s.autoBackup) return
     const all = listBackups()
     const last = all[0]?.date ? new Date(all[0].date).getTime() : 0
     if (Date.now() - last < 20 * 3600 * 1000) return // já há backup recente (<20h)
-    runBackup()
+    await runBackup()
   } catch {}
 }
 
@@ -830,8 +832,8 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(buildMenu())
   createWindow()
   setupAutoUpdater()
-  // backup automático do banco (no máx. 1×/dia) — proteção contra perda de dados
-  try { maybeAutoBackup() } catch {}
+  // backup automático do banco (no máx. 1×/dia) — adiado p/ não travar o início
+  setTimeout(() => { maybeAutoBackup().catch(() => {}) }, 8000)
 })
 
 app.on('window-all-closed', () => {
@@ -871,8 +873,8 @@ ipcMain.handle('settings:browse-folder', async (_, { title }) => {
 
 /* ─── IPC: Backup ─────────────────────────────────────────────────────────── */
 
-ipcMain.handle('backup:run', (_, { destBase } = {}) => {
-  try { return runBackup(destBase) }
+ipcMain.handle('backup:run', async (_, { destBase } = {}) => {
+  try { return await runBackup(destBase) }
   catch (err) { return { ok: false, error: String(err) } }
 })
 
