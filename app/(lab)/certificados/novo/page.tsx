@@ -12,6 +12,10 @@ export default function NovoCertificadoPage() {
   const [equips, setEquips] = useState<EquipamentoEMC[]>([])
   const [salvando, setSalvando] = useState(false)
   const [equipId, setEquipId] = useState('')
+  const [numero,      setNumero]      = useState('')
+  const [laboratorio, setLaboratorio] = useState('')
+  const [dataEmissao, setDataEmissao] = useState('')
+  const [dataValidade,setDataValidade]= useState('')
 
   const [grade2DPontos,  setGrade2DPontos]  = useState<PontoCalibracao2D[]>([])
   const [eixo1Nome,      setEixo1Nome]      = useState('Frequência')
@@ -40,9 +44,10 @@ export default function NovoCertificadoPage() {
       const body = {
         equipamentoId:  equip.id,
         equipamentoTag: equip.tag,
-        numero: '',
-        laboratorio: '',
-        dataEmissao: new Date().toISOString().slice(0, 10),
+        numero: numero.trim(),
+        laboratorio,
+        dataEmissao: dataEmissao || new Date().toISOString().slice(0, 10),
+        dataValidade: dataValidade || undefined,
         itens: [],
         grade2D: { eixo1Nome, eixo1Unidade, eixo2Nome, eixo2Unidade, pontos: grade2DPontos },
       }
@@ -87,6 +92,27 @@ export default function NovoCertificadoPage() {
             <input className="input font-mono" value={equip?.tag ?? ''} readOnly placeholder="Auto"/>
           </div>
         </div>
+
+        {/* Dados do certificado (preenchidos pela OCR da página 1) */}
+        <div className="grid grid-cols-4 gap-4 mt-4">
+          <div>
+            <label className="text-[10px] font-mono tracking-[2px] uppercase text-white/40 block mb-1">Nº do certificado</label>
+            <input className="input font-mono" value={numero} onChange={e=>setNumero(e.target.value)} placeholder="ex: R0047/2025"/>
+          </div>
+          <div>
+            <label className="text-[10px] font-mono tracking-[2px] uppercase text-white/40 block mb-1">Laboratório</label>
+            <input className="input" value={laboratorio} onChange={e=>setLaboratorio(e.target.value)} placeholder="ex: LABELO/PUCRS"/>
+          </div>
+          <div>
+            <label className="text-[10px] font-mono tracking-[2px] uppercase text-white/40 block mb-1">Data da calibração</label>
+            <input type="date" className="input" value={dataEmissao} onChange={e=>setDataEmissao(e.target.value)}/>
+          </div>
+          <div>
+            <label className="text-[10px] font-mono tracking-[2px] uppercase text-white/40 block mb-1">Validade</label>
+            <input type="date" className="input" value={dataValidade} onChange={e=>setDataValidade(e.target.value)}/>
+          </div>
+        </div>
+        <p className="text-[10px] text-white/30 mt-2">Os dados acima são preenchidos automaticamente ao carregar o PDF (página 1 do certificado) — confira/edite.</p>
       </div>
 
       {/* Grade 2D */}
@@ -96,6 +122,11 @@ export default function NovoCertificadoPage() {
         pontos={grade2DPontos}
         onChange={setGrade2DPontos}
         onEixoChange={handleEixoChange}
+        onMeta={(m) => {
+          if (m.numero)      setNumero(m.numero)
+          if (m.laboratorio) setLaboratorio(m.laboratorio)
+          if (m.dataEmissao) setDataEmissao(m.dataEmissao)
+        }}
       />
     </div>
   )

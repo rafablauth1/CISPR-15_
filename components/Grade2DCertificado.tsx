@@ -5,6 +5,9 @@ import { Upload, Loader2, Trash2, Plus, ScanText, TableIcon } from 'lucide-react
 import { cn, fileToBase64 } from '@/lib/utils'
 import { extrairTextoArquivo } from '@/lib/useOCR'
 import { corrigirGrandezasPorLayout } from '@/lib/certificados/layout'
+import { parsearMetadadosCertificado, parsearDadosPadrao } from '@/lib/certificados/parser'
+
+export interface CertMeta { numero: string; laboratorio: string; dataEmissao: string; equipamentoTag?: string }
 import {
   interpolarBilinear,
   parsearTabelaCertificado2D,
@@ -22,6 +25,7 @@ interface Props {
   onChange: (pontos: PontoCalibracao2D[]) => void
   onEixoChange: (campo: 'eixo1Nome'|'eixo1Unidade'|'eixo2Nome'|'eixo2Unidade', valor: string) => void
   onPontosAtivos?: (pontos: PontoCalibracao2D[]) => void
+  onMeta?: (meta: CertMeta) => void   // dados do certificado (página 1): nº, lab, data, TAG
 }
 
 function uid() { return Math.random().toString(36).slice(2) }
@@ -52,7 +56,7 @@ function fmtN(n: number | undefined, prefix = false, casas?: number): string {
 
 export function Grade2DCertificado({
   eixo1Nome, eixo1Unidade, eixo2Nome, eixo2Unidade,
-  pontos, onChange, onEixoChange, onPontosAtivos,
+  pontos, onChange, onEixoChange, onPontosAtivos, onMeta,
 }: Props) {
   const fileRef = useRef<HTMLInputElement>(null)
   const [loading,   setLoading]   = useState(false)
@@ -85,6 +89,19 @@ export function Grade2DCertificado({
     try {
       const texto = await extrairTextoArquivo(file)
       setTextoOCR(texto)
+      // Dados do certificado (página 1: equipamento + certificado) — nº, lab, data, TAG.
+      if (onMeta) {
+        try {
+          const meta = parsearMetadadosCertificado(texto)
+          const dados = parsearDadosPadrao(texto)
+          onMeta({
+            numero: meta.numero || dados.numeroCertificado || '',
+            laboratorio: meta.laboratorio || dados.labCalibracao || '',
+            dataEmissao: meta.dataEmissao || dados.ultimaCalibracao || '',
+            equipamentoTag: dados.tag,
+          })
+        } catch {}
+      }
       // Layout posicionado (PDF): corrige a GRANDEZA de cada ponto pela posição na
       // tabela (cabeçalho acima do "Parâmetro:"), em vez do texto embaralhado.
       let layoutItems: { s: string; x: number; y: number; page?: number }[] | null = null

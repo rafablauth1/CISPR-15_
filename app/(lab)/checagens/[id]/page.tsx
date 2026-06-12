@@ -95,7 +95,7 @@ export default function CheckagemDetalhePage() {
             ['TAG do padrão',          checagem.padraoTag || '—'],
             ['Data da checagem',        fmt(checagem.data)],
             ['Responsável',            checagem.responsavel || '—'],
-            ['Periodicidade',          `${checagem.periodicidade} dias`],
+            ['Periodicidade',          `${checagem.periodicidade} meses`],
             ['Próxima checagem',        fmt(checagem.proximaChecagem)],
             ['Norma de referência',    checagem.normaReferencia || '—'],
             ['Tipo de comparação',     checagem.tipoComparacao === 'indireta' ? 'Indireta' : 'Direta'],
