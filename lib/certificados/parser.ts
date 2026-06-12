@@ -364,7 +364,10 @@ export function parsearMetadadosCertificado(texto: string): {
     if (!laboratorio && (norm.includes('laborat') || norm.includes('lab ') || norm.includes('rnbc') || norm.includes('labelo'))) {
       // Pega o primeiro segmento antes de " - " ou ":" (ex: "LABELO - Laboratórios...")
       const parts = linha.split(/\s[-–]\s|:\s/).map(s => s.trim()).filter(s => s.length > 2)
-      laboratorio = parts[0]
+      laboratorio = (parts[0] || '')
+        .replace(/\s*p[áa]gina\s+\d+\s+de\s+\d+.*/i, '')   // remove rodapé "Página X de Y"
+        .replace(/\s{2,}.*/, '')                            // corta colunas grudadas (2+ espaços)
+        .trim()
     }
 
     if (!dataEmissao) {

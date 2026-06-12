@@ -87,7 +87,18 @@ export function Grade2DCertificado({
   async function handleFile(file: File) {
     setLoading(true)
     try {
-      const texto = await extrairTextoArquivo(file)
+      const api = (window as unknown as { electronAPI?: { extractPdfLayout?: (b: string) => Promise<{ ok: boolean; items: { s: string; x: number; y: number; page?: number }[]; text?: string }> } }).electronAPI
+      const isPdf = /\.pdf$/i.test(file.name)
+      // PDF no Electron: UMA passada de pdf-parse devolve texto + layout (não trava 2×)
+      let texto = ''
+      let layoutItems: { s: string; x: number; y: number; page?: number }[] | null = null
+      if (api?.extractPdfLayout && isPdf) {
+        try {
+          const res = await api.extractPdfLayout(await fileToBase64(file))
+          if (res?.ok) { texto = res.text || ''; layoutItems = res.items?.length ? res.items : null }
+        } catch {}
+      }
+      if (!texto) texto = await extrairTextoArquivo(file)   // imagem ou fallback
       setTextoOCR(texto)
       // Dados do certificado (página 1: equipamento + certificado) — nº, lab, data, TAG.
       if (onMeta) {
@@ -102,16 +113,6 @@ export function Grade2DCertificado({
           })
         } catch {}
       }
-      // Layout posicionado (PDF): corrige a GRANDEZA de cada ponto pela posição na
-      // tabela (cabeçalho acima do "Parâmetro:"), em vez do texto embaralhado.
-      let layoutItems: { s: string; x: number; y: number; page?: number }[] | null = null
-      try {
-        const api = (window as unknown as { electronAPI?: { extractPdfLayout?: (b: string) => Promise<{ ok: boolean; items: { s: string; x: number; y: number; page?: number }[] }> } }).electronAPI
-        if (api?.extractPdfLayout && /\.pdf$/i.test(file.name)) {
-          const res = await api.extractPdfLayout(await fileToBase64(file))
-          if (res?.ok && res.items?.length) layoutItems = res.items
-        }
-      } catch {}
       const fix = (pts: PontoCalibracao2D[]) => layoutItems ? corrigirGrandezasPorLayout(pts, layoutItems) : pts
       const rbc = parsearCertificadoRBC(texto)
       if (rbc.pontos.length >= 3) {

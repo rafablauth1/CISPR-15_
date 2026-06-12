@@ -923,20 +923,40 @@ ipcMain.handle('pdf:extract-layout', async (_, { base64 }) => {
     const pdfBuffer = Buffer.from(base64, 'base64')
     const pdfParse  = require('pdf-parse')
     const items = []
+    const pages = []
     let pageIdx = 0
     await pdfParse(pdfBuffer, {
       pagerender: (pageData) =>
-        pageData.getTextContent({ normalizeWhitespace: true, disableCombineTextItems: false }).then(tc => {
+        pageData.getTextContent({ normalizeWhitespace: false, disableCombineTextItems: false }).then(tc => {
           const p = pageIdx++
-          for (const it of (tc.items || [])) {
+          const list = tc.items || []
+          for (const it of list) {
             const s = (it.str || '').trim()
             if (s) items.push({ s, x: Math.round(it.transform[4]), y: Math.round(it.transform[5]), page: p })
           }
+          // Texto agrupado em linhas (mesma lógica do extract-text) — devolve junto
+          // para evitar uma 2ª passada de pdf-parse (que travava a UI).
+          const sorted = [...list].sort((a, b) => b.transform[5] - a.transform[5])
+          const lineGroups = []; let curGroup = []; let curY = null
+          for (const item of sorted) {
+            const y = item.transform[5]
+            if (curY === null || curY - y > 4) { if (curGroup.length) lineGroups.push(curGroup); curGroup = []; curY = y }
+            const fsz = Math.abs(item.transform[0]) || 8
+            const end = item.transform[4] + (item.width > 0 ? item.width : item.str.length * fsz * 0.55)
+            curGroup.push({ x: item.transform[4], str: item.str, end })
+          }
+          if (curGroup.length) lineGroups.push(curGroup)
+          const lines = lineGroups.map(grp => {
+            const g = grp.sort((a, b) => a.x - b.x); let line = ''; let prevEnd = null
+            for (const it of g) { if (prevEnd !== null && it.x - prevEnd > 15) line += '\t'; line += it.str; prevEnd = it.end }
+            return line
+          })
+          pages.push(lines.filter(l => l.trim()).join('\n'))
           return ''
         }),
     })
-    return { ok: true, items }
-  } catch (err) { return { ok: false, error: String(err), items: [] } }
+    return { ok: true, items, text: pages.join('\n\n') }
+  } catch (err) { return { ok: false, error: String(err), items: [], text: '' } }
 })
 
 ipcMain.handle('pdf:extract-text', async (_, { base64 }) => {

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Save, Loader2 } from 'lucide-react'
+import { addM } from '@/lib/utils'
 import type { EquipamentoEMC } from '@/lib/equipamentos/tipos'
 import { Grade2DCertificado } from '@/components/Grade2DCertificado'
 import type { PontoCalibracao2D } from '@/lib/interpolacao'
@@ -28,6 +29,11 @@ export default function NovoCertificadoPage() {
   }, [])
 
   const equip = equips.find(e => e.id === equipId)
+
+  // Validade = data da calibração + periodicidade cadastrada do equipamento (meses)
+  useEffect(() => {
+    if (dataEmissao && equip?.intervaloCalibracao) setDataValidade(addM(dataEmissao, equip.intervaloCalibracao))
+  }, [dataEmissao, equipId])  // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleEixoChange(campo: 'eixo1Nome'|'eixo1Unidade'|'eixo2Nome'|'eixo2Unidade', val: string) {
     if (campo === 'eixo1Nome')    setEixo1Nome(val)
