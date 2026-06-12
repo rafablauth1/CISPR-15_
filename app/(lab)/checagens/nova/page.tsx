@@ -93,6 +93,11 @@ function getModo(tipo: TipoComparacao, papel: PapelReferencia): Modo {
   return papel === 'gerador' ? 'direta-gera' : 'direta-mede'
 }
 
+// Modo do ITEM: usa a config da grandeza (se houver), senão cai no global da checagem.
+function modoDoItem(item: ItemChecagem, tipoG: TipoComparacao, papelG: PapelReferencia): Modo {
+  return getModo(item.tipoComparacao ?? tipoG, item.papelReferencia ?? papelG)
+}
+
 function calcErro(item: ItemChecagem, modo: Modo): number | null {
   if (modo === 'direta-gera') {
     // Ref gera VR, instrumento lê MM → Erro = MM − VR
@@ -127,8 +132,8 @@ function avaliarItem(item: ItemChecagem, modo: Modo): 'ok' | 'nok' | 'na' {
   if (erro === null || item.criterioMax === undefined) return 'na'
   return Math.abs(erro) <= item.criterioMax ? 'ok' : 'nok'
 }
-function avaliarGeral(itens: ItemChecagem[], modo: Modo): ResultadoGeral {
-  const av = itens.map(i => avaliarItem(i, modo)).filter(r => r !== 'na')
+function avaliarGeral(itens: ItemChecagem[], tipoG: TipoComparacao, papelG: PapelReferencia): ResultadoGeral {
+  const av = itens.map(i => avaliarItem(i, modoDoItem(i, tipoG, papelG))).filter(r => r !== 'na')
   if (!av.length) return 'pendente'
   const oks = av.filter(r => r === 'ok').length
   if (oks === av.length) return 'satisfatorio'
@@ -387,19 +392,26 @@ function TblHeader({ modo, grade2DAtiva, eixo1Nome, eixo1Unidade, eixo2Nome, eix
 /* ── Seção de uma grandeza: título grande + instrumento + tabela de pontos ── */
 interface EquipMin { id: string; tag: string; nome: string }
 function GrandezaSection({
-  grandeza, items, modo, grade2DAtiva, eixo1Nome, eixo1Unidade, eixo2Nome, eixo2Unidade,
+  grandeza, items, tipoCompGlobal, papelRefGlobal, eixo1Nome, eixo1Unidade, eixo2Nome, eixo2Unidade,
   equips, instrumentoTag, certNum, grandezaOpcoes, onRename, onPickInstrumento, onAddItem, onChangeItem, onDeleteItem,
+  onSetModo, onSetGrade2D,
 }: {
-  grandeza: string; items: ItemChecagem[]; modo: Modo
-  grade2DAtiva?: boolean; eixo1Nome?: string; eixo1Unidade?: string; eixo2Nome?: string; eixo2Unidade?: string
+  grandeza: string; items: ItemChecagem[]
+  tipoCompGlobal: TipoComparacao; papelRefGlobal: PapelReferencia
+  eixo1Nome?: string; eixo1Unidade?: string; eixo2Nome?: string; eixo2Unidade?: string
   equips: EquipMin[]; instrumentoTag?: string; certNum?: string; grandezaOpcoes: string[]
   onRename: (oldName: string, newName: string) => void
   onPickInstrumento: (grandeza: string, equipId: string) => void
   onAddItem: (grandeza: string) => void
   onChangeItem: (id: string, i: ItemChecagem) => void
   onDeleteItem: (id: string) => void
+  onSetModo: (grandeza: string, m: Modo) => void
+  onSetGrade2D: (grandeza: string, on: boolean) => void
 }) {
   const equipSel = equips.find(e => e.tag === instrumentoTag)?.id ?? ''
+  // Modo e 2D são POR GRANDEZA (config nos itens; cai no global se não definido)
+  const modo: Modo = items[0] ? modoDoItem(items[0], tipoCompGlobal, papelRefGlobal) : getModo(tipoCompGlobal, papelRefGlobal)
+  const grade2DAtiva = !!items[0]?.grade2D
   return (
     <div className="card overflow-hidden mb-4">
       <div className="px-4 py-3 border-b border-white/6 flex items-center gap-3 flex-wrap" style={{ background: 'rgba(212,175,55,0.05)' }}>
@@ -426,6 +438,19 @@ function GrandezaSection({
             corr. ← {instrumentoTag}{certNum ? ` · cert ${certNum}` : ''}
           </span>
         )}
+        {/* Método (direta/indireta) e colunas Nível×Frequência — por grandeza */}
+        <div className="flex items-center gap-2 shrink-0">
+          <select className="input text-xs py-1 w-auto cursor-pointer" value={modo}
+            onChange={e => onSetModo(grandeza, e.target.value as Modo)} title="Método de comparação desta grandeza">
+            <option value="direta-gera">Direta · padrão gera</option>
+            <option value="direta-mede">Direta · padrão mede</option>
+            <option value="indireta">Indireta</option>
+          </select>
+          <label className="flex items-center gap-1.5 text-[10px] font-mono text-white/45 cursor-pointer whitespace-nowrap" title="Mostra as colunas Nível×Frequência (interpolação 2D) — só p/ grandezas com esses eixos">
+            <input type="checkbox" checked={grade2DAtiva} onChange={e => onSetGrade2D(grandeza, e.target.checked)} className="accent-gold"/>
+            Nível×Freq
+          </label>
+        </div>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full" style={{ minWidth: grade2DAtiva ? 1140 : modo === 'indireta' ? 940 : 660 }}>
@@ -582,7 +607,7 @@ export default function NovaChecagemPage() {
   }
 
   const modo = getModo(tipoComp, papelRef)
-  const resultadoGeralAuto = avaliarGeral(itens, modo)
+  const resultadoGeralAuto = avaliarGeral(itens, tipoComp, papelRef)
   const pontosCert = getPontosCert(certPadrao)
   // Agrupa os pontos por grandeza, preservando o índice original (usado na seleção)
   const gruposCert = (() => {
@@ -600,8 +625,8 @@ export default function NovaChecagemPage() {
   function addItem() { setItens(p=>[...p, emptyItem(p.length+1)]) }
   function removeItem(id: string) { setItens(p=>p.filter(i=>i.id!==id).map((i,idx)=>({...i,ponto:idx+1}))) }
   function updateItem(id: string, item: ItemChecagem) {
-    // Se a grade 2D está ativa e eixo1/eixo2 foram alterados, recalcula correção por interpolação
-    if (grade2DAtiva && grade2DPontos.length > 0) {
+    // Grade 2D POR GRANDEZA: só interpola se a grandeza deste item estiver em modo 2D
+    if (item.grade2D && grade2DPontos.length > 0) {
       const e1 = parseFloat(item.eixo1Valor ?? '')
       const e2 = parseFloat(item.eixo2Valor ?? '')
       if (!isNaN(e1) && !isNaN(e2)) {
@@ -612,6 +637,17 @@ export default function NovaChecagemPage() {
       }
     }
     setItens(p=>p.map(i=>i.id===id?item:i))
+  }
+
+  // Define o MODO (direta gera/mede ou indireta) de todos os itens de uma grandeza
+  function setModoGrandeza(grandeza: string, m: Modo) {
+    const tipoComparacao: TipoComparacao = m === 'indireta' ? 'indireta' : 'direta'
+    const papelReferencia: PapelReferencia = m === 'direta-mede' ? 'medidor' : 'gerador'
+    setItens(p => p.map(it => (it.grandeza || '') === grandeza ? { ...it, tipoComparacao, papelReferencia } : it))
+  }
+  // Liga/desliga as colunas Nível×Frequência (2D) de uma grandeza
+  function setGrade2DGrandeza(grandeza: string, on: boolean) {
+    setItens(p => p.map(it => (it.grandeza || '') === grandeza ? { ...it, grade2D: on } : it))
   }
 
   // Itens agrupados por grandeza (preserva a ordem de 1ª aparição)
@@ -798,9 +834,9 @@ export default function NovaChecagemPage() {
     setSalvando(true)
     const proximaChecagem = addM(data, periodicidade)   // periodicidade já em meses
     const { validarChecagem } = await import('@/lib/checagens/validacao')
-    // Resultado calculado automaticamente (ponto a ponto + geral)
-    const itensAvaliados = itensFinal.map(i => ({ ...i, resultado: avaliarItem(i, modo) }))
-    const geral = avaliarGeral(itensFinal, modo)
+    // Resultado calculado automaticamente (ponto a ponto + geral) — modo por grandeza
+    const itensAvaliados = itensFinal.map(i => ({ ...i, resultado: avaliarItem(i, modoDoItem(i, tipoComp, papelRef)) }))
+    const geral = avaliarGeral(itensFinal, tipoComp, papelRef)
     const status = validarChecagem(itensAvaliados, proximaChecagem, geral)
     try {
       const res = await fetch(editId ? `/api/checagens/${editId}` : '/api/checagens', {
@@ -1232,8 +1268,8 @@ export default function NovaChecagemPage() {
           )}
 
           {gruposItens.map(g => (
-            <GrandezaSection key={g.key} grandeza={g.grandeza} items={g.items} modo={modo}
-              grade2DAtiva={grade2DAtiva}
+            <GrandezaSection key={g.key} grandeza={g.grandeza} items={g.items}
+              tipoCompGlobal={tipoComp} papelRefGlobal={papelRef}
               eixo1Nome={grade2DEixo1Nome} eixo1Unidade={grade2DEixo1Unidade}
               eixo2Nome={grade2DEixo2Nome} eixo2Unidade={grade2DEixo2Unidade}
               equips={equips}
@@ -1244,7 +1280,9 @@ export default function NovaChecagemPage() {
               onPickInstrumento={aplicarInstrumentoGrandeza}
               onAddItem={addItemGrandeza}
               onChangeItem={updateItem}
-              onDeleteItem={removeItem} />
+              onDeleteItem={removeItem}
+              onSetModo={setModoGrandeza}
+              onSetGrade2D={setGrade2DGrandeza} />
           ))}
 
           <div className="card p-4 mb-4 space-y-3">

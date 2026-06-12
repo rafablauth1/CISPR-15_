@@ -39,6 +39,10 @@ export interface ItemChecagem {
   criterioMax?: number
   normaId?: string
   secao?: string
+  // Configuração POR GRANDEZA (todos os itens de uma grandeza compartilham):
+  tipoComparacao?: TipoComparacao   // direta/indireta desta grandeza (sobrepõe o global)
+  papelReferencia?: PapelReferencia // gerador/medidor (direta)
+  grade2D?: boolean                 // mostra colunas Nível×Frequência (só se a grandeza for 2D)
 }
 
 export interface Checagem {
