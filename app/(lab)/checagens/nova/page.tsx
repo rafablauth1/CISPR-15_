@@ -53,7 +53,7 @@ function emptyItem(ponto: number): ItemChecagem {
    pontos marcados com caixinha na checagem — sem precisar de OCR de novo. */
 export interface CertPonto {
   grandeza: string; parametro: string; freq: string
-  vr: string; unidade: string; correcao: string; media: string
+  vr: string; unidade: string; correcao: string; media: string; mm: string
 }
 function getPontosCert(c: import('@/lib/certificados/tipos').Certificado | null): CertPonto[] {
   if (!c) return []
@@ -62,19 +62,26 @@ function getPontosCert(c: import('@/lib/certificados/tipos').Certificado | null)
       grandeza: l.grandeza || '', parametro: '', freq: '',
       vr: l.valorNominal || '', unidade: l.unidade || '',
       correcao: l.correcao || '', media: l.valorIndicado || '',
+      mm: l.valorIndicado || '',   // MM = valor medido/indicado do certificado
     }))
   }
   const g = c.grade2D
   if (g?.pontos?.length) {
-    return (g.pontos as any[]).map(p => ({
-      grandeza:  p.grandeza || p.tabela || g.eixo2Nome || '',
-      parametro: p.tabela || '',
-      freq:      p.eixo1 != null ? `${p.eixo1} ${p.eixo1Unidade || g.eixo1Unidade || ''}`.trim() : '',
-      vr:        p.eixo2 != null ? String(p.eixo2) : '',
-      unidade:   p.eixo2Unidade || g.eixo2Unidade || '',
-      correcao:  p.correcao != null ? String(p.correcao) : '',
-      media:     '',
-    }))
+    return (g.pontos as any[]).map(p => {
+      const vr = p.eixo2, corr = p.correcao
+      // MM = valor medido. Se vier no ponto usa direto; senão MM = VR − correção.
+      const mm = p.mmVal != null ? p.mmVal : (vr != null && corr != null ? vr - corr : null)
+      return {
+        grandeza:  p.grandeza || p.tabela || g.eixo2Nome || '',
+        parametro: p.tabela || '',
+        freq:      p.eixo1 != null ? `${p.eixo1} ${p.eixo1Unidade || g.eixo1Unidade || ''}`.trim() : '',
+        vr:        vr != null ? String(vr) : '',
+        unidade:   p.eixo2Unidade || g.eixo2Unidade || '',
+        correcao:  corr != null ? String(corr) : '',
+        media:     '',
+        mm:        mm != null ? String(mm) : '',
+      }
+    })
   }
   return []
 }
@@ -793,6 +800,7 @@ export default function NovaChecagemPage() {
       grandeza:        [p.grandeza, p.parametro].filter(Boolean).join(' · ') + (p.freq ? ` @ ${p.freq}` : ''),
       unidade:         p.unidade || '',
       valorReferencia: p.vr || '',          // VR — referência do certificado do padrão
+      valorMedido:     p.mm || '',          // MM — valor medido do certificado (você ajusta na checagem)
       mediaCalibracao: p.media || '',       // média da calibração (quando 1D)
       // correção NÃO vem do padrão — será preenchida pelo instrumento de cada grandeza
     }))
