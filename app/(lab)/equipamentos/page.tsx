@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Plus, ChevronRight, Zap, Gauge, Waves, Radio, SlidersHorizontal, Thermometer } from 'lucide-react'
+import { Plus, ChevronRight, Zap, Gauge, Waves, Radio, SlidersHorizontal, Thermometer, FolderInput, Loader2, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react'
 import { fmt } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { EquipamentoEMC, GrupoId } from '@/lib/equipamentos/tipos'
@@ -14,6 +14,21 @@ interface Grupo {
   cor: string
   subgrupos: { id: string; nome: string; numero: string }[]
 }
+
+interface RelatorioImport {
+  total: number
+  sucessos: string[]
+  atualizados: string[]
+  pulados: { tag: string; motivo: string }[]
+  erros: { folder: string; motivo: string }[]
+}
+
+interface ScanResult {
+  ok: boolean
+  error?: string
+  resultados?: { folder: string; certPath: string | null; text?: string; items?: unknown[]; error?: string }[]
+}
+type LabAPI = { scanCertificados?: (p: string) => Promise<ScanResult>; browseFolder?: (t: string) => Promise<{ canceled?: boolean; folderPath?: string }> }
 
 const ICONES: Record<string, React.ElementType> = {
   'geradores':            Zap,
@@ -35,6 +50,38 @@ export default function EquipamentosPage() {
   const [grupos, setGrupos] = useState<Grupo[]>([])
   // Filtro ativo: por grupo (card) ou subgrupo (badge)
   const [filtro, setFiltro] = useState<{ tipo: 'grupo' | 'subgrupo'; id: string; label: string } | null>(null)
+  // Importação em lote (pasta-mãe → 1 pasta por TAG → …Certificado.pdf)
+  const [impProgresso, setImpProgresso] = useState<string | null>(null)
+  const [impRelatorio, setImpRelatorio] = useState<RelatorioImport | null>(null)
+
+  async function importarPastaMae() {
+    const api = (window as unknown as { electronAPI?: LabAPI }).electronAPI
+    if (!api?.scanCertificados || !api?.browseFolder) {
+      alert('Disponível apenas no aplicativo (Electron).')
+      return
+    }
+    const sel = await api.browseFolder('Pasta-mãe — uma subpasta por TAG, cada uma com o …Certificado.pdf')
+    if (!sel || sel.canceled || !sel.folderPath) return
+    try {
+      setImpProgresso('Lendo os certificados das pastas…')
+      const scan = await api.scanCertificados(sel.folderPath)
+      if (!scan.ok || !scan.resultados) { setImpProgresso(null); alert(scan.error || 'Falha ao ler a pasta-mãe.'); return }
+      setImpProgresso(`Cadastrando ${scan.resultados.length} TAG(s)…`)
+      const r = await fetch('/api/equipamentos/importar-lote', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itens: scan.resultados }),
+      })
+      const rel = await r.json()
+      if (!r.ok) { setImpProgresso(null); alert(rel.error || 'Falha na importação.'); return }
+      setImpRelatorio(rel as RelatorioImport)
+      // Recarrega a lista de equipamentos
+      fetch('/api/equipamentos').then(x => x.json()).then(e => setEquips(Array.isArray(e) ? e : [])).catch(() => {})
+    } catch (e) {
+      alert('Erro: ' + String(e))
+    } finally {
+      setImpProgresso(null)
+    }
+  }
 
   useEffect(() => {
     Promise.all([
@@ -75,11 +122,59 @@ export default function EquipamentosPage() {
           <Link href="/equipamentos/novo" className="btn-primary">
             <Plus size={13}/> Novo Equipamento
           </Link>
+          <button type="button" onClick={importarPastaMae} disabled={!!impProgresso} className="btn-secondary">
+            {impProgresso ? <Loader2 size={13} className="animate-spin"/> : <FolderInput size={13}/>}
+            {impProgresso ? 'Importando…' : 'Importar pasta-mãe'}
+          </button>
           <Link href="/checagens/nova" className="btn-secondary">
             <Plus size={13}/> Nova Checagem
           </Link>
         </div>
       </div>
+
+      {impProgresso && (
+        <div className="mb-4 card px-4 py-2.5 flex items-center gap-2 text-[12px] text-white/70">
+          <Loader2 size={14} className="animate-spin text-teal"/> {impProgresso}
+        </div>
+      )}
+
+      {impRelatorio && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setImpRelatorio(null)}>
+          <div className="card w-full max-w-lg max-h-[80vh] overflow-y-auto p-5" onClick={e => e.stopPropagation()}>
+            <h3 className="font-display font-semibold text-[15px] text-white mb-1">Importação concluída</h3>
+            <p className="text-[11px] text-white/40 mb-4">{impRelatorio.total} pasta(s) processada(s)</p>
+            <div className="space-y-3 text-[12px]">
+              {impRelatorio.sucessos.length > 0 && (
+                <div>
+                  <p className="flex items-center gap-1.5 text-green-400 font-medium mb-1"><CheckCircle2 size={14}/> Cadastrados ({impRelatorio.sucessos.length})</p>
+                  <div className="flex flex-wrap gap-1">{impRelatorio.sucessos.map(t => <span key={t} className="tag-chip">{t}</span>)}</div>
+                </div>
+              )}
+              {impRelatorio.atualizados.length > 0 && (
+                <div>
+                  <p className="flex items-center gap-1.5 text-teal font-medium mb-1"><CheckCircle2 size={14}/> Já existiam — certificado anexado ({impRelatorio.atualizados.length})</p>
+                  <div className="flex flex-wrap gap-1">{impRelatorio.atualizados.map(t => <span key={t} className="tag-chip">{t}</span>)}</div>
+                </div>
+              )}
+              {impRelatorio.pulados.length > 0 && (
+                <div>
+                  <p className="flex items-center gap-1.5 text-amber-400 font-medium mb-1"><AlertTriangle size={14}/> Cadastrar manualmente — não-LABELO ({impRelatorio.pulados.length})</p>
+                  <ul className="space-y-0.5">{impRelatorio.pulados.map((p, i) => <li key={i} className="text-white/60"><b className="text-amber-300/80">{p.tag}</b> — {p.motivo}</li>)}</ul>
+                </div>
+              )}
+              {impRelatorio.erros.length > 0 && (
+                <div>
+                  <p className="flex items-center gap-1.5 text-red-400 font-medium mb-1"><XCircle size={14}/> Falhas ({impRelatorio.erros.length})</p>
+                  <ul className="space-y-0.5">{impRelatorio.erros.map((e, i) => <li key={i} className="text-white/60"><b className="text-red-300/80">{e.folder}</b> — {e.motivo}</li>)}</ul>
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end mt-5">
+              <button type="button" onClick={() => setImpRelatorio(null)} className="btn-primary">Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Grupos */}
       {grupos.length > 0 && (

@@ -55,6 +55,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Extração de texto de PDF (pdf-parse via main process)
   extractPdfText:  (base64)  => ipcRenderer.invoke('pdf:extract-text', { base64 }),
   extractPdfLayout:(base64)  => ipcRenderer.invoke('pdf:extract-layout', { base64 }),
+  scanCertificados:(pastaMae)=> ipcRenderer.invoke('equip:scan-certificados', { pastaMae }),
   extractPdfPage1: (base64)  => ipcRenderer.invoke('pdf:extract-page1', { base64 }),
 
   // Follow-up PDF direto

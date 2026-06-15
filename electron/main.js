@@ -918,45 +918,90 @@ ipcMain.handle('shell:open-path', async (_, { path: p }) => {
 /* Layout posicionado: cada item de texto com (x,y). Usado para reconstruir
    tabelas de PDF gerados por Excel (ex.: FOR 6400), onde o texto linear vem
    fora de ordem mas a grade por coordenadas é fiel. */
+// Lê texto (agrupado em linhas) + layout (itens com x,y) de um PDF numa única
+// passada de pdf-parse. Compartilhado pelo extract-layout e pelo scan em lote.
+async function pdfTextLayout(pdfBuffer) {
+  const pdfParse = require('pdf-parse')
+  const items = []
+  const pages = []
+  let pageIdx = 0
+  await pdfParse(pdfBuffer, {
+    pagerender: (pageData) =>
+      pageData.getTextContent({ normalizeWhitespace: false, disableCombineTextItems: false }).then(tc => {
+        const p = pageIdx++
+        const list = tc.items || []
+        for (const it of list) {
+          const s = (it.str || '').trim()
+          if (s) items.push({ s, x: Math.round(it.transform[4]), y: Math.round(it.transform[5]), page: p })
+        }
+        const sorted = [...list].sort((a, b) => b.transform[5] - a.transform[5])
+        const lineGroups = []; let curGroup = []; let curY = null
+        for (const item of sorted) {
+          const y = item.transform[5]
+          if (curY === null || curY - y > 4) { if (curGroup.length) lineGroups.push(curGroup); curGroup = []; curY = y }
+          const fsz = Math.abs(item.transform[0]) || 8
+          const end = item.transform[4] + (item.width > 0 ? item.width : item.str.length * fsz * 0.55)
+          curGroup.push({ x: item.transform[4], str: item.str, end })
+        }
+        if (curGroup.length) lineGroups.push(curGroup)
+        const lines = lineGroups.map(grp => {
+          const g = grp.sort((a, b) => a.x - b.x); let line = ''; let prevEnd = null
+          for (const it of g) { if (prevEnd !== null && it.x - prevEnd > 15) line += '\t'; line += it.str; prevEnd = it.end }
+          return line
+        })
+        pages.push(lines.filter(l => l.trim()).join('\n'))
+        return ''
+      }),
+  })
+  return { items, text: pages.join('\n\n') }
+}
+
 ipcMain.handle('pdf:extract-layout', async (_, { base64 }) => {
   try {
-    const pdfBuffer = Buffer.from(base64, 'base64')
-    const pdfParse  = require('pdf-parse')
-    const items = []
-    const pages = []
-    let pageIdx = 0
-    await pdfParse(pdfBuffer, {
-      pagerender: (pageData) =>
-        pageData.getTextContent({ normalizeWhitespace: false, disableCombineTextItems: false }).then(tc => {
-          const p = pageIdx++
-          const list = tc.items || []
-          for (const it of list) {
-            const s = (it.str || '').trim()
-            if (s) items.push({ s, x: Math.round(it.transform[4]), y: Math.round(it.transform[5]), page: p })
-          }
-          // Texto agrupado em linhas (mesma lógica do extract-text) — devolve junto
-          // para evitar uma 2ª passada de pdf-parse (que travava a UI).
-          const sorted = [...list].sort((a, b) => b.transform[5] - a.transform[5])
-          const lineGroups = []; let curGroup = []; let curY = null
-          for (const item of sorted) {
-            const y = item.transform[5]
-            if (curY === null || curY - y > 4) { if (curGroup.length) lineGroups.push(curGroup); curGroup = []; curY = y }
-            const fsz = Math.abs(item.transform[0]) || 8
-            const end = item.transform[4] + (item.width > 0 ? item.width : item.str.length * fsz * 0.55)
-            curGroup.push({ x: item.transform[4], str: item.str, end })
-          }
-          if (curGroup.length) lineGroups.push(curGroup)
-          const lines = lineGroups.map(grp => {
-            const g = grp.sort((a, b) => a.x - b.x); let line = ''; let prevEnd = null
-            for (const it of g) { if (prevEnd !== null && it.x - prevEnd > 15) line += '\t'; line += it.str; prevEnd = it.end }
-            return line
-          })
-          pages.push(lines.filter(l => l.trim()).join('\n'))
-          return ''
-        }),
-    })
-    return { ok: true, items, text: pages.join('\n\n') }
+    const { items, text } = await pdfTextLayout(Buffer.from(base64, 'base64'))
+    return { ok: true, items, text }
   } catch (err) { return { ok: false, error: String(err), items: [], text: '' } }
+})
+
+// Procura recursivamente o "…Certificado.pdf" dentro da pasta de uma TAG.
+// Prioriza arquivo terminando em "Certificado.pdf"; senão, qualquer PDF.
+function findCertPdf(dir, depth) {
+  depth = depth || 0
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true })
+    const direct = entries.find(e => e.isFile() && /certificado\.pdf$/i.test(e.name))
+    if (direct) return path.join(dir, direct.name)
+    const anyPdf = entries.find(e => e.isFile() && /\.pdf$/i.test(e.name))
+    if (depth < 3) {
+      for (const e of entries) if (e.isDirectory()) {
+        const f = findCertPdf(path.join(dir, e.name), depth + 1)
+        if (f) return f
+      }
+    }
+    return anyPdf ? path.join(dir, anyPdf.name) : null
+  } catch { return null }
+}
+
+// Cadastro em lote: recebe a pasta-mãe (1 subpasta por TAG), acha o
+// "…Certificado.pdf" de cada uma e devolve {folder, certPath, text, items}.
+// O parse/validação (LABELO) e a persistência são feitos pela rota Next.
+ipcMain.handle('equip:scan-certificados', async (_, { pastaMae }) => {
+  try {
+    if (!pastaMae || !fs.existsSync(pastaMae)) return { ok: false, error: 'Pasta inválida' }
+    const subs = fs.readdirSync(pastaMae, { withFileTypes: true }).filter(d => d.isDirectory())
+    if (!subs.length) return { ok: false, error: 'A pasta-mãe não tem subpastas (uma por TAG).' }
+    const resultados = []
+    for (const sub of subs) {
+      const dir = path.join(pastaMae, sub.name)
+      const certPath = findCertPdf(dir)
+      if (!certPath) { resultados.push({ folder: sub.name, certPath: null, error: 'Sem Certificado.pdf' }); continue }
+      try {
+        const { items, text } = await pdfTextLayout(fs.readFileSync(certPath))
+        resultados.push({ folder: sub.name, certPath, text, items })
+      } catch (e) { resultados.push({ folder: sub.name, certPath, error: 'Falha ao ler PDF: ' + String(e) }) }
+    }
+    return { ok: true, resultados }
+  } catch (err) { return { ok: false, error: String(err) } }
 })
 
 ipcMain.handle('pdf:extract-text', async (_, { base64 }) => {
