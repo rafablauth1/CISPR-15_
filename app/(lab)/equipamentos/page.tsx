@@ -7,6 +7,8 @@ import { fmt } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { EquipamentoEMC, GrupoId } from '@/lib/equipamentos/tipos'
 import { GRUPO_CORES } from '@/lib/grupos-icons'
+import type { Taxonomia } from '@/lib/taxonomia/tipos'
+import { siglaDaTag } from '@/lib/taxonomia/tipos'
 
 interface Grupo {
   id: GrupoId
@@ -48,8 +50,9 @@ function StatusPill({ status }: { status: string }) {
 export default function EquipamentosPage() {
   const [equips, setEquips] = useState<EquipamentoEMC[]>([])
   const [grupos, setGrupos] = useState<Grupo[]>([])
-  // Filtro ativo: por grupo (card) ou subgrupo (badge)
-  const [filtro, setFiltro] = useState<{ tipo: 'grupo' | 'subgrupo'; id: string; label: string } | null>(null)
+  const [tax, setTax] = useState<Taxonomia>({ areas: [], siglas: [], tipos: [] })
+  // Filtro ativo: por grupo (card), subgrupo (badge) ou sigla (3 letras da TAG)
+  const [filtro, setFiltro] = useState<{ tipo: 'grupo' | 'subgrupo' | 'sigla'; id: string; label: string } | null>(null)
   // Importação em lote (pasta-mãe → 1 pasta por TAG → …Certificado.pdf)
   const [impProgresso, setImpProgresso] = useState<string | null>(null)
   const [impRelatorio, setImpRelatorio] = useState<RelatorioImport | null>(null)
@@ -87,9 +90,11 @@ export default function EquipamentosPage() {
     Promise.all([
       fetch('/api/equipamentos').then(r => r.json()),
       fetch('/api/grupos').then(r => r.json()),
-    ]).then(([e, g]) => {
+      fetch('/api/taxonomia').then(r => r.json()),
+    ]).then(([e, g, t]) => {
       setEquips(Array.isArray(e) ? e : [])
       setGrupos(Array.isArray(g) ? g : [])
+      if (t && !t.error) setTax({ areas: t.areas ?? [], siglas: t.siglas ?? [], tipos: t.tipos ?? [] })
     }).catch(() => {})
   }, [])
 
@@ -108,7 +113,23 @@ export default function EquipamentosPage() {
     ? equips
     : filtro.tipo === 'grupo'
       ? equips.filter(e => e.grupoId === filtro.id)
-      : equips.filter(e => e.subgrupoId === filtro.id)
+      : filtro.tipo === 'sigla'
+        ? equips.filter(e => siglaDaTag(e.tag) === filtro.id)
+        : equips.filter(e => e.subgrupoId === filtro.id)
+
+  // Siglas presentes nas TAGs (3 letras finais) + significado/área da taxonomia
+  const siglasPresentes = (() => {
+    const cont = new Map<string, number>()
+    for (const e of equips) { const s = siglaDaTag(e.tag); if (s) cont.set(s, (cont.get(s) ?? 0) + 1) }
+    return [...cont.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([sigla, n]) => {
+      const def = tax.siglas.find(x => x.sigla === sigla)
+      const area = def ? tax.areas.find(a => a.id === def.areaId) : undefined
+      return { sigla, n, significado: def?.significado, cor: area ? GRUPO_CORES[area.cor] : '#94A3B8' }
+    })
+  })()
+  function toggleSigla(id: string, label: string) {
+    setFiltro(f => (f?.tipo === 'sigla' && f.id === id) ? null : { tipo: 'sigla', id, label })
+  }
 
   return (
     <div>
@@ -173,6 +194,31 @@ export default function EquipamentosPage() {
               <button type="button" onClick={() => setImpRelatorio(null)} className="btn-primary">Fechar</button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Siglas das TAGs (laboratórios) — filtro rápido */}
+      {siglasPresentes.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap mb-6">
+          <span className="text-[10px] font-mono uppercase tracking-widest text-white/30 mr-1">Siglas:</span>
+          {siglasPresentes.map(s => {
+            const ativo = filtro?.tipo === 'sigla' && filtro.id === s.sigla
+            return (
+              <button key={s.sigla} type="button"
+                onClick={() => toggleSigla(s.sigla, s.significado ? `${s.sigla} · ${s.significado}` : s.sigla)}
+                title={s.significado || 'Sigla não cadastrada em Áreas & Siglas'}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-mono transition-all"
+                style={{
+                  background: ativo ? `${s.cor}22` : 'rgba(255,255,255,0.03)',
+                  color: ativo ? s.cor : 'rgba(255,255,255,0.55)',
+                  border: `1px solid ${ativo ? s.cor + '66' : 'rgba(255,255,255,0.08)'}`,
+                }}>
+                <span className="w-1.5 h-1.5 rounded-full" style={{ background: s.cor }}/>
+                {s.sigla}
+                <span className="opacity-50">{s.n}</span>
+              </button>
+            )
+          })}
         </div>
       )}
 
