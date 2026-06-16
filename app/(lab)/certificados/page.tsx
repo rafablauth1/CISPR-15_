@@ -31,6 +31,12 @@ export default function CertificadosPage() {
     setCerts(p => p.filter(c => c.id !== id))
   }
 
+  async function excluirTodos() {
+    if (!confirm(`Excluir TODOS os ${certs.length} certificados? Esta ação não pode ser desfeita.`)) return
+    const r = await fetch('/api/certificados', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ all: true }) })
+    if (r.ok) setCerts([]); else alert('Falha ao excluir.')
+  }
+
   // Laboratórios presentes (para o filtro)
   const labs = (() => {
     const m = new Map<string, number>()
@@ -55,9 +61,17 @@ export default function CertificadosPage() {
           <h1 className="page-title">Certificados de Calibração</h1>
           <p className="page-sub">Gerencie certificados com grades de correção para interpolação</p>
         </div>
-        <Link href="/certificados/novo" className="btn-primary">
-          <Plus size={14}/> Novo certificado
-        </Link>
+        <div className="flex items-center gap-2">
+          {certs.length > 0 && (
+            <button type="button" onClick={excluirTodos}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] text-red-300/80 border border-red-500/30 hover:bg-red-500/15 transition-all">
+              <Trash2 size={13}/> Excluir todos
+            </button>
+          )}
+          <Link href="/certificados/novo" className="btn-primary">
+            <Plus size={14}/> Novo certificado
+          </Link>
+        </div>
       </div>
 
       {/* Busca + filtros */}

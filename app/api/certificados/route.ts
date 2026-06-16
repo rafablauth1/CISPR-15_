@@ -27,3 +27,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: String(e) }, { status: 500 })
   }
 }
+
+// Exclusão em massa: { all: true } apaga todos; { ids:[...] } apaga os listados.
+export async function DELETE(req: NextRequest) {
+  try {
+    const body = (await req.json().catch(() => ({}))) as { all?: boolean; ids?: string[] }
+    if (body.all) { escreverJSON(ARQUIVO, []); return NextResponse.json({ ok: true, restantes: 0 }) }
+    const set = new Set(body.ids ?? [])
+    const lista = lerJSON<Certificado[]>(ARQUIVO, [])
+    const nova = lista.filter(c => !set.has(c.id))
+    escreverJSON(ARQUIVO, nova)
+    return NextResponse.json({ ok: true, restantes: nova.length })
+  } catch (e: unknown) {
+    return NextResponse.json({ error: String(e) }, { status: 500 })
+  }
+}

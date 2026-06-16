@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { Trash2 } from 'lucide-react'
 import type { EquipamentoEMC } from '@/lib/equipamentos/tipos'
 import type { Certificado } from '@/lib/certificados/tipos'
 
@@ -22,6 +23,13 @@ export default function GrandezasPage() {
     fetch('/api/equipamentos').then(r => r.json()).then(e => setEquips(Array.isArray(e) ? e : [])).catch(() => {})
     fetch('/api/certificados').then(r => r.json()).then(c => setCerts(Array.isArray(c) ? c : [])).catch(() => {})
   }, [])
+
+  async function limparTodas() {
+    if (!confirm('Limpar as grandezas de TODOS os equipamentos? Elas voltam quando você reimportar os certificados.')) return
+    const r = await fetch('/api/equipamentos/limpar-grandezas', { method: 'POST' })
+    if (r.ok) fetch('/api/equipamentos').then(x => x.json()).then(e => setEquips(Array.isArray(e) ? e : [])).catch(() => {})
+    else alert('Falha ao limpar.')
+  }
 
   // Catálogo ÚNICO de grandezas (não por equipamento/TAG): junta todas, deduplica
   // por nome e agrega a unidade + os parâmetros associados (vindos dos certificados).
@@ -59,7 +67,15 @@ export default function GrandezasPage() {
           <h1 className="page-title">Grandezas metrológicas</h1>
           <p className="page-sub">Catálogo único · com os parâmetros associados (independente de equipamento)</p>
         </div>
-        <span className="text-[11px] text-white/30 font-mono self-center">{filtrado.length} grandeza(s)</span>
+        <div className="flex items-center gap-3 self-center">
+          <span className="text-[11px] text-white/30 font-mono">{filtrado.length} grandeza(s)</span>
+          {catalogo.length > 0 && (
+            <button type="button" onClick={limparTodas}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] text-red-300/80 border border-red-500/30 hover:bg-red-500/15 transition-all">
+              <Trash2 size={13}/> Limpar todas
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="mb-4">
