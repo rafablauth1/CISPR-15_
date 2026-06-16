@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { Plus, ChevronRight, Zap, Gauge, Waves, Radio, SlidersHorizontal, Thermometer, FolderInput, Loader2, CheckCircle2, AlertTriangle, XCircle, ArrowUpDown, ArrowUp, ArrowDown, FileWarning, X, Search, Trash2 } from 'lucide-react'
 import { FilterDropdown } from '@/components/FilterDropdown'
-import { fmt } from '@/lib/utils'
+import { fmt, diasAte } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { EquipamentoEMC, GrupoId } from '@/lib/equipamentos/tipos'
 import { GRUPO_CORES } from '@/lib/grupos-icons'
@@ -69,6 +69,20 @@ function pendenciasEquip(e: EquipamentoEMC): string[] {
   return p
 }
 
+// Calibração vencida? (status manual ou data de próxima calibração no passado)
+function calibVencida(e: EquipamentoEMC): boolean {
+  if (e.status === 'calibrar') return true
+  const d = diasAte(e.proximaCalibracao)
+  return typeof d === 'number' && d < 0
+}
+
+// Resumo de pendências do equipamento.
+function infoPendencia(e: EquipamentoEMC): { vencido: boolean; faltam: string[]; tem: boolean } {
+  const vencido = calibVencida(e)
+  const faltam = pendenciasEquip(e)
+  return { vencido, faltam, tem: vencido || faltam.length > 0 }
+}
+
 export default function EquipamentosPage() {
   const [equips, setEquips] = useState<EquipamentoEMC[]>([])
   const [grupos, setGrupos] = useState<Grupo[]>([])
@@ -92,6 +106,7 @@ export default function EquipamentosPage() {
   const [abaEquip, setAbaEquip] = useState<'lista' | 'rascunho'>('lista')
   const [sel, setSel] = useState<string[]>([])   // ids selecionados p/ exclusão em lote
   const [selRasc, setSelRasc] = useState<string[]>([])  // folders selecionados no rascunho
+  const [rascSort, setRascSort] = useState<'asc' | 'desc'>('asc')  // ordenação do rascunho por motivo
   const [porPagina, setPorPagina] = useState(50)
   const [pagina, setPagina] = useState(1)
 
@@ -176,7 +191,7 @@ export default function EquipamentosPage() {
 
   const temFiltro = fAreas.length + fSiglas.length + fGrupos.length + fSubs.length > 0 || soPendentes || !!busca.trim()
   const limpar = () => { setFAreas([]); setFSiglas([]); setFGrupos([]); setFSubs([]); setSoPendentes(false); setBusca('') }
-  const totalPendentes = equips.filter(e => pendenciasEquip(e).length > 0).length
+  const totalPendentes = equips.filter(e => infoPendencia(e).tem).length
 
   // Área de um equipamento = área da sigla da sua TAG (via taxonomia)
   const areaDoEquip = (e: EquipamentoEMC) =>
@@ -213,7 +228,7 @@ export default function EquipamentosPage() {
       (fSiglas.length === 0 || fSiglas.includes(siglaDaTag(e.tag))) &&
       (fGrupos.length === 0 || fGrupos.includes(e.grupoId)) &&
       (fSubs.length   === 0 || fSubs.includes(e.subgrupoId)) &&
-      (!soPendentes || pendenciasEquip(e).length > 0) &&
+      (!soPendentes || infoPendencia(e).tem) &&
       (!q || e.tag.toLowerCase().includes(q) || e.nome.toLowerCase().includes(q)),
     )
     const dir = sortDir === 'asc' ? 1 : -1
@@ -377,11 +392,17 @@ export default function EquipamentosPage() {
                       onChange={() => setSelRasc(rascSelTodos ? [] : rascunho.map(keyRasc))}
                       className="accent-teal cursor-pointer" title="Selecionar todos"/>
                   </th>
-                  <th className="w-32">TAG / Pasta</th><th>Motivo</th><th className="w-24">Quando</th><th className="w-16"></th>
+                  <th className="w-32">TAG / Pasta</th>
+                  <th className="cursor-pointer select-none hover:text-white/80" onClick={() => setRascSort(d => d === 'asc' ? 'desc' : 'asc')}>
+                    <span className="inline-flex items-center gap-1">Motivo
+                      {rascSort === 'asc' ? <ArrowUp size={11}/> : <ArrowDown size={11}/>}
+                    </span>
+                  </th>
+                  <th className="w-24">Quando</th><th className="w-16"></th>
                 </tr>
               </thead>
               <tbody>
-                {rascunho.map((r, i) => (
+                {[...rascunho].sort((a, b) => (a.motivo || '').localeCompare(b.motivo || '', 'pt') * (rascSort === 'asc' ? 1 : -1)).map((r, i) => (
                   <tr key={i} className={cn('tbl-row', selRasc.includes(keyRasc(r)) && 'bg-teal/5')}>
                     <td className="text-center">
                       <input type="checkbox" checked={selRasc.includes(keyRasc(r))} onChange={() => toggleSelRasc(keyRasc(r))}
@@ -484,6 +505,7 @@ export default function EquipamentosPage() {
                 <SortTh k="sub" label="Subgrupo"/>
                 <SortTh k="prox" label="Próx. Calibração"/>
                 <SortTh k="status" label="Status"/>
+                <th>Pendências</th>
                 <th></th>
               </tr>
             </thead>
@@ -492,24 +514,14 @@ export default function EquipamentosPage() {
                 const Icon = ICONES[e.grupoId] ?? Gauge
                 const g    = grupos.find(g => g.id === e.grupoId)
                 const cor  = GRUPO_CORES[g?.cor ?? 'gray']
-                const pend = pendenciasEquip(e)
+                const p = infoPendencia(e)
                 return (
                   <tr key={e.id} className={cn('tbl-row', sel.includes(e.id) && 'bg-teal/5')}>
                     <td className="text-center">
                       <input type="checkbox" checked={sel.includes(e.id)} onChange={() => toggleSel(e.id)}
                         className="accent-teal cursor-pointer"/>
                     </td>
-                    <td>
-                      <span className="inline-flex items-center gap-1.5">
-                        <span className="tag-chip">{e.tag}</span>
-                        {pend.length > 0 && (
-                          <span title={`Cadastro incompleto — falta: ${pend.join(', ')}`}
-                            className="inline-flex items-center text-amber-400">
-                            <AlertTriangle size={13}/>
-                          </span>
-                        )}
-                      </span>
-                    </td>
+                    <td><span className="tag-chip">{e.tag}</span></td>
                     <td className="font-medium text-white/80">{e.nome}</td>
                     <td>
                       <span className="inline-flex items-center gap-1.5">
@@ -520,6 +532,23 @@ export default function EquipamentosPage() {
                     <td><span className="text-[10px] text-white/40 font-mono">{e.subgrupoId}</span></td>
                     <td className="font-mono text-[11px]">{fmt(e.proximaCalibracao)}</td>
                     <td><StatusPill status={e.status}/></td>
+                    <td>
+                      {!p.tem ? (
+                        <span className="text-[11px] text-white/20">—</span>
+                      ) : (
+                        <div className="flex flex-wrap gap-1">
+                          {p.vencido && (
+                            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-red-500/15 text-red-300 border border-red-500/30">Vencido</span>
+                          )}
+                          {p.faltam.map(f => (
+                            <span key={f} title={`Falta: ${f}`}
+                              className="text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-amber-400/12 text-amber-300/90 border border-amber-400/25">
+                              falta {f}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </td>
                     <td>
                       <Link href={`/equipamentos/${e.id}`} className="text-white/25 hover:text-white transition-colors">
                         <ChevronRight size={14}/>
