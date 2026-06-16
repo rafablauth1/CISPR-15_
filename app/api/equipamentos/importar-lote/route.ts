@@ -90,6 +90,7 @@ export async function POST(req: NextRequest) {
     const erros: { folder: string; motivo: string }[] = [] // sem PDF / ilegível
     const novosCerts: Certificado[] = []
     const rascunho: RascunhoItem[] = []
+    const foldersOk = new Set<string>()   // pastas cadastradas nesta rodada (limpa do rascunho)
     const agora = new Date().toISOString()
 
     let seq = Date.now()
@@ -106,25 +107,30 @@ export async function POST(req: NextRequest) {
       const dados = parsearDadosPadrao(it.text)
       // Radar: o PDF tem um padrão de TAG (ex.: 1234EMC)? Então é cadastrável.
       const temPadraoTag = RE_TAG.test(it.text)
+      // TAG do padrão solto no texto (último recurso, usado na 2ª varredura).
+      const tagSolta = (() => { const m = it.text.match(RE_TAG); return m ? (m[1] + m[2]).toUpperCase() : '' })()
 
       // TAG: vem do certificado (tem a sigla); pasta é só reserva. Exige sufixo de letras.
       const tag = resolverTag(it.folder, dados.tag, it.text)
-      if (!tag) {
-        const motivo = 'TAG não encontrada (padrão 1234ABC ausente no certificado)'
-        pulados.push({ tag: it.folder, motivo })
-        rascunho.push({ tag: it.folder, folder: it.folder, motivo, certPath: it.certPath || undefined, em: agora, cadastravel: temPadraoTag })
-        continue
-      }
 
-      // 2ª VARREDURA (modo amostra): cadastra SÓ o equipamento pelos dados da
-      // folha (ex.: análise crítica), sem certificado e sem grandeza.
+      // 2ª VARREDURA (modo amostra): cadastra SÓ o equipamento pelos dados da folha
+      // (ex.: análise crítica / cert. de terceiros), sem certificado e sem grandeza.
+      // Usa extração de TAG mais flexível (rótulos genéricos + padrão solto).
       if (soAmostra) {
         const g = extrairMetadadosGenerico(it.text)
-        if (byTag.has(tag)) { atualizados.push(tag); continue }
+        const tagA = tag || resolverTag(it.folder, g.tag, it.text) || tagSolta
+        if (!tagA) {
+          const motivo = 'Sem TAG identificável (nem pelos dados da amostra)'
+          pulados.push({ tag: it.folder, motivo })
+          rascunho.push({ tag: it.folder, folder: it.folder, motivo, certPath: it.certPath || undefined, em: agora, cadastravel: false })
+          continue
+        }
+        foldersOk.add(it.folder)
+        if (byTag.has(tagA)) { atualizados.push(tagA); continue }
         const { grupoId, subgrupoId } = inferTipo(`${g.nome || dados.nome || ''} ${it.folder}`)
         const equipA: EquipamentoEMC = {
-          id: novoId(), tag,
-          nome: limparCampo(g.nome || dados.nome, 80) || tag,
+          id: novoId(), tag: tagA,
+          nome: limparCampo(g.nome || dados.nome, 80) || tagA,
           grupoId, subgrupoId, status: 'ativo', grandezas: [],
           ultimaCalibracao: '', proximaCalibracao: '', intervaloCalibracao: 12,
           fabricante: limparCampo(g.fabricante || dados.fabricante, 50),
@@ -132,8 +138,15 @@ export async function POST(req: NextRequest) {
           serie: limparCampo(g.serie || dados.serie, 30),
           obs: 'Cadastrado pela 2ª varredura (dados da amostra, sem certificado)',
         }
-        equipamentos.push(equipA); byTag.set(tag, equipA)
-        sucessos.push(tag)
+        equipamentos.push(equipA); byTag.set(tagA, equipA)
+        sucessos.push(tagA)
+        continue
+      }
+
+      if (!tag) {
+        const motivo = 'TAG não encontrada (padrão 1234ABC ausente no certificado)'
+        pulados.push({ tag: it.folder, motivo })
+        rascunho.push({ tag: it.folder, folder: it.folder, motivo, certPath: it.certPath || undefined, em: agora, cadastravel: temPadraoTag })
         continue
       }
 
@@ -217,6 +230,7 @@ export async function POST(req: NextRequest) {
         equip.grandezas = mesclarGrandezas(equip.grandezas, grandezasDoCertificado(cert))
       }
 
+      foldersOk.add(it.folder)
       if (isNovo) sucessos.push(tag)
       else atualizados.push(tag)
     }
@@ -227,12 +241,12 @@ export async function POST(req: NextRequest) {
 
     // Rascunho: acumula as não-cadastradas (dedupe por folder), e remove as que
     // acabaram de ser cadastradas com sucesso.
-    if (rascunho.length || sucessos.length || atualizados.length) {
+    if (rascunho.length || foldersOk.size) {
       const prev = lerJSON<RascunhoItem[]>(ARQ_RASCUNHO, [])
       const cadastradas = new Set([...sucessos, ...atualizados])
       const map = new Map<string, RascunhoItem>()
       for (const r of [...prev, ...rascunho]) {
-        if (cadastradas.has(r.tag)) continue
+        if (cadastradas.has(r.tag) || foldersOk.has(r.folder)) continue   // já cadastrada
         map.set(r.folder || r.tag, r)
       }
       escreverJSON(ARQ_RASCUNHO, [...map.values()])
