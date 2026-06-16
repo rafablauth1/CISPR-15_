@@ -418,12 +418,21 @@ export function classificarCertificadoLabelo(texto: string): {
 }
 
 /**
- * Resolve a TAG do equipamento priorizando o NOME DA PASTA (que é a TAG), com
- * o OCR como fallback. Exige sufixo de 2–4 letras (a sigla). Sem sufixo → null
- * (não cadastra: provável erro de leitura).
+ * Resolve a TAG do equipamento. A TAG COM a sigla (3 letras finais) está no
+ * PDF — o nome da pasta normalmente é só o numeral. Por isso prioriza o que foi
+ * lido do CERTIFICADO (ocrTag), com a pasta apenas como reserva.
+ * Exige sufixo de 2–4 letras (a sigla). Sem sufixo em lugar nenhum → null.
  */
-export function resolverTag(folder: string, ocrTag?: string): string | null {
-  for (const cand of [folder, ocrTag]) {
+export function resolverTag(folder: string, ocrTag?: string, textoCert?: string): string | null {
+  const acharNoTexto = (t?: string): string | null => {
+    if (!t) return null
+    // procura "TAG ... 1234EMC" ou um "<num><2-4 letras>" próximo de "TAG"
+    const m = t.match(/\bTAG\b[^0-9]{0,12}(\d{2,6})\s*([A-Za-z]{2,4})\b/i)
+    if (m) return (m[1] + m[2]).toUpperCase()
+    return null
+  }
+  // 1) TAG lida do certificado (com sigla)  2) reforço no texto do PDF  3) pasta
+  for (const cand of [ocrTag, acharNoTexto(textoCert), folder]) {
     const c = (cand || '').toUpperCase().replace(/\s+/g, '')
     const m = c.match(/(\d{2,6}[A-Z]{2,4})(?![A-Z0-9])/)
     if (m) return m[1]

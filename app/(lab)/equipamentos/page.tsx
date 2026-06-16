@@ -86,6 +86,9 @@ export default function EquipamentosPage() {
   const [rascunho, setRascunho] = useState<RascunhoItem[]>([])
   const [abaEquip, setAbaEquip] = useState<'lista' | 'rascunho'>('lista')
   const [sel, setSel] = useState<string[]>([])   // ids selecionados p/ exclusão em lote
+  const [selRasc, setSelRasc] = useState<string[]>([])  // folders selecionados no rascunho
+  const [porPagina, setPorPagina] = useState(50)
+  const [pagina, setPagina] = useState(1)
 
   // Carrega filtros salvos (1×, no mount)
   useEffect(() => {
@@ -107,6 +110,9 @@ export default function EquipamentosPage() {
     if (!pronto) return
     try { localStorage.setItem(FILTROS_KEY, JSON.stringify({ fAreas, fSiglas, fGrupos, fSubs, sortKey, sortDir, soPendentes })) } catch {}
   }, [pronto, fAreas, fSiglas, fGrupos, fSubs, sortKey, sortDir, soPendentes])
+
+  // Volta pra página 1 quando o filtro/busca/tamanho muda
+  useEffect(() => { setPagina(1) }, [busca, fAreas, fSiglas, fGrupos, fSubs, soPendentes, porPagina])
 
   function carregarRascunho() {
     fetch('/api/equipamentos/importar-lote').then(r => r.json()).then(d => setRascunho(Array.isArray(d) ? d : [])).catch(() => {})
@@ -202,8 +208,13 @@ export default function EquipamentosPage() {
     return lista
   })()
 
-  // ── Seleção em lote ────────────────────────────────────────────────
-  const idsVisiveis = equipsFiltrados.map(e => e.id)
+  // ── Paginação (usuário escolhe o tamanho) ─────────────────────────
+  const totalPaginas = Math.max(1, Math.ceil(equipsFiltrados.length / porPagina))
+  const pgAtual = Math.min(pagina, totalPaginas)
+  const equipsPagina = equipsFiltrados.slice((pgAtual - 1) * porPagina, pgAtual * porPagina)
+
+  // ── Seleção em lote (marca os da PÁGINA atual) ─────────────────────
+  const idsVisiveis = equipsPagina.map(e => e.id)
   const todosSelecionados = idsVisiveis.length > 0 && idsVisiveis.every(id => sel.includes(id))
   const toggleSel = (id: string) => setSel(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id])
   const toggleTodos = () => setSel(todosSelecionados ? sel.filter(id => !idsVisiveis.includes(id)) : [...new Set([...sel, ...idsVisiveis])])
@@ -214,6 +225,21 @@ export default function EquipamentosPage() {
     const r = await fetch('/api/equipamentos', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) })
     if (r.ok) { setEquips(prev => prev.filter(e => !ids.includes(e.id))); setSel([]) }
     else alert('Falha ao excluir.')
+  }
+
+  // ── Rascunho: seleção + exclusão ──────────────────────────────────
+  const keyRasc = (r: RascunhoItem) => r.folder || r.tag
+  const rascSelTodos = rascunho.length > 0 && rascunho.every(r => selRasc.includes(keyRasc(r)))
+  const toggleSelRasc = (k: string) => setSelRasc(s => s.includes(k) ? s.filter(x => x !== k) : [...s, k])
+  async function excluirRascunho(all: boolean) {
+    const folders = all ? [] : selRasc
+    if (!all && !folders.length) return
+    if (!confirm(all ? `Excluir TODOS os ${rascunho.length} itens do rascunho?` : `Excluir ${folders.length} item(ns) do rascunho?`)) return
+    const r = await fetch('/api/equipamentos/importar-lote', {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(all ? { all: true } : { folders }),
+    })
+    if (r.ok) { setSelRasc([]); carregarRascunho() } else alert('Falha ao limpar rascunho.')
   }
 
   const SortTh = ({ k, label, className }: { k: SortKey; label: string; className?: string }) => (
@@ -306,18 +332,41 @@ export default function EquipamentosPage() {
           </div>
         ) : (
           <div className="card overflow-hidden">
-            <div className="px-4 py-2.5 border-b border-white/5 flex items-center gap-2">
+            <div className="px-4 py-2.5 border-b border-white/5 flex items-center gap-2 flex-wrap">
               <FileWarning size={15} className="text-amber-400"/>
               <span className="text-[12px] text-amber-300/90 font-medium">{rascunho.length} pasta(s) não cadastrada(s)</span>
               <span className="text-[10px] text-white/30">— cadastre manualmente em "Novo Equipamento"</span>
+              <div className="ml-auto flex items-center gap-2">
+                {selRasc.length > 0 && (
+                  <button type="button" onClick={() => excluirRascunho(false)}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] bg-red-500/15 text-red-300 border border-red-500/40 hover:bg-red-500/25 transition-all">
+                    <Trash2 size={12}/> Excluir selecionados ({selRasc.length})
+                  </button>
+                )}
+                <button type="button" onClick={() => excluirRascunho(true)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] text-red-300/80 border border-red-500/30 hover:bg-red-500/15 transition-all">
+                  <Trash2 size={12}/> Excluir todos
+                </button>
+              </div>
             </div>
             <table className="w-full text-[12px]">
               <thead className="tbl-head">
-                <tr><th className="w-32">TAG / Pasta</th><th>Motivo</th><th className="w-24">Quando</th><th className="w-16"></th></tr>
+                <tr>
+                  <th className="w-8 text-center">
+                    <input type="checkbox" checked={rascSelTodos}
+                      onChange={() => setSelRasc(rascSelTodos ? [] : rascunho.map(keyRasc))}
+                      className="accent-teal cursor-pointer" title="Selecionar todos"/>
+                  </th>
+                  <th className="w-32">TAG / Pasta</th><th>Motivo</th><th className="w-24">Quando</th><th className="w-16"></th>
+                </tr>
               </thead>
               <tbody>
                 {rascunho.map((r, i) => (
-                  <tr key={i} className="tbl-row">
+                  <tr key={i} className={cn('tbl-row', selRasc.includes(keyRasc(r)) && 'bg-teal/5')}>
+                    <td className="text-center">
+                      <input type="checkbox" checked={selRasc.includes(keyRasc(r))} onChange={() => toggleSelRasc(keyRasc(r))}
+                        className="accent-teal cursor-pointer"/>
+                    </td>
                     <td><span className="font-mono text-amber-300/80">{r.tag || r.folder}</span></td>
                     <td className="text-white/60">{r.motivo}</td>
                     <td className="font-mono text-[10px] text-white/35">{r.em ? fmt(r.em.slice(0, 10)) : '—'}</td>
@@ -419,7 +468,7 @@ export default function EquipamentosPage() {
               </tr>
             </thead>
             <tbody>
-              {equipsFiltrados.map(e => {
+              {equipsPagina.map(e => {
                 const Icon = ICONES[e.grupoId] ?? Gauge
                 const g    = grupos.find(g => g.id === e.grupoId)
                 const cor  = GRUPO_CORES[g?.cor ?? 'gray']
@@ -461,6 +510,31 @@ export default function EquipamentosPage() {
               })}
             </tbody>
           </table>
+          {/* Paginação */}
+          <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-t border-white/5 flex-wrap">
+            <div className="flex items-center gap-2 text-[11px] text-white/40">
+              <span>Por página:</span>
+              {[25, 50, 100].map(n => (
+                <button key={n} type="button" onClick={() => setPorPagina(n)}
+                  className={cn('px-2 py-0.5 rounded-md font-mono transition-all',
+                    porPagina === n ? 'bg-teal/20 text-teal border border-teal/40' : 'text-white/40 hover:text-white border border-transparent')}>
+                  {n}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-3 text-[11px]">
+              <span className="text-white/40 font-mono">
+                {(pgAtual - 1) * porPagina + 1}–{Math.min(pgAtual * porPagina, equipsFiltrados.length)} de {equipsFiltrados.length}
+              </span>
+              <div className="flex items-center gap-1">
+                <button type="button" disabled={pgAtual <= 1} onClick={() => setPagina(p => Math.max(1, p - 1))}
+                  className="px-2 py-1 rounded-md border border-white/10 hover:border-white/25 disabled:opacity-30 disabled:cursor-not-allowed transition-all">‹</button>
+                <span className="font-mono text-white/50 px-1">{pgAtual}/{totalPaginas}</span>
+                <button type="button" disabled={pgAtual >= totalPaginas} onClick={() => setPagina(p => Math.min(totalPaginas, p + 1))}
+                  className="px-2 py-1 rounded-md border border-white/10 hover:border-white/25 disabled:opacity-30 disabled:cursor-not-allowed transition-all">›</button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
       </>)}

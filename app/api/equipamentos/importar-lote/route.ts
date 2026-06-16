@@ -50,6 +50,21 @@ export async function GET() {
   return NextResponse.json(lerJSON<RascunhoItem[]>(ARQ_RASCUNHO, []))
 }
 
+// Limpa o rascunho: body { all: true } apaga tudo; { folders: [...] } apaga os listados.
+export async function DELETE(req: NextRequest) {
+  try {
+    const body = (await req.json().catch(() => ({}))) as { all?: boolean; folders?: string[] }
+    if (body.all) { escreverJSON(ARQ_RASCUNHO, []); return NextResponse.json({ ok: true, restantes: 0 }) }
+    const alvo = new Set(body.folders ?? [])
+    const prev = lerJSON<RascunhoItem[]>(ARQ_RASCUNHO, [])
+    const nova = prev.filter(r => !alvo.has(r.folder) && !alvo.has(r.tag))
+    escreverJSON(ARQ_RASCUNHO, nova)
+    return NextResponse.json({ ok: true, restantes: nova.length })
+  } catch (e: unknown) {
+    return NextResponse.json({ error: String(e) }, { status: 500 })
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { itens } = (await req.json()) as { itens: ItemScan[] }
@@ -80,10 +95,10 @@ export async function POST(req: NextRequest) {
       }
       const dados = parsearDadosPadrao(it.text)
 
-      // TAG: nome da pasta (é a TAG) com OCR de fallback; precisa do sufixo de letras.
-      const tag = resolverTag(it.folder, dados.tag)
+      // TAG: vem do certificado (tem a sigla); pasta é só reserva. Exige sufixo de letras.
+      const tag = resolverTag(it.folder, dados.tag, it.text)
       if (!tag) {
-        const motivo = 'TAG sem sigla (3 letras finais) — provável erro de leitura'
+        const motivo = 'TAG sem sigla (3 letras finais) — não encontrada no certificado'
         pulados.push({ tag: it.folder, motivo })
         rascunho.push({ tag: it.folder, folder: it.folder, motivo, certPath: it.certPath || undefined, em: agora })
         continue
