@@ -383,22 +383,31 @@ export function parsearMetadadosCertificado(texto: string): {
 }
 
 // ─── Validação de certificado LABELO ──────────────────────────────────────
-// Nº de certificado do LABELO: uma destas letras + 4 dígitos + "/" (ou "-") + ano.
-const LETRAS_LABELO = 'EFRTLVPBJQA'
+// Nº de certificado do LABELO: uma destas letras + número (1–9999) + "/" + ano.
+// União das letras citadas (V L R E F T M + P B J Q A).
+const LETRAS_LABELO = 'ABEFJLMPQRTV'
 
-/** Extrai o número do certificado no padrão LABELO (ex.: "R0047/2025"). */
+/** Extrai o número do certificado no padrão LABELO (ex.: "R0047/2025").
+ *  Tolerante a OCR: letra + 3–5 dígitos + separador (/ . -) + ano (2 ou 4 díg),
+ *  com espaços no meio; a letra não pode estar grudada em outra letra/dígito. */
 export function numeroCertificadoLabelo(texto: string): string | null {
-  const re = new RegExp(`\\b([${LETRAS_LABELO}])\\s?(\\d{4})\\s?[/-]\\s?((?:19|20)\\d{2})\\b`, 'g')
-  const m = re.exec(texto || '')
-  return m ? `${m[1]}${m[2]}/${m[3]}` : null
+  const re = new RegExp(`(?<![A-Za-z0-9])([${LETRAS_LABELO}])\\s?-?\\s?(\\d{1,4})\\s?[/.\\-]\\s?(\\d{2,4})(?![0-9])`, 'gi')
+  let m: RegExpExecArray | null
+  while ((m = re.exec(texto || '')) !== null) {
+    let ano = m[3]
+    if (ano.length === 2) ano = '20' + ano
+    if (ano.length === 4 && +ano >= 1990 && +ano <= 2099) {
+      return `${m[1].toUpperCase()}${m[2]}/${ano}`
+    }
+  }
+  return null
 }
 
 /**
  * Decide se um PDF é mesmo um certificado de calibração do LABELO.
- * Regras (qualquer falha → não cadastra, vai pro rascunho):
  *  - não pode ser formulário interno (FOR 6xxx / Análise Crítica);
- *  - precisa ter nº de certificado no padrão LABELO;
- *  - precisa mencionar LABELO ou o título "Certificado de Calibração".
+ *  - aceita se achar o nº no padrão LABELO, OU se for claramente um certificado
+ *    do LABELO (menção a "LABELO" + título "Certificado de Calibração").
  */
 export function classificarCertificadoLabelo(texto: string): {
   ok: boolean; numero: string | null; motivo?: string
@@ -408,13 +417,14 @@ export function classificarCertificadoLabelo(texto: string): {
     return { ok: false, numero: null, motivo: 'É formulário (FOR / Análise Crítica), não certificado' }
   }
   const numero = numeroCertificadoLabelo(t)
-  if (!numero) {
-    return { ok: false, numero: null, motivo: 'Sem nº de certificado LABELO (ex.: R0047/2025)' }
+  const ehLabelo  = /LABELO/i.test(t)
+  const temTitulo = /certificado\s+de\s+calibra[çc][ãa]o/i.test(t)
+  // Achou o nº no padrão → certificado. Senão, aceita se for nitidamente LABELO.
+  if (numero || (ehLabelo && temTitulo)) return { ok: true, numero }
+  if (!ehLabelo && !temTitulo) {
+    return { ok: false, numero: null, motivo: 'Não parece certificado do LABELO' }
   }
-  if (!/LABELO/i.test(t) && !/certificado\s+de\s+calibra[çc][ãa]o/i.test(t)) {
-    return { ok: false, numero, motivo: 'Não parece certificado do LABELO' }
-  }
-  return { ok: true, numero }
+  return { ok: false, numero: null, motivo: 'Sem nº de certificado LABELO (ex.: R0047/2025)' }
 }
 
 /**

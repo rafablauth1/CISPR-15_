@@ -32,7 +32,12 @@ interface ScanResult {
   error?: string
   resultados?: { folder: string; certPath: string | null; text?: string; items?: unknown[]; error?: string }[]
 }
-type LabAPI = { scanCertificados?: (p: string) => Promise<ScanResult>; browseFolder?: (t: string) => Promise<{ canceled?: boolean; folderPath?: string }> }
+type LabAPI = {
+  scanCertificados?: (p: string) => Promise<ScanResult>
+  listMae?: (p: string) => Promise<{ ok: boolean; error?: string; folders?: { folder: string; dir: string }[] }>
+  scanBatch?: (folders: { folder: string; dir: string }[]) => Promise<ScanResult>
+  browseFolder?: (t: string) => Promise<{ canceled?: boolean; folderPath?: string }>
+}
 
 const ICONES: Record<string, React.ElementType> = {
   'geradores':            Zap,
@@ -133,21 +138,36 @@ export default function EquipamentosPage() {
 
   async function importarPastaMae() {
     const api = (window as unknown as { electronAPI?: LabAPI }).electronAPI
-    if (!api?.scanCertificados || !api?.browseFolder) { alert('Disponível apenas no aplicativo (Electron).'); return }
+    if (!api?.browseFolder || !api?.listMae || !api?.scanBatch) { alert('Disponível apenas no aplicativo (Electron).'); return }
     const sel = await api.browseFolder('Pasta-mãe — uma subpasta por TAG, cada uma com o …Certificado.pdf')
     if (!sel || sel.canceled || !sel.folderPath) return
     try {
-      setImpProgresso('Lendo os certificados das pastas…')
-      const scan = await api.scanCertificados(sel.folderPath)
-      if (!scan.ok || !scan.resultados) { setImpProgresso(null); alert(scan.error || 'Falha ao ler a pasta-mãe.'); return }
-      setImpProgresso(`Cadastrando ${scan.resultados.length} TAG(s)…`)
-      const r = await fetch('/api/equipamentos/importar-lote', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ itens: scan.resultados }),
-      })
-      const rel = await r.json()
-      if (!r.ok) { setImpProgresso(null); alert(rel.error || 'Falha na importação.'); return }
-      setImpRelatorio(rel as RelatorioImport)
+      setImpProgresso('Listando as pastas…')
+      const lista = await api.listMae(sel.folderPath)
+      if (!lista.ok || !lista.folders) { setImpProgresso(null); alert(lista.error || 'Falha ao ler a pasta-mãe.'); return }
+      const folders = lista.folders
+      const total = folders.length
+      // Processa em LOTES: lê os PDFs do lote (Electron) e já cadastra (rota),
+      // mostrando progresso. Evita travar a UI e o POST gigante.
+      const CHUNK = 25
+      const acc: RelatorioImport = { total, sucessos: [], atualizados: [], pulados: [], erros: [] }
+      for (let i = 0; i < total; i += CHUNK) {
+        const lote = folders.slice(i, i + CHUNK)
+        setImpProgresso(`Processando ${Math.min(i + CHUNK, total)}/${total}…`)
+        const scan = await api.scanBatch(lote)
+        if (!scan.ok || !scan.resultados) continue
+        const r = await fetch('/api/equipamentos/importar-lote', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ itens: scan.resultados }),
+        })
+        if (!r.ok) continue
+        const rel = await r.json() as RelatorioImport
+        acc.sucessos.push(...rel.sucessos)
+        acc.atualizados.push(...rel.atualizados)
+        acc.pulados.push(...rel.pulados)
+        acc.erros.push(...rel.erros)
+      }
+      setImpRelatorio(acc)
       fetch('/api/equipamentos').then(x => x.json()).then(e => setEquips(Array.isArray(e) ? e : [])).catch(() => {})
       carregarRascunho()
     } catch (e) { alert('Erro: ' + String(e)) }

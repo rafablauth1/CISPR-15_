@@ -984,41 +984,59 @@ function listarPdfs(dir, depth, acc) {
 function ehCertLabelo(text) {
   if (!text) return false
   if (/\bFOR\s*6\d{3}\b/i.test(text) || /an[áa]lise\s+cr[íi]tica/i.test(text)) return false
-  return /\b[EFRTLVPBJQA]\d{4}\s?[/-]\s?(?:19|20)\d{2}\b/.test(text) && /LABELO/i.test(text)
+  const temNumero = /(?<![A-Za-z0-9])[ABEFJLMPQRTV]\s?-?\s?\d{1,4}\s?[/.\-]\s?\d{2,4}/i.test(text)
+  const temTitulo = /certificado\s+de\s+calibra[çc][ãa]o/i.test(text)
+  return /LABELO/i.test(text) && (temNumero || temTitulo)
 }
 
-// Cadastro em lote: para cada subpasta (TAG), lê os PDFs e escolhe APENAS o que
-// é o certificado do LABELO como base do cadastro. Devolve {folder, certPath,
-// text, items}. Se nenhum for certificado LABELO, devolve o melhor candidato com
-// o texto para a rota explicar o motivo (vai pro rascunho).
+// Lê os PDFs de UMA pasta de TAG e escolhe APENAS o certificado do LABELO como
+// base. Se nenhum for LABELO, devolve o melhor candidato com o texto (a rota
+// explica o motivo → rascunho).
+async function scanUmaPasta(folder, dir) {
+  const pdfs = listarPdfs(dir).sort((a, b) => {
+    const ca = /certificado/i.test(path.basename(a)) ? 0 : 1
+    const cb = /certificado/i.test(path.basename(b)) ? 0 : 1
+    return ca - cb
+  })
+  if (!pdfs.length) return { folder, certPath: null, error: 'Sem PDF na pasta' }
+  let escolhido = null, fallback = null
+  for (const pdf of pdfs) {
+    try {
+      const { items, text } = await pdfTextLayout(fs.readFileSync(pdf))
+      if (!fallback) fallback = { folder, certPath: pdf, text, items }
+      if (ehCertLabelo(text)) { escolhido = { folder, certPath: pdf, text, items }; break }
+    } catch {}
+  }
+  return escolhido || fallback || { folder, certPath: pdfs[0], error: 'Falha ao ler os PDFs da pasta' }
+}
+
+// Lista só os NOMES das subpastas (rápido) — para processar em lotes.
+ipcMain.handle('equip:list-mae', async (_, { pastaMae }) => {
+  try {
+    if (!pastaMae || !fs.existsSync(pastaMae)) return { ok: false, error: 'Pasta inválida' }
+    const subs = fs.readdirSync(pastaMae, { withFileTypes: true }).filter(d => d.isDirectory())
+    if (!subs.length) return { ok: false, error: 'A pasta-mãe não tem subpastas (uma por TAG).' }
+    return { ok: true, folders: subs.map(s => ({ folder: s.name, dir: path.join(pastaMae, s.name) })) }
+  } catch (err) { return { ok: false, error: String(err) } }
+})
+
+// Escaneia um LOTE de pastas (chamado em chunks pelo renderer, com progresso).
+ipcMain.handle('equip:scan-batch', async (_, { folders }) => {
+  try {
+    const resultados = []
+    for (const f of (folders || [])) resultados.push(await scanUmaPasta(f.folder, f.dir))
+    return { ok: true, resultados }
+  } catch (err) { return { ok: false, error: String(err) } }
+})
+
+// (compat) Escaneia a pasta-mãe inteira de uma vez — evite para muitos itens.
 ipcMain.handle('equip:scan-certificados', async (_, { pastaMae }) => {
   try {
     if (!pastaMae || !fs.existsSync(pastaMae)) return { ok: false, error: 'Pasta inválida' }
     const subs = fs.readdirSync(pastaMae, { withFileTypes: true }).filter(d => d.isDirectory())
     if (!subs.length) return { ok: false, error: 'A pasta-mãe não tem subpastas (uma por TAG).' }
     const resultados = []
-    for (const sub of subs) {
-      const dir = path.join(pastaMae, sub.name)
-      // Candidatos: PDFs com "certificado" no nome primeiro, depois os demais.
-      const pdfs = listarPdfs(dir).sort((a, b) => {
-        const ca = /certificado/i.test(path.basename(a)) ? 0 : 1
-        const cb = /certificado/i.test(path.basename(b)) ? 0 : 1
-        return ca - cb
-      })
-      if (!pdfs.length) { resultados.push({ folder: sub.name, certPath: null, error: 'Sem PDF na pasta' }); continue }
-      let escolhido = null   // o certificado LABELO
-      let fallback = null    // 1º candidato legível (caso nenhum seja LABELO)
-      for (const pdf of pdfs) {
-        try {
-          const { items, text } = await pdfTextLayout(fs.readFileSync(pdf))
-          if (!fallback) fallback = { folder: sub.name, certPath: pdf, text, items }
-          if (ehCertLabelo(text)) { escolhido = { folder: sub.name, certPath: pdf, text, items }; break }
-        } catch {}
-      }
-      const r = escolhido || fallback
-      if (r) resultados.push(r)
-      else resultados.push({ folder: sub.name, certPath: pdfs[0], error: 'Falha ao ler os PDFs da pasta' })
-    }
+    for (const sub of subs) resultados.push(await scanUmaPasta(sub.name, path.join(pastaMae, sub.name)))
     return { ok: true, resultados }
   } catch (err) { return { ok: false, error: String(err) } }
 })
