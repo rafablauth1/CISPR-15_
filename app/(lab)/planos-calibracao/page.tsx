@@ -7,6 +7,7 @@ import { extrairTextoArquivo } from '@/lib/useOCR'
 import type { EquipamentoEMC } from '@/lib/equipamentos/tipos'
 import { type PlanoCalibracao, type PontoPlano } from '@/lib/planos/tipos'
 import { parsearPlanoOCR, parsearPlanoLayout } from '@/lib/planos/parser'
+import { Paginacao } from '@/components/Paginacao'
 
 function uid() { return Math.random().toString(36).slice(2) + Date.now().toString(36) }
 function pontoVazio(): PontoPlano {
@@ -20,6 +21,9 @@ export default function PlanosCalibracaoPage() {
   const [salvando, setSalvando] = useState(false)
   const [loading, setLoading] = useState(true)
   const [ocrLoading, setOcrLoading] = useState(false)
+  const [busca, setBusca] = useState('')
+  const [porPagina, setPorPagina] = useState(25)
+  const [pagina, setPagina] = useState(1)
 
   async function load() {
     setLoading(true)
@@ -211,15 +215,31 @@ export default function PlanosCalibracaoPage() {
         <button type="button" onClick={novo} className="btn-primary"><Plus size={14}/> Novo plano</button>
       </div>
 
-      {loading ? (
+      {!loading && planos.length > 0 && (
+        <div className="mb-4">
+          <input className="input max-w-sm text-[12px] py-1.5" value={busca}
+            onChange={e => { setBusca(e.target.value); setPagina(1) }}
+            placeholder="Buscar por TAG, nome ou grandeza…"/>
+        </div>
+      )}
+
+      {(() => {
+        const q = busca.toLowerCase()
+        const filtrados = planos.filter(p =>
+          !q || [p.equipamentoTag, p.nome, ...p.pontos.map(pt => pt.grandeza)].some(v => (v || '').toLowerCase().includes(q)))
+        const totalPag = Math.max(1, Math.ceil(filtrados.length / porPagina))
+        const pg = Math.min(pagina, totalPag)
+        const pageItens = filtrados.slice((pg - 1) * porPagina, pg * porPagina)
+        return loading ? (
         <div className="flex items-center justify-center h-40"><Loader2 size={22} className="animate-spin text-white/20"/></div>
       ) : planos.length === 0 ? (
         <div className="card p-8 text-center text-white/40 text-sm">
           Nenhum plano de calibração ainda. Clique em “Novo plano”.
         </div>
       ) : (
+        <>
         <div className="space-y-3">
-          {planos.map(p => {
+          {pageItens.map(p => {
             const equip = equips.find(e => e.id === p.equipamentoId)
             return (
               <div key={p.id} className="card p-4">
@@ -246,7 +266,14 @@ export default function PlanosCalibracaoPage() {
             )
           })}
         </div>
-      )}
+        {filtrados.length > porPagina && (
+          <div className="card mt-3 overflow-hidden">
+            <Paginacao total={filtrados.length} porPagina={porPagina} setPorPagina={setPorPagina} pagina={pagina} setPagina={setPagina}/>
+          </div>
+        )}
+        </>
+      )
+      })()}
     </div>
   )
 }

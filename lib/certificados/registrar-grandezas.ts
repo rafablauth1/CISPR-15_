@@ -15,9 +15,15 @@ export function grandezasDoCertificado(cert: Certificado): GrandezaMetrologica[]
     const n = parseFloat(String(v ?? '').replace(/[^\d.,+-]/g, '').replace(',', '.'))
     return isFinite(n) ? n : NaN
   }
+  // Rejeita "grandezas" que na verdade são datas/campos administrativos do certificado.
+  const ehGrandezaValida = (nome: string): boolean => {
+    const x = nome.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim()
+    if (x.length < 3) return false
+    return !/^(data|emiss|emiti|validade|vencimento|respons|assinatura|protocolo|numero|n[º°]|local|cliente|endere|cnpj|equipamento|fabricante|modelo|tag|serie|recebi|realizada?|aprovad|pagina|certificad|periodo)/.test(x)
+  }
   const add = (nome?: string, unidade?: string, val?: number, inc?: number) => {
     const n = (nome || '').trim()
-    if (!n) return
+    if (!n || !ehGrandezaValida(n)) return
     const key = n.toLowerCase()
     if (!map.has(key)) map.set(key, { nome: n, unidade: (unidade || '').trim(), vals: [], incs: [] })
     const a = map.get(key)!

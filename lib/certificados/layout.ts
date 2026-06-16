@@ -29,6 +29,9 @@ function ehHeading(t: string): boolean {
   if (g.length < 4) return false
   if (/^[\d.,()∞\s+-]+$/.test(g)) return false
   if (/^(configura|par[aâ]metro|resultado|certificado|per[ií]odo|gerador de sinal|laborat|p[aá]gina|av\.|telefone|e-?mail|website|fax)/.test(n)) return false
+  // Datas / campos administrativos não são grandeza
+  if (/^(data|emiss|emiti|validade|vencimento|respons|assinatura|protocolo|n[uú]mero|n[º°]|local\b|cliente|endere|cnpj|equipamento|fabricante|modelo|tag|s[ée]rie|recebi|realizada?|aprovad)/.test(n)) return false
+  if (/data\s+de\s+(emiss|calibra|valid)/.test(n)) return false
   if (/^(v\s*eff|k\b|im\b|vr\b|mm\b|ust|ump|veff)/.test(n)) return false   // fragmentos de coluna
   return /[a-zà-ÿ]{4,}/i.test(g)
 }

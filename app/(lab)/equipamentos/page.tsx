@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { Plus, ChevronRight, Zap, Gauge, Waves, Radio, SlidersHorizontal, Thermometer, FolderInput, Loader2, CheckCircle2, AlertTriangle, XCircle, ArrowUpDown, ArrowUp, ArrowDown, FileWarning, X, Search, Trash2 } from 'lucide-react'
 import { FilterDropdown } from '@/components/FilterDropdown'
+import { Paginacao } from '@/components/Paginacao'
 import { fmt, diasAte } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { EquipamentoEMC, GrupoId } from '@/lib/equipamentos/tipos'
@@ -107,8 +108,10 @@ export default function EquipamentosPage() {
   const [sel, setSel] = useState<string[]>([])   // ids selecionados p/ exclusão em lote
   const [selRasc, setSelRasc] = useState<string[]>([])  // folders selecionados no rascunho
   const [rascSort, setRascSort] = useState<'asc' | 'desc'>('asc')  // ordenação do rascunho por motivo
-  const [porPagina, setPorPagina] = useState(50)
+  const [porPagina, setPorPagina] = useState(25)
   const [pagina, setPagina] = useState(1)
+  const [porPagRasc, setPorPagRasc] = useState(25)
+  const [pagRasc, setPagRasc] = useState(1)
 
   // Carrega filtros salvos (1×, no mount)
   useEffect(() => {
@@ -247,6 +250,11 @@ export default function EquipamentosPage() {
   const totalPaginas = Math.max(1, Math.ceil(equipsFiltrados.length / porPagina))
   const pgAtual = Math.min(pagina, totalPaginas)
   const equipsPagina = equipsFiltrados.slice((pgAtual - 1) * porPagina, pgAtual * porPagina)
+
+  // Rascunho ordenado por motivo + paginado
+  const rascOrdenado = [...rascunho].sort((a, b) => (a.motivo || '').localeCompare(b.motivo || '', 'pt') * (rascSort === 'asc' ? 1 : -1))
+  const pgRascAtual = Math.min(pagRasc, Math.max(1, Math.ceil(rascOrdenado.length / porPagRasc)))
+  const rascPagina = rascOrdenado.slice((pgRascAtual - 1) * porPagRasc, pgRascAtual * porPagRasc)
 
   // ── Seleção em lote (marca os da PÁGINA atual) ─────────────────────
   const idsVisiveis = equipsPagina.map(e => e.id)
@@ -402,7 +410,7 @@ export default function EquipamentosPage() {
                 </tr>
               </thead>
               <tbody>
-                {[...rascunho].sort((a, b) => (a.motivo || '').localeCompare(b.motivo || '', 'pt') * (rascSort === 'asc' ? 1 : -1)).map((r, i) => (
+                {rascPagina.map((r, i) => (
                   <tr key={i} className={cn('tbl-row', selRasc.includes(keyRasc(r)) && 'bg-teal/5')}>
                     <td className="text-center">
                       <input type="checkbox" checked={selRasc.includes(keyRasc(r))} onChange={() => toggleSelRasc(keyRasc(r))}
@@ -422,6 +430,7 @@ export default function EquipamentosPage() {
                 ))}
               </tbody>
             </table>
+            <Paginacao total={rascOrdenado.length} porPagina={porPagRasc} setPorPagina={setPorPagRasc} pagina={pagRasc} setPagina={setPagRasc}/>
           </div>
         )
       )}
@@ -559,31 +568,7 @@ export default function EquipamentosPage() {
               })}
             </tbody>
           </table>
-          {/* Paginação */}
-          <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-t border-white/5 flex-wrap">
-            <div className="flex items-center gap-2 text-[11px] text-white/40">
-              <span>Por página:</span>
-              {[25, 50, 100].map(n => (
-                <button key={n} type="button" onClick={() => setPorPagina(n)}
-                  className={cn('px-2 py-0.5 rounded-md font-mono transition-all',
-                    porPagina === n ? 'bg-teal/20 text-teal border border-teal/40' : 'text-white/40 hover:text-white border border-transparent')}>
-                  {n}
-                </button>
-              ))}
-            </div>
-            <div className="flex items-center gap-3 text-[11px]">
-              <span className="text-white/40 font-mono">
-                {(pgAtual - 1) * porPagina + 1}–{Math.min(pgAtual * porPagina, equipsFiltrados.length)} de {equipsFiltrados.length}
-              </span>
-              <div className="flex items-center gap-1">
-                <button type="button" disabled={pgAtual <= 1} onClick={() => setPagina(p => Math.max(1, p - 1))}
-                  className="px-2 py-1 rounded-md border border-white/10 hover:border-white/25 disabled:opacity-30 disabled:cursor-not-allowed transition-all">‹</button>
-                <span className="font-mono text-white/50 px-1">{pgAtual}/{totalPaginas}</span>
-                <button type="button" disabled={pgAtual >= totalPaginas} onClick={() => setPagina(p => Math.min(totalPaginas, p + 1))}
-                  className="px-2 py-1 rounded-md border border-white/10 hover:border-white/25 disabled:opacity-30 disabled:cursor-not-allowed transition-all">›</button>
-              </div>
-            </div>
-          </div>
+          <Paginacao total={equipsFiltrados.length} porPagina={porPagina} setPorPagina={setPorPagina} pagina={pagina} setPagina={setPagina}/>
         </div>
       )}
       </>)}

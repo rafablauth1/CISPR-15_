@@ -2,14 +2,19 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Plus, Award, Grid3x3, Calendar, Building2, Trash2, ChevronRight } from 'lucide-react'
+import { Plus, Award, Grid3x3, Calendar, Building2, Trash2, ChevronRight, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Certificado } from '@/lib/certificados/tipos'
+import { FilterDropdown } from '@/components/FilterDropdown'
+import { Paginacao } from '@/components/Paginacao'
 
 export default function CertificadosPage() {
   const [certs, setCerts] = useState<Certificado[]>([])
   const [loading, setLoading] = useState(true)
   const [busca, setBusca] = useState('')
+  const [fLab, setFLab] = useState<string[]>([])
+  const [porPagina, setPorPagina] = useState(25)
+  const [pagina, setPagina] = useState(1)
 
   useEffect(() => {
     fetch('/api/certificados').then(r => r.json()).then(d => {
@@ -18,17 +23,29 @@ export default function CertificadosPage() {
     }).catch(() => setLoading(false))
   }, [])
 
+  useEffect(() => { setPagina(1) }, [busca, fLab, porPagina])
+
   async function deletar(id: string) {
     if (!confirm('Excluir este certificado?')) return
     await fetch(`/api/certificados/${id}`, { method: 'DELETE' })
     setCerts(p => p.filter(c => c.id !== id))
   }
 
+  // Laboratórios presentes (para o filtro)
+  const labs = (() => {
+    const m = new Map<string, number>()
+    for (const c of certs) { const l = (c.laboratorio || '—').trim(); m.set(l, (m.get(l) ?? 0) + 1) }
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([id, n]) => ({ id, label: id, count: n }))
+  })()
+
+  const q = busca.toLowerCase()
   const filtrados = certs.filter(c =>
-    !busca || [c.equipamentoTag, c.numero, c.laboratorio].some(v =>
-      v?.toLowerCase().includes(busca.toLowerCase())
-    )
+    (!q || [c.equipamentoTag, c.numero, c.laboratorio].some(v => v?.toLowerCase().includes(q))) &&
+    (fLab.length === 0 || fLab.includes((c.laboratorio || '—').trim()))
   )
+  const totalPaginas = Math.max(1, Math.ceil(filtrados.length / porPagina))
+  const pg = Math.min(pagina, totalPaginas)
+  const pageItens = filtrados.slice((pg - 1) * porPagina, pg * porPagina)
 
   return (
     <div>
@@ -43,10 +60,18 @@ export default function CertificadosPage() {
         </Link>
       </div>
 
-      {/* Busca */}
-      <div className="mb-5">
-        <input className="input max-w-sm" value={busca} onChange={e => setBusca(e.target.value)}
-          placeholder="Buscar por TAG, n° certificado, laboratório…"/>
+      {/* Busca + filtros */}
+      <div className="card p-3 mb-5 flex items-center gap-2 flex-wrap">
+        <div className="relative flex-1 min-w-[220px]">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/30"/>
+          <input className="input text-[12px] py-1.5 pl-8 w-full" value={busca} onChange={e => setBusca(e.target.value)}
+            placeholder="Buscar por TAG, n° certificado, laboratório…"/>
+        </div>
+        <FilterDropdown label="Laboratório" selected={fLab} onChange={setFLab} options={labs}/>
+        {(busca || fLab.length > 0) && (
+          <button type="button" onClick={() => { setBusca(''); setFLab([]) }}
+            className="text-[11px] text-white/45 hover:text-white px-2 py-1.5 rounded-lg border border-white/10 hover:border-white/25 transition-all">Limpar</button>
+        )}
       </div>
 
       {loading && <p className="text-white/30 text-sm">Carregando…</p>}
@@ -65,7 +90,7 @@ export default function CertificadosPage() {
       )}
 
       <div className="space-y-3">
-        {filtrados.map(cert => (
+        {pageItens.map(cert => (
           <div key={cert.id} className="card p-4 flex items-center gap-4 group hover:border-white/14 transition-all">
             {/* Ícone */}
             <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0',
@@ -109,6 +134,12 @@ export default function CertificadosPage() {
           </div>
         ))}
       </div>
+
+      {filtrados.length > porPagina && (
+        <div className="card mt-3 overflow-hidden">
+          <Paginacao total={filtrados.length} porPagina={porPagina} setPorPagina={setPorPagina} pagina={pagina} setPagina={setPagina}/>
+        </div>
+      )}
     </div>
   )
 }
