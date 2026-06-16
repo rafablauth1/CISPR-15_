@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Plus, ChevronRight, Zap, Gauge, Waves, Radio, SlidersHorizontal, Thermometer, FolderInput, Loader2, CheckCircle2, AlertTriangle, XCircle, ArrowUpDown, ArrowUp, ArrowDown, FileWarning, X, Search } from 'lucide-react'
+import { Plus, ChevronRight, Zap, Gauge, Waves, Radio, SlidersHorizontal, Thermometer, FolderInput, Loader2, CheckCircle2, AlertTriangle, XCircle, ArrowUpDown, ArrowUp, ArrowDown, FileWarning, X, Search, Trash2 } from 'lucide-react'
 import { FilterDropdown } from '@/components/FilterDropdown'
 import { fmt } from '@/lib/utils'
 import { cn } from '@/lib/utils'
@@ -85,6 +85,7 @@ export default function EquipamentosPage() {
   const [impRelatorio, setImpRelatorio] = useState<RelatorioImport | null>(null)
   const [rascunho, setRascunho] = useState<RascunhoItem[]>([])
   const [abaEquip, setAbaEquip] = useState<'lista' | 'rascunho'>('lista')
+  const [sel, setSel] = useState<string[]>([])   // ids selecionados p/ exclusão em lote
 
   // Carrega filtros salvos (1×, no mount)
   useEffect(() => {
@@ -200,6 +201,20 @@ export default function EquipamentosPage() {
     lista = [...lista].sort((a, b) => val(a).localeCompare(val(b), 'pt', { numeric: true }) * dir)
     return lista
   })()
+
+  // ── Seleção em lote ────────────────────────────────────────────────
+  const idsVisiveis = equipsFiltrados.map(e => e.id)
+  const todosSelecionados = idsVisiveis.length > 0 && idsVisiveis.every(id => sel.includes(id))
+  const toggleSel = (id: string) => setSel(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id])
+  const toggleTodos = () => setSel(todosSelecionados ? sel.filter(id => !idsVisiveis.includes(id)) : [...new Set([...sel, ...idsVisiveis])])
+  async function excluirSelecionados() {
+    if (!sel.length) return
+    if (!confirm(`Excluir ${sel.length} equipamento(s)? Esta ação não pode ser desfeita.`)) return
+    const ids = sel
+    const r = await fetch('/api/equipamentos', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) })
+    if (r.ok) { setEquips(prev => prev.filter(e => !ids.includes(e.id))); setSel([]) }
+    else alert('Falha ao excluir.')
+  }
 
   const SortTh = ({ k, label, className }: { k: SortKey; label: string; className?: string }) => (
     <th className={cn('cursor-pointer select-none hover:text-white/80', className)} onClick={() => clicarSort(k)}>
@@ -367,6 +382,20 @@ export default function EquipamentosPage() {
         </span>
       </div>
 
+      {sel.length > 0 && (
+        <div className="card mb-3 px-4 py-2.5 flex items-center gap-3 border-red-500/30 bg-red-500/5">
+          <span className="text-[12px] text-white/80 font-medium">{sel.length} selecionado(s)</span>
+          <button type="button" onClick={excluirSelecionados}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] bg-red-500/15 text-red-300 border border-red-500/40 hover:bg-red-500/25 transition-all">
+            <Trash2 size={13}/> Excluir selecionados
+          </button>
+          <button type="button" onClick={() => setSel([])}
+            className="text-[11px] text-white/45 hover:text-white px-2 py-1 rounded-lg border border-white/10 hover:border-white/25 transition-all">
+            Limpar seleção
+          </button>
+        </div>
+      )}
+
       {equips.length === 0 ? (
         <div className="card p-10 text-center text-white/25 text-sm">Nenhum equipamento cadastrado.</div>
       ) : equipsFiltrados.length === 0 ? (
@@ -376,6 +405,10 @@ export default function EquipamentosPage() {
           <table className="w-full">
             <thead className="tbl-head">
               <tr>
+                <th className="w-8 text-center">
+                  <input type="checkbox" checked={todosSelecionados} onChange={toggleTodos}
+                    className="accent-teal cursor-pointer" title="Selecionar todos (visíveis)"/>
+                </th>
                 <SortTh k="tag" label="Tag"/>
                 <SortTh k="nome" label="Nome"/>
                 <SortTh k="grupo" label="Grupo"/>
@@ -392,7 +425,11 @@ export default function EquipamentosPage() {
                 const cor  = GRUPO_CORES[g?.cor ?? 'gray']
                 const pend = pendenciasEquip(e)
                 return (
-                  <tr key={e.id} className="tbl-row">
+                  <tr key={e.id} className={cn('tbl-row', sel.includes(e.id) && 'bg-teal/5')}>
+                    <td className="text-center">
+                      <input type="checkbox" checked={sel.includes(e.id)} onChange={() => toggleSel(e.id)}
+                        className="accent-teal cursor-pointer"/>
+                    </td>
                     <td>
                       <span className="inline-flex items-center gap-1.5">
                         <span className="tag-chip">{e.tag}</span>

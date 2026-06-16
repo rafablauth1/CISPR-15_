@@ -27,3 +27,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: String(e) }, { status: 500 })
   }
 }
+
+// Exclusão em lote: body { ids: string[] } → remove todos numa escrita só.
+export async function DELETE(req: NextRequest) {
+  try {
+    const { ids } = await req.json() as { ids: string[] }
+    if (!Array.isArray(ids) || !ids.length) {
+      return NextResponse.json({ error: 'Informe os ids.' }, { status: 400 })
+    }
+    const set = new Set(ids)
+    const lista = lerJSON<EquipamentoEMC[]>(ARQUIVO, DEFAULTS)
+    const nova = lista.filter(e => !set.has(e.id))
+    escreverJSON(ARQUIVO, nova)
+    return NextResponse.json({ ok: true, removidos: lista.length - nova.length })
+  } catch (e: unknown) {
+    return NextResponse.json({ error: String(e) }, { status: 500 })
+  }
+}
