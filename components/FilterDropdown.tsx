@@ -41,7 +41,8 @@ export function FilterDropdown({ label, options, selected, onChange, icon }: {
         <ChevronDown size={13} className={cn('transition-transform', open && 'rotate-180')}/>
       </button>
       {open && (
-        <div className="absolute z-40 mt-1.5 left-0 card p-1.5 min-w-[210px] max-h-72 overflow-y-auto shadow-2xl">
+        <div className="absolute z-40 mt-1.5 left-0 p-1.5 min-w-[210px] max-h-72 overflow-y-auto rounded-xl"
+          style={{ background: '#141826', border: '1px solid rgba(255,255,255,0.12)', boxShadow: '0 12px 32px rgba(0,0,0,0.6)' }}>
           {n > 0 && (
             <button type="button" onClick={() => onChange([])}
               className="w-full text-left text-[11px] text-white/40 hover:text-white px-2 py-1 mb-0.5 border-b border-white/5">

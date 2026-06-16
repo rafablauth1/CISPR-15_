@@ -74,10 +74,11 @@ export async function DELETE(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { itens } = (await req.json()) as { itens: ItemScan[] }
+    const { itens, modo } = (await req.json()) as { itens: ItemScan[]; modo?: 'certificado' | 'amostra' }
     if (!Array.isArray(itens) || !itens.length) {
       return NextResponse.json({ error: 'Nada para importar.' }, { status: 400 })
     }
+    const soAmostra = modo === 'amostra'   // 2ª varredura: cadastra só os dados da amostra (sem cert/grandeza)
 
     const equipamentos = lerJSON<EquipamentoEMC[]>(ARQ_EQUIP, [])
     const certificados = lerJSON<Certificado[]>(ARQ_CERT, [])
@@ -112,6 +113,27 @@ export async function POST(req: NextRequest) {
         const motivo = 'TAG não encontrada (padrão 1234ABC ausente no certificado)'
         pulados.push({ tag: it.folder, motivo })
         rascunho.push({ tag: it.folder, folder: it.folder, motivo, certPath: it.certPath || undefined, em: agora, cadastravel: temPadraoTag })
+        continue
+      }
+
+      // 2ª VARREDURA (modo amostra): cadastra SÓ o equipamento pelos dados da
+      // folha (ex.: análise crítica), sem certificado e sem grandeza.
+      if (soAmostra) {
+        const g = extrairMetadadosGenerico(it.text)
+        if (byTag.has(tag)) { atualizados.push(tag); continue }
+        const { grupoId, subgrupoId } = inferTipo(`${g.nome || dados.nome || ''} ${it.folder}`)
+        const equipA: EquipamentoEMC = {
+          id: novoId(), tag,
+          nome: limparCampo(g.nome || dados.nome, 80) || tag,
+          grupoId, subgrupoId, status: 'ativo', grandezas: [],
+          ultimaCalibracao: '', proximaCalibracao: '', intervaloCalibracao: 12,
+          fabricante: limparCampo(g.fabricante || dados.fabricante, 50),
+          modelo: limparCampo(g.modelo || dados.modelo, 40),
+          serie: limparCampo(g.serie || dados.serie, 30),
+          obs: 'Cadastrado pela 2ª varredura (dados da amostra, sem certificado)',
+        }
+        equipamentos.push(equipA); byTag.set(tag, equipA)
+        sucessos.push(tag)
         continue
       }
 

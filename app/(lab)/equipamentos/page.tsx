@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Plus, ChevronRight, Zap, Gauge, Waves, Radio, SlidersHorizontal, Thermometer, FolderInput, Loader2, CheckCircle2, AlertTriangle, XCircle, ArrowUpDown, ArrowUp, ArrowDown, FileWarning, X, Search, Trash2, Lock } from 'lucide-react'
+import { Plus, ChevronRight, Zap, Gauge, Waves, Radio, SlidersHorizontal, Thermometer, FolderInput, Loader2, CheckCircle2, AlertTriangle, XCircle, ArrowUpDown, ArrowUp, ArrowDown, FileWarning, X, Search, Trash2, Lock, Cpu } from 'lucide-react'
 import { FilterDropdown } from '@/components/FilterDropdown'
 import { Paginacao } from '@/components/Paginacao'
 import { fmt, diasAte } from '@/lib/utils'
@@ -130,6 +130,8 @@ export default function EquipamentosPage() {
   const [selRasc, setSelRasc] = useState<string[]>([])  // folders selecionados no rascunho
   const [rascSort, setRascSort] = useState<'asc' | 'desc'>('asc')  // ordenação do rascunho por motivo
   const [fMotivo, setFMotivo] = useState<string[]>([])              // filtro por motivo no rascunho
+  const [fSit, setFSit] = useState<string[]>([])                    // filtro por situação (cadastrável)
+  const [fLabRasc, setFLabRasc] = useState<string[]>([])            // filtro por laboratório (CAL)
   const [rescanLoading, setRescanLoading] = useState(false)
   const [porPagina, setPorPagina] = useState(25)
   const [pagina, setPagina] = useState(1)
@@ -288,13 +290,24 @@ export default function EquipamentosPage() {
   const pgAtual = Math.min(pagina, totalPaginas)
   const equipsPagina = equipsFiltrados.slice((pgAtual - 1) * porPagina, pgAtual * porPagina)
 
-  // Motivos distintos (para o filtro) + rascunho filtrado/ordenado/paginado
-  const motivosRasc = (() => {
+  // Filtros do rascunho: motivo, situação (cadastrável) e laboratório (CAL).
+  const labRasc = (r: RascunhoItem) => r.lab || r.acreditacao || '—'
+  const contagem = (sel: (r: RascunhoItem) => string) => {
     const m = new Map<string, number>()
-    for (const r of rascunho) { const k = r.motivo || '—'; m.set(k, (m.get(k) ?? 0) + 1) }
+    for (const r of rascunho) { const k = sel(r); m.set(k, (m.get(k) ?? 0) + 1) }
     return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([id, n]) => ({ id, label: id, count: n }))
-  })()
-  const rascFiltrado = rascunho.filter(r => fMotivo.length === 0 || fMotivo.includes(r.motivo || '—'))
+  }
+  const motivosRasc = contagem(r => r.motivo || '—')
+  const labsRasc = contagem(labRasc).filter(o => o.id !== '—')
+  const sitRasc = [
+    { id: 'cadastravel', label: 'Cadastrável', count: rascunho.filter(r => r.cadastravel).length },
+    { id: 'nao',         label: 'Sem TAG/PDF', count: rascunho.filter(r => !r.cadastravel).length },
+  ].filter(o => o.count > 0)
+  const rascFiltrado = rascunho.filter(r =>
+    (fMotivo.length === 0 || fMotivo.includes(r.motivo || '—')) &&
+    (fSit.length === 0 || fSit.includes(r.cadastravel ? 'cadastravel' : 'nao')) &&
+    (fLabRasc.length === 0 || fLabRasc.includes(labRasc(r))),
+  )
   const rascOrdenado = [...rascFiltrado].sort((a, b) => (a.motivo || '').localeCompare(b.motivo || '', 'pt') * (rascSort === 'asc' ? 1 : -1))
   const pgRascAtual = Math.min(pagRasc, Math.max(1, Math.ceil(rascOrdenado.length / porPagRasc)))
   const rascPagina = rascOrdenado.slice((pgRascAtual - 1) * porPagRasc, pgRascAtual * porPagRasc)
@@ -328,12 +341,14 @@ export default function EquipamentosPage() {
     if (r.ok) { setSelRasc([]); carregarRascunho() } else alert('Falha ao limpar rascunho.')
   }
 
-  // Re-varre os PDFs pendentes (com certPath) e tenta cadastrar de novo.
-  async function rescanRascunho() {
+  // Re-varre os PDFs pendentes (com certPath). modo 'amostra' = 2ª varredura,
+  // cadastra só os dados do equipamento (sem certificado/grandeza).
+  async function rescanRascunho(modo?: 'amostra') {
     const api = (window as unknown as { electronAPI?: LabAPI }).electronAPI
     if (!api?.rescanPendentes) { alert('Disponível apenas no aplicativo.'); return }
     const alvo = rascunho.filter(r => r.certPath)
-    if (!alvo.length) { alert('Nenhum item com PDF para revarrer.'); return }
+    if (!alvo.length) { alert('Nenhum item com PDF para varrer.'); return }
+    if (modo === 'amostra' && !confirm('Cadastrar os pendentes pelos dados da amostra (sem certificado nem grandeza)?')) return
     setRescanLoading(true)
     try {
       const CHUNK = 25
@@ -343,12 +358,12 @@ export default function EquipamentosPage() {
         if (!scan.ok || !scan.resultados) continue
         await fetch('/api/equipamentos/importar-lote', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ itens: scan.resultados }),
+          body: JSON.stringify({ itens: scan.resultados, modo: modo || 'certificado' }),
         })
       }
       fetch('/api/equipamentos').then(x => x.json()).then(e => setEquips(Array.isArray(e) ? e : [])).catch(() => {})
       carregarRascunho()
-      alert('Re-varredura concluída.')
+      alert(modo === 'amostra' ? 'Cadastro pela amostra concluído.' : 'Re-varredura concluída.')
     } catch (e) { alert('Erro: ' + String(e)) }
     finally { setRescanLoading(false) }
   }
@@ -450,13 +465,20 @@ export default function EquipamentosPage() {
             <div className="px-4 py-2.5 border-b border-white/5 flex items-center gap-2 flex-wrap">
               <FileWarning size={15} className="text-amber-400"/>
               <span className="text-[12px] text-amber-300/90 font-medium">{rascunho.length} não cadastrada(s)</span>
+              <FilterDropdown label="Situação" selected={fSit} onChange={setFSit} options={sitRasc} />
               <FilterDropdown label="Motivo" selected={fMotivo} onChange={setFMotivo}
                 options={motivosRasc.map(m => ({ id: m.id, label: m.label, count: m.count }))} />
+              <FilterDropdown label="Laboratório" selected={fLabRasc} onChange={setFLabRasc} options={labsRasc} />
               <div className="ml-auto flex items-center gap-2">
-                <button type="button" onClick={rescanRascunho} disabled={rescanLoading}
+                <button type="button" onClick={() => rescanRascunho()} disabled={rescanLoading}
                   className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] text-teal border border-teal/30 hover:bg-teal/10 transition-all disabled:opacity-50">
                   {rescanLoading ? <Loader2 size={12} className="animate-spin"/> : <Search size={12}/>}
                   {rescanLoading ? 'Varrendo…' : 'Varrer novamente'}
+                </button>
+                <button type="button" onClick={() => rescanRascunho('amostra')} disabled={rescanLoading}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] text-white/70 border border-white/15 hover:bg-white/8 transition-all disabled:opacity-50"
+                  title="2ª varredura: cadastra só os dados da amostra (ex.: pela análise crítica), sem certificado/grandeza">
+                  <Cpu size={12}/> Cadastrar pela amostra
                 </button>
                 {selRasc.length > 0 && (
                   <button type="button" onClick={() => excluirRascunho(false)}
