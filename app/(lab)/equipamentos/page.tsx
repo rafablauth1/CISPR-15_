@@ -51,6 +51,18 @@ function StatusPill({ status }: { status: string }) {
   return <span className="badge-danger">Fora</span>
 }
 
+// Campos que faltam no cadastro (marca pendência na lista).
+function pendenciasEquip(e: EquipamentoEMC): string[] {
+  const p: string[] = []
+  if (!e.fabricante)         p.push('fabricante')
+  if (!e.modelo)             p.push('modelo')
+  if (!e.serie)              p.push('série')
+  if (!e.ultimaCalibracao)   p.push('última calibração')
+  if (!e.proximaCalibracao)  p.push('próxima calibração')
+  if (!e.grandezas?.length)  p.push('grandezas')
+  return p
+}
+
 export default function EquipamentosPage() {
   const [equips, setEquips] = useState<EquipamentoEMC[]>([])
   const [grupos, setGrupos] = useState<Grupo[]>([])
@@ -62,6 +74,7 @@ export default function EquipamentosPage() {
   const [fSubs,   setFSubs]   = useState<string[]>([])
   const [sortKey, setSortKey] = useState<SortKey>('tag')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const [soPendentes, setSoPendentes] = useState(false)
   const [pronto,  setPronto]  = useState(false)
 
   // Importação em lote
@@ -77,6 +90,7 @@ export default function EquipamentosPage() {
       if (raw) {
         const s = JSON.parse(raw)
         setFSiglas(s.fSiglas ?? []); setFGrupos(s.fGrupos ?? []); setFSubs(s.fSubs ?? [])
+        setSoPendentes(!!s.soPendentes)
         if (s.sortKey) setSortKey(s.sortKey); if (s.sortDir) setSortDir(s.sortDir)
       }
     } catch {}
@@ -86,8 +100,8 @@ export default function EquipamentosPage() {
   // Salva filtros sempre que mudam (após o carregamento inicial)
   useEffect(() => {
     if (!pronto) return
-    try { localStorage.setItem(FILTROS_KEY, JSON.stringify({ fSiglas, fGrupos, fSubs, sortKey, sortDir })) } catch {}
-  }, [pronto, fSiglas, fGrupos, fSubs, sortKey, sortDir])
+    try { localStorage.setItem(FILTROS_KEY, JSON.stringify({ fSiglas, fGrupos, fSubs, sortKey, sortDir, soPendentes })) } catch {}
+  }, [pronto, fSiglas, fGrupos, fSubs, sortKey, sortDir, soPendentes])
 
   function carregarRascunho() {
     fetch('/api/equipamentos/importar-lote').then(r => r.json()).then(d => setRascunho(Array.isArray(d) ? d : [])).catch(() => {})
@@ -132,8 +146,9 @@ export default function EquipamentosPage() {
   const toggle = (arr: string[], set: (v: string[]) => void, id: string) =>
     set(arr.includes(id) ? arr.filter(x => x !== id) : [...arr, id])
 
-  const temFiltro = fSiglas.length + fGrupos.length + fSubs.length > 0
-  const limpar = () => { setFSiglas([]); setFGrupos([]); setFSubs([]) }
+  const temFiltro = fSiglas.length + fGrupos.length + fSubs.length > 0 || soPendentes
+  const limpar = () => { setFSiglas([]); setFGrupos([]); setFSubs([]); setSoPendentes(false) }
+  const totalPendentes = equips.filter(e => pendenciasEquip(e).length > 0).length
 
   function clicarSort(k: SortKey) {
     if (sortKey === k) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -157,7 +172,8 @@ export default function EquipamentosPage() {
     let lista = equips.filter(e =>
       (fSiglas.length === 0 || fSiglas.includes(siglaDaTag(e.tag))) &&
       (fGrupos.length === 0 || fGrupos.includes(e.grupoId)) &&
-      (fSubs.length   === 0 || fSubs.includes(e.subgrupoId)),
+      (fSubs.length   === 0 || fSubs.includes(e.subgrupoId)) &&
+      (!soPendentes || pendenciasEquip(e).length > 0),
     )
     const dir = sortDir === 'asc' ? 1 : -1
     const val = (e: EquipamentoEMC): string =>
@@ -302,13 +318,20 @@ export default function EquipamentosPage() {
             </div>
           </div>
         )}
-        {temFiltro && (
-          <div className="flex justify-end">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          {totalPendentes > 0 ? (
+            <button type="button" onClick={() => setSoPendentes(v => !v)}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] transition-all"
+              style={{ background: soPendentes ? 'rgba(245,158,11,0.18)' : 'rgba(255,255,255,0.03)', color: soPendentes ? '#F59E0B' : 'rgba(255,255,255,0.55)', border: `1px solid ${soPendentes ? 'rgba(245,158,11,0.5)' : 'rgba(255,255,255,0.08)'}` }}>
+              <AlertTriangle size={12}/> Com pendência <span className="opacity-60 font-mono">{totalPendentes}</span>
+            </button>
+          ) : <span/>}
+          {temFiltro && (
             <button type="button" onClick={limpar} className="flex items-center gap-1 text-[11px] text-white/45 hover:text-white px-2 py-0.5 rounded-lg border border-white/10 hover:border-white/25 transition-all">
               <X size={11}/> Limpar filtros
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* ── Rascunho (não cadastrados) ──────────────────────────────────── */}
@@ -372,9 +395,20 @@ export default function EquipamentosPage() {
                 const Icon = ICONES[e.grupoId] ?? Gauge
                 const g    = grupos.find(g => g.id === e.grupoId)
                 const cor  = GRUPO_CORES[g?.cor ?? 'gray']
+                const pend = pendenciasEquip(e)
                 return (
                   <tr key={e.id} className="tbl-row">
-                    <td><span className="tag-chip">{e.tag}</span></td>
+                    <td>
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="tag-chip">{e.tag}</span>
+                        {pend.length > 0 && (
+                          <span title={`Cadastro incompleto — falta: ${pend.join(', ')}`}
+                            className="inline-flex items-center text-amber-400">
+                            <AlertTriangle size={13}/>
+                          </span>
+                        )}
+                      </span>
+                    </td>
                     <td className="font-medium text-white/80">{e.nome}</td>
                     <td>
                       <span className="inline-flex items-center gap-1.5">

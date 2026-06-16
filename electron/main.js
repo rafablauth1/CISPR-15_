@@ -965,26 +965,32 @@ ipcMain.handle('pdf:extract-layout', async (_, { base64 }) => {
 
 // Procura recursivamente o "…Certificado.pdf" dentro da pasta de uma TAG.
 // Prioriza arquivo terminando em "Certificado.pdf"; senão, qualquer PDF.
-function findCertPdf(dir, depth) {
-  depth = depth || 0
+// Lista TODOS os PDFs de uma pasta da TAG (recursivo), com os que tem "certificado"
+// no nome primeiro (são os candidatos mais prováveis).
+function listarPdfs(dir, depth, acc) {
+  depth = depth || 0; acc = acc || []
   try {
     const entries = fs.readdirSync(dir, { withFileTypes: true })
-    const direct = entries.find(e => e.isFile() && /certificado\.pdf$/i.test(e.name))
-    if (direct) return path.join(dir, direct.name)
-    const anyPdf = entries.find(e => e.isFile() && /\.pdf$/i.test(e.name))
-    if (depth < 3) {
-      for (const e of entries) if (e.isDirectory()) {
-        const f = findCertPdf(path.join(dir, e.name), depth + 1)
-        if (f) return f
-      }
-    }
-    return anyPdf ? path.join(dir, anyPdf.name) : null
-  } catch { return null }
+    for (const e of entries) if (e.isFile() && /\.pdf$/i.test(e.name)) acc.push(path.join(dir, e.name))
+    if (depth < 3) for (const e of entries) if (e.isDirectory()) listarPdfs(path.join(dir, e.name), depth + 1, acc)
+  } catch {}
+  return acc
 }
 
-// Cadastro em lote: recebe a pasta-mãe (1 subpasta por TAG), acha o
-// "…Certificado.pdf" de cada uma e devolve {folder, certPath, text, items}.
-// O parse/validação (LABELO) e a persistência são feitos pela rota Next.
+// É mesmo um certificado de calibração do LABELO? (mesma regra do parser TS)
+//  - não pode ser formulário interno (FOR 6xxx / Análise Crítica);
+//  - precisa do nº no padrão letra[EFRTLVPBJQA]+4díg + / (ou -) + ano;
+//  - precisa mencionar LABELO.
+function ehCertLabelo(text) {
+  if (!text) return false
+  if (/\bFOR\s*6\d{3}\b/i.test(text) || /an[áa]lise\s+cr[íi]tica/i.test(text)) return false
+  return /\b[EFRTLVPBJQA]\d{4}\s?[/-]\s?(?:19|20)\d{2}\b/.test(text) && /LABELO/i.test(text)
+}
+
+// Cadastro em lote: para cada subpasta (TAG), lê os PDFs e escolhe APENAS o que
+// é o certificado do LABELO como base do cadastro. Devolve {folder, certPath,
+// text, items}. Se nenhum for certificado LABELO, devolve o melhor candidato com
+// o texto para a rota explicar o motivo (vai pro rascunho).
 ipcMain.handle('equip:scan-certificados', async (_, { pastaMae }) => {
   try {
     if (!pastaMae || !fs.existsSync(pastaMae)) return { ok: false, error: 'Pasta inválida' }
@@ -993,12 +999,25 @@ ipcMain.handle('equip:scan-certificados', async (_, { pastaMae }) => {
     const resultados = []
     for (const sub of subs) {
       const dir = path.join(pastaMae, sub.name)
-      const certPath = findCertPdf(dir)
-      if (!certPath) { resultados.push({ folder: sub.name, certPath: null, error: 'Sem Certificado.pdf' }); continue }
-      try {
-        const { items, text } = await pdfTextLayout(fs.readFileSync(certPath))
-        resultados.push({ folder: sub.name, certPath, text, items })
-      } catch (e) { resultados.push({ folder: sub.name, certPath, error: 'Falha ao ler PDF: ' + String(e) }) }
+      // Candidatos: PDFs com "certificado" no nome primeiro, depois os demais.
+      const pdfs = listarPdfs(dir).sort((a, b) => {
+        const ca = /certificado/i.test(path.basename(a)) ? 0 : 1
+        const cb = /certificado/i.test(path.basename(b)) ? 0 : 1
+        return ca - cb
+      })
+      if (!pdfs.length) { resultados.push({ folder: sub.name, certPath: null, error: 'Sem PDF na pasta' }); continue }
+      let escolhido = null   // o certificado LABELO
+      let fallback = null    // 1º candidato legível (caso nenhum seja LABELO)
+      for (const pdf of pdfs) {
+        try {
+          const { items, text } = await pdfTextLayout(fs.readFileSync(pdf))
+          if (!fallback) fallback = { folder: sub.name, certPath: pdf, text, items }
+          if (ehCertLabelo(text)) { escolhido = { folder: sub.name, certPath: pdf, text, items }; break }
+        } catch {}
+      }
+      const r = escolhido || fallback
+      if (r) resultados.push(r)
+      else resultados.push({ folder: sub.name, certPath: pdfs[0], error: 'Falha ao ler os PDFs da pasta' })
     }
     return { ok: true, resultados }
   } catch (err) { return { ok: false, error: String(err) } }

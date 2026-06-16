@@ -104,6 +104,23 @@ function AreaCard({ href, icon, title, desc, color }: {
   )
 }
 
+function Section({ title, hint, children, action }: {
+  title: string; hint?: string; children: React.ReactNode; action?: React.ReactNode
+}) {
+  return (
+    <section>
+      <div className="flex items-end justify-between mb-3.5 gap-3">
+        <div className="flex items-baseline gap-2.5">
+          <h2 className="font-display font-semibold text-[12px] text-white/55 uppercase tracking-[2.5px]">{title}</h2>
+          {hint && <span className="text-[10px] text-white/25 font-mono">{hint}</span>}
+        </div>
+        {action}
+      </div>
+      {children}
+    </section>
+  )
+}
+
 async function loadList(method: 'getAgenda' | 'getRelatorios', prop: 'agenda' | 'relatorios', key: string): Promise<any[]> {
   const api = (window as any).electronAPI
   if (api?.[method]) {
@@ -237,111 +254,115 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Métricas de relatórios — clicáveis (drill-down) */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-        <StatCard href="/cispr15" icon={<FileText size={18} />} label={`Relatórios ${ano}`} value={relatoriosAno.length} color="#9B8CFF" />
-        <StatCard href="/cispr15" icon={<GitBranch size={18} />} label="Emendas (não conf.)" value={emendaStats.totalEmendas}
-          sub={`${emendaStats.pct}% dos relatórios`} color="#F87171" />
-        <StatCard icon={<Clock size={18} />} label="Tempo médio de saída"
-          value={tempoStats.media !== null ? `${tempoStats.media}d` : '—'} sub={`base: ${tempoStats.amostra} relatórios`} color="#34D399" />
-        <StatCard icon={<AlertTriangle size={18} />} label={`Atrasos (>${PRAZO_ATRASO_DIAS}d)`} value={tempoStats.atrasos} color="#F59E0B" />
-      </div>
+      <div className="space-y-12">
+        {/* ── Produção de relatórios ─────────────────────────────────── */}
+        <Section title="Produção de relatórios" hint={`ano ${ano}`}>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatCard href="/cispr15" icon={<FileText size={18} />} label={`Relatórios ${ano}`} value={relatoriosAno.length} color="#9B8CFF" />
+            <StatCard href="/cispr15" icon={<GitBranch size={18} />} label="Emendas (não conf.)" value={emendaStats.totalEmendas}
+              sub={`${emendaStats.pct}% dos relatórios`} color="#F87171" />
+            <StatCard icon={<Clock size={18} />} label="Tempo médio de saída"
+              value={tempoStats.media !== null ? `${tempoStats.media}d` : '—'} sub={`base: ${tempoStats.amostra} relatórios`} color="#34D399" />
+            <StatCard icon={<AlertTriangle size={18} />} label={`Atrasos (>${PRAZO_ATRASO_DIAS}d)`} value={tempoStats.atrasos} color="#F59E0B" />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+            <StatCard icon={<Timer size={18} />} label="Tempo médio de emissão"
+              value={formatDuracao(trabalhoStats.emissao.mediaMs)}
+              sub={trabalhoStats.emissao.n ? `${trabalhoStats.emissao.n} emissão(ões) · do formulário ao PDF` : 'sem dados ainda'}
+              color="#9B8CFF" />
+            <StatCard icon={<Hourglass size={18} />} label="Tempo médio de cadastro (amostra)"
+              value={formatDuracao(trabalhoStats.agendaT.mediaMs)}
+              sub={trabalhoStats.agendaT.n ? `${trabalhoStats.agendaT.n} cadastro(s) na agenda` : 'sem dados ainda'}
+              color="#34D399" />
+          </div>
+        </Section>
 
-      {/* Marcadores de tempo de trabalho */}
-      <div className="grid grid-cols-2 gap-4 mb-4">
-        <StatCard icon={<Timer size={18} />} label="Tempo médio de emissão"
-          value={formatDuracao(trabalhoStats.emissao.mediaMs)}
-          sub={trabalhoStats.emissao.n ? `${trabalhoStats.emissao.n} emissão(ões) · do formulário ao PDF` : 'sem dados ainda'}
-          color="#9B8CFF" />
-        <StatCard icon={<Hourglass size={18} />} label="Tempo médio de cadastro (amostra)"
-          value={formatDuracao(trabalhoStats.agendaT.mediaMs)}
-          sub={trabalhoStats.agendaT.n ? `${trabalhoStats.agendaT.n} cadastro(s) na agenda` : 'sem dados ainda'}
-          color="#34D399" />
-      </div>
+        {/* ── Qualidade & Agenda ─────────────────────────────────────── */}
+        <Section title="Qualidade & Agenda" hint="situação atual">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatCard href="/agenda"       icon={<Calendar size={18} />}       label="Agenda pendente"    value={agendaPendentes} color="#4F8EF7" />
+            <StatCard href="/checagens"    icon={<ClipboardCheck size={18} />} label="Checagens vencendo" value={pendentes}       color="#F59E0B" />
+            <StatCard href="/checagens"    icon={<AlertTriangle size={18} />}  label="Checagens vencidas" value={vencidas}        color="#F87171" />
+            <StatCard href="/equipamentos" icon={<Cpu size={18} />}            label="Equipamentos"       value={equips.length}   color="#4F8EF7" />
+          </div>
+        </Section>
 
-      {/* Métricas de qualidade/agenda — clicáveis */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <StatCard href="/agenda"       icon={<Calendar size={18} />}       label="Agenda pendente"    value={agendaPendentes} color="#4F8EF7" />
-        <StatCard href="/checagens"    icon={<ClipboardCheck size={18} />} label="Checagens vencendo" value={pendentes}       color="#F59E0B" />
-        <StatCard href="/checagens"    icon={<AlertTriangle size={18} />}  label="Checagens vencidas" value={vencidas}        color="#F87171" />
-        <StatCard href="/equipamentos" icon={<Cpu size={18} />}            label="Equipamentos"       value={equips.length}   color="#4F8EF7" />
-      </div>
+        {/* ── Indicadores ────────────────────────────────────────────── */}
+        <Section title="Indicadores">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <ChartCard title={`Relatórios por mês · ${ano}`}>
+              <BarChart data={porMes} color="#9B8CFF" />
+            </ChartCard>
+            <ChartCard title={`Emendas — não conformidades · ${ano}`}>
+              <DonutChart
+                centerTop={`${emendaStats.pct}%`}
+                centerSub="com emenda"
+                segments={[
+                  { label: 'Sem emenda', value: emendaStats.semEmenda, color: '#34D399' },
+                  { label: 'Com emenda', value: emendaStats.comEmenda, color: '#F87171' },
+                ]}
+              />
+            </ChartCard>
+            <ChartCard title="Checagens por status">
+              <DonutChart
+                centerTop={checagens.length}
+                centerSub="checagens"
+                segments={[
+                  { label: 'Em dia',   value: emDia,     color: '#34D399' },
+                  { label: 'Vencendo', value: pendentes, color: '#F59E0B' },
+                  { label: 'Vencidas', value: vencidas,  color: '#F87171' },
+                ]}
+              />
+            </ChartCard>
+            <ChartCard title="Equipamentos por grupo">
+              <HBarChart data={porGrupo} color="#4F8EF7" />
+            </ChartCard>
+          </div>
+        </Section>
 
-      {/* Gráficos */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-        <ChartCard title={`Relatórios por mês · ${ano}`}>
-          <BarChart data={porMes} color="#9B8CFF" />
-        </ChartCard>
+        {/* ── Acesso rápido ──────────────────────────────────────────── */}
+        <Section title="Acesso rápido">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+            <AreaCard href="/agenda"        icon={<Calendar size={18} />}    title="Agenda"        desc="Ensaios agendados e protocolos"   color="#4F8EF7" />
+            <AreaCard href="/cispr15"       icon={<FileText size={18} />}    title="Formulários"   desc="Emissão de relatórios CISPR 15"   color="#9B8CFF" />
+            <AreaCard href="/checagens"     icon={<ShieldCheck size={18} />} title="Qualidade"     desc="Checagens, equipamentos e normas" color="#34D399" />
+            <AreaCard href="/configuracoes" icon={<Settings size={18} />}    title="Configurações" desc="Pastas, senhas e parâmetros"      color="#94A3B8" />
+          </div>
+        </Section>
 
-        <ChartCard title={`Emendas — não conformidades · ${ano}`}>
-          <DonutChart
-            centerTop={`${emendaStats.pct}%`}
-            centerSub="com emenda"
-            segments={[
-              { label: 'Sem emenda', value: emendaStats.semEmenda, color: '#34D399' },
-              { label: 'Com emenda', value: emendaStats.comEmenda, color: '#F87171' },
-            ]}
-          />
-        </ChartCard>
-
-        <ChartCard title="Checagens por status">
-          <DonutChart
-            centerTop={checagens.length}
-            centerSub="checagens"
-            segments={[
-              { label: 'Em dia',   value: emDia,     color: '#34D399' },
-              { label: 'Vencendo', value: pendentes, color: '#F59E0B' },
-              { label: 'Vencidas', value: vencidas,  color: '#F87171' },
-            ]}
-          />
-        </ChartCard>
-
-        <ChartCard title="Equipamentos por grupo">
-          <HBarChart data={porGrupo} color="#4F8EF7" />
-        </ChartCard>
-      </div>
-
-      {/* Áreas — acesso rápido */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-        <AreaCard href="/agenda"        icon={<Calendar size={18} />}    title="Agenda"        desc="Ensaios agendados e protocolos"             color="#4F8EF7" />
-        <AreaCard href="/cispr15"       icon={<FileText size={18} />}    title="Formulários"   desc="Emissão de relatórios CISPR 15"             color="#9B8CFF" />
-        <AreaCard href="/checagens"     icon={<ShieldCheck size={18} />} title="Qualidade"     desc="Checagens, equipamentos e normas"           color="#34D399" />
-        <AreaCard href="/configuracoes" icon={<Settings size={18} />}    title="Configurações" desc="Pastas, senhas e parâmetros"                color="#94A3B8" />
-      </div>
-
-      {/* Próximas checagens */}
-      <div className="card p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="font-display font-semibold text-[15px] text-white">Próximas checagens</h2>
+        {/* ── Próximas checagens ─────────────────────────────────────── */}
+        <Section title="Próximas checagens" action={
           <Link href="/checagens" className="text-[11px] text-white/35 hover:text-white flex items-center gap-1 transition-colors">
             Ver todas <ChevronRight size={11} />
           </Link>
-        </div>
-
-        {proximas.length === 0 ? (
-          <p className="text-white/25 text-sm py-6 text-center">Nenhuma checagem registrada.</p>
-        ) : (
-          <table className="w-full">
-            <thead className="tbl-head">
-              <tr>
-                <th>Equipamento</th>
-                <th>Data</th>
-                <th>Próxima</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {proximas.map(c => (
-                <tr key={c.id} className="tbl-row">
-                  <td><span className="tag-chip mr-2">{c.equipamentoTag}</span></td>
-                  <td>{fmt(c.data)}</td>
-                  <td>{fmt(c.proximaChecagem)}</td>
-                  <td><StatusBadge status={c.status} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        }>
+          <div className="card p-5">
+            {proximas.length === 0 ? (
+              <p className="text-white/25 text-sm py-6 text-center">Nenhuma checagem registrada.</p>
+            ) : (
+              <table className="w-full">
+                <thead className="tbl-head">
+                  <tr>
+                    <th>Equipamento</th>
+                    <th>Data</th>
+                    <th>Próxima</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {proximas.map(c => (
+                    <tr key={c.id} className="tbl-row">
+                      <td><span className="tag-chip mr-2">{c.equipamentoTag}</span></td>
+                      <td>{fmt(c.data)}</td>
+                      <td>{fmt(c.proximaChecagem)}</td>
+                      <td><StatusBadge status={c.status} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </Section>
       </div>
     </div>
   )
