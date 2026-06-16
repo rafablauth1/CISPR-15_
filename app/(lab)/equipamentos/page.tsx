@@ -67,7 +67,6 @@ function pendenciasEquip(e: EquipamentoEMC): string[] {
   if (!e.serie)              p.push('série')
   if (!e.ultimaCalibracao)   p.push('última calibração')
   if (!e.proximaCalibracao)  p.push('próxima calibração')
-  if (!e.grandezas?.length)  p.push('grandezas')
   return p
 }
 
@@ -88,7 +87,6 @@ function infoPendencia(e: EquipamentoEMC): { vencido: boolean; faltam: string[];
 // Códigos de pendência (para o filtro granular).
 const PEND_OPCOES: { id: string; label: string }[] = [
   { id: 'vencido',    label: 'Vencido' },
-  { id: 'grandeza',   label: 'Sem grandeza' },
   { id: 'fabricante', label: 'Sem fabricante' },
   { id: 'modelo',     label: 'Sem modelo' },
   { id: 'serie',      label: 'Sem série' },
@@ -97,7 +95,6 @@ const PEND_OPCOES: { id: string; label: string }[] = [
 function codigosPendencia(e: EquipamentoEMC): string[] {
   const c: string[] = []
   if (calibVencida(e))                                    c.push('vencido')
-  if (!e.grandezas?.length)                               c.push('grandeza')
   if (!e.fabricante)                                      c.push('fabricante')
   if (!e.modelo)                                          c.push('modelo')
   if (!e.serie)                                           c.push('serie')
