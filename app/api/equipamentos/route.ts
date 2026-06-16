@@ -28,14 +28,15 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// Exclusão em lote: body { ids: string[] } → remove todos numa escrita só.
+// Exclusão em lote: { all: true } apaga todos; { ids:[...] } remove os listados.
 export async function DELETE(req: NextRequest) {
   try {
-    const { ids } = await req.json() as { ids: string[] }
-    if (!Array.isArray(ids) || !ids.length) {
+    const body = (await req.json().catch(() => ({}))) as { all?: boolean; ids?: string[] }
+    if (body.all) { escreverJSON(ARQUIVO, []); return NextResponse.json({ ok: true, removidos: 'todos' }) }
+    if (!Array.isArray(body.ids) || !body.ids.length) {
       return NextResponse.json({ error: 'Informe os ids.' }, { status: 400 })
     }
-    const set = new Set(ids)
+    const set = new Set(body.ids)
     const lista = lerJSON<EquipamentoEMC[]>(ARQUIVO, DEFAULTS)
     const nova = lista.filter(e => !set.has(e.id))
     escreverJSON(ARQUIVO, nova)

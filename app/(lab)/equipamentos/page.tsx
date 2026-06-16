@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Plus, ChevronRight, Zap, Gauge, Waves, Radio, SlidersHorizontal, Thermometer, FolderInput, Loader2, CheckCircle2, AlertTriangle, XCircle, ArrowUpDown, ArrowUp, ArrowDown, FileWarning, X, Search, Trash2 } from 'lucide-react'
+import { Plus, ChevronRight, Zap, Gauge, Waves, Radio, SlidersHorizontal, Thermometer, FolderInput, Loader2, CheckCircle2, AlertTriangle, XCircle, ArrowUpDown, ArrowUp, ArrowDown, FileWarning, X, Search, Trash2, Lock } from 'lucide-react'
 import { FilterDropdown } from '@/components/FilterDropdown'
 import { Paginacao } from '@/components/Paginacao'
 import { fmt, diasAte } from '@/lib/utils'
@@ -38,6 +38,7 @@ type LabAPI = {
   listMae?: (p: string) => Promise<{ ok: boolean; error?: string; folders?: { folder: string; dir: string }[] }>
   scanBatch?: (folders: { folder: string; dir: string }[]) => Promise<ScanResult>
   browseFolder?: (t: string) => Promise<{ canceled?: boolean; folderPath?: string }>
+  getSettings?: () => Promise<{ senhaEmissao?: string }>
 }
 
 const ICONES: Record<string, React.ElementType> = {
@@ -84,6 +85,26 @@ function infoPendencia(e: EquipamentoEMC): { vencido: boolean; faltam: string[];
   return { vencido, faltam, tem: vencido || faltam.length > 0 }
 }
 
+// Códigos de pendência (para o filtro granular).
+const PEND_OPCOES: { id: string; label: string }[] = [
+  { id: 'vencido',    label: 'Vencido' },
+  { id: 'grandeza',   label: 'Sem grandeza' },
+  { id: 'fabricante', label: 'Sem fabricante' },
+  { id: 'modelo',     label: 'Sem modelo' },
+  { id: 'serie',      label: 'Sem série' },
+  { id: 'calibracao', label: 'Sem data de calibração' },
+]
+function codigosPendencia(e: EquipamentoEMC): string[] {
+  const c: string[] = []
+  if (calibVencida(e))                                    c.push('vencido')
+  if (!e.grandezas?.length)                               c.push('grandeza')
+  if (!e.fabricante)                                      c.push('fabricante')
+  if (!e.modelo)                                          c.push('modelo')
+  if (!e.serie)                                           c.push('serie')
+  if (!e.ultimaCalibracao || !e.proximaCalibracao)       c.push('calibracao')
+  return c
+}
+
 export default function EquipamentosPage() {
   const [equips, setEquips] = useState<EquipamentoEMC[]>([])
   const [grupos, setGrupos] = useState<Grupo[]>([])
@@ -97,8 +118,9 @@ export default function EquipamentosPage() {
   const [busca,   setBusca]   = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('tag')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
-  const [soPendentes, setSoPendentes] = useState(false)
+  const [fPend, setFPend] = useState<string[]>([])
   const [pronto,  setPronto]  = useState(false)
+  const [senhaApp, setSenhaApp] = useState<string>('')
 
   // Importação em lote
   const [impProgresso, setImpProgresso] = useState<string | null>(null)
@@ -121,7 +143,7 @@ export default function EquipamentosPage() {
         const s = JSON.parse(raw)
         setFAreas(s.fAreas ?? [])
         setFSiglas(s.fSiglas ?? []); setFGrupos(s.fGrupos ?? []); setFSubs(s.fSubs ?? [])
-        setSoPendentes(!!s.soPendentes)
+        setFPend(Array.isArray(s.fPend) ? s.fPend : [])
         if (s.sortKey) setSortKey(s.sortKey); if (s.sortDir) setSortDir(s.sortDir)
       }
     } catch {}
@@ -131,11 +153,11 @@ export default function EquipamentosPage() {
   // Salva filtros sempre que mudam (após o carregamento inicial)
   useEffect(() => {
     if (!pronto) return
-    try { localStorage.setItem(FILTROS_KEY, JSON.stringify({ fAreas, fSiglas, fGrupos, fSubs, sortKey, sortDir, soPendentes })) } catch {}
-  }, [pronto, fAreas, fSiglas, fGrupos, fSubs, sortKey, sortDir, soPendentes])
+    try { localStorage.setItem(FILTROS_KEY, JSON.stringify({ fAreas, fSiglas, fGrupos, fSubs, sortKey, sortDir, fPend })) } catch {}
+  }, [pronto, fAreas, fSiglas, fGrupos, fSubs, sortKey, sortDir, fPend])
 
   // Volta pra página 1 quando o filtro/busca/tamanho muda
-  useEffect(() => { setPagina(1) }, [busca, fAreas, fSiglas, fGrupos, fSubs, soPendentes, porPagina])
+  useEffect(() => { setPagina(1) }, [busca, fAreas, fSiglas, fGrupos, fSubs, fPend, porPagina])
 
   function carregarRascunho() {
     fetch('/api/equipamentos/importar-lote').then(r => r.json()).then(d => setRascunho(Array.isArray(d) ? d : [])).catch(() => {})
@@ -152,7 +174,28 @@ export default function EquipamentosPage() {
       if (t && !t.error) setTax({ areas: t.areas ?? [], siglas: t.siglas ?? [], tipos: t.tipos ?? [] })
     }).catch(() => {})
     carregarRascunho()
+    const api = (window as unknown as { electronAPI?: LabAPI }).electronAPI
+    api?.getSettings?.().then(s => setSenhaApp(s?.senhaEmissao || '')).catch(() => {})
   }, [])
+
+  // Exclusão TOTAL (equipamentos + certificados) — protegida por senha.
+  async function excluirTudo() {
+    if (senhaApp) {
+      const tentativa = window.prompt('Senha para excluir TODOS os equipamentos e certificados:')
+      if (tentativa === null) return
+      if (tentativa !== senhaApp) { alert('Senha incorreta.'); return }
+    } else {
+      const ok = window.prompt('Sem senha configurada. Para confirmar, digite EXCLUIR:')
+      if (ok !== 'EXCLUIR') { if (ok !== null) alert('Cancelado.'); return }
+    }
+    if (!confirm('Tem CERTEZA? Isso apaga TODOS os equipamentos e certificados cadastrados. Não dá pra desfazer.')) return
+    try {
+      await fetch('/api/equipamentos',  { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ all: true }) })
+      await fetch('/api/certificados',  { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ all: true }) })
+      setEquips([]); setSel([]); carregarRascunho()
+      alert('Tudo excluído.')
+    } catch (e) { alert('Erro: ' + String(e)) }
+  }
 
   async function importarPastaMae() {
     const api = (window as unknown as { electronAPI?: LabAPI }).electronAPI
@@ -192,9 +235,9 @@ export default function EquipamentosPage() {
     finally { setImpProgresso(null) }
   }
 
-  const temFiltro = fAreas.length + fSiglas.length + fGrupos.length + fSubs.length > 0 || soPendentes || !!busca.trim()
-  const limpar = () => { setFAreas([]); setFSiglas([]); setFGrupos([]); setFSubs([]); setSoPendentes(false); setBusca('') }
-  const totalPendentes = equips.filter(e => infoPendencia(e).tem).length
+  const temFiltro = fAreas.length + fSiglas.length + fGrupos.length + fSubs.length + fPend.length > 0 || !!busca.trim()
+  const limpar = () => { setFAreas([]); setFSiglas([]); setFGrupos([]); setFSubs([]); setFPend([]); setBusca('') }
+  const pendPorTipo = (id: string) => equips.filter(e => codigosPendencia(e).includes(id)).length
 
   // Área de um equipamento = área da sigla da sua TAG (via taxonomia)
   const areaDoEquip = (e: EquipamentoEMC) =>
@@ -231,7 +274,7 @@ export default function EquipamentosPage() {
       (fSiglas.length === 0 || fSiglas.includes(siglaDaTag(e.tag))) &&
       (fGrupos.length === 0 || fGrupos.includes(e.grupoId)) &&
       (fSubs.length   === 0 || fSubs.includes(e.subgrupoId)) &&
-      (!soPendentes || infoPendencia(e).tem) &&
+      (fPend.length === 0 || fPend.some(t => codigosPendencia(e).includes(t))) &&
       (!q || e.tag.toLowerCase().includes(q) || e.nome.toLowerCase().includes(q)),
     )
     const dir = sortDir === 'asc' ? 1 : -1
@@ -308,6 +351,10 @@ export default function EquipamentosPage() {
             {impProgresso ? 'Importando…' : 'Importar pasta-mãe'}
           </button>
           <Link href="/checagens/nova" className="btn-secondary"><Plus size={13}/> Nova Checagem</Link>
+          <button type="button" onClick={excluirTudo} title="Excluir TODOS os equipamentos e certificados (com senha)"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] text-red-300/80 border border-red-500/30 hover:bg-red-500/15 transition-all">
+            <Lock size={12}/> Excluir tudo
+          </button>
         </div>
       </div>
 
@@ -456,13 +503,8 @@ export default function EquipamentosPage() {
             options={grupos.map(g => ({ id: g.id, label: g.nome, count: equips.filter(e => e.grupoId === g.id).length, color: GRUPO_CORES[g.cor] ?? '#94A3B8' }))} />
           <FilterDropdown label="Subgrupos" selected={fSubs} onChange={setFSubs}
             options={grupos.flatMap(g => g.subgrupos.map(s => ({ id: s.id, label: s.nome, count: equips.filter(e => e.subgrupoId === s.id).length, color: GRUPO_CORES[g.cor] ?? '#94A3B8' }))).filter(o => o.count > 0 || fSubs.includes(o.id))} />
-          {totalPendentes > 0 && (
-            <button type="button" onClick={() => setSoPendentes(v => !v)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] border transition-all"
-              style={{ background: soPendentes ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.03)', color: soPendentes ? '#F59E0B' : 'rgba(255,255,255,0.6)', borderColor: soPendentes ? 'rgba(245,158,11,0.5)' : 'rgba(255,255,255,0.1)' }}>
-              <AlertTriangle size={12}/> Pendência <span className="opacity-60 font-mono">{totalPendentes}</span>
-            </button>
-          )}
+          <FilterDropdown label="Pendências" selected={fPend} onChange={setFPend} icon={<AlertTriangle size={12}/>}
+            options={PEND_OPCOES.map(o => ({ id: o.id, label: o.label, count: pendPorTipo(o.id) })).filter(o => o.count > 0 || fPend.includes(o.id))} />
           {temFiltro && (
             <button type="button" onClick={limpar} className="flex items-center gap-1 text-[11px] text-white/45 hover:text-white px-2 py-1.5 rounded-lg border border-white/10 hover:border-white/25 transition-all">
               <X size={11}/> Limpar
