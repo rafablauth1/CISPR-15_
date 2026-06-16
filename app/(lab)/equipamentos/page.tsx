@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Plus, ChevronRight, Zap, Gauge, Waves, Radio, SlidersHorizontal, Thermometer, FolderInput, Loader2, CheckCircle2, AlertTriangle, XCircle, ArrowUpDown, ArrowUp, ArrowDown, FileWarning, X } from 'lucide-react'
+import { Plus, ChevronRight, Zap, Gauge, Waves, Radio, SlidersHorizontal, Thermometer, FolderInput, Loader2, CheckCircle2, AlertTriangle, XCircle, ArrowUpDown, ArrowUp, ArrowDown, FileWarning, X, Search } from 'lucide-react'
+import { FilterDropdown } from '@/components/FilterDropdown'
 import { fmt } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { EquipamentoEMC, GrupoId } from '@/lib/equipamentos/tipos'
@@ -146,9 +147,6 @@ export default function EquipamentosPage() {
     finally { setImpProgresso(null) }
   }
 
-  const toggle = (arr: string[], set: (v: string[]) => void, id: string) =>
-    set(arr.includes(id) ? arr.filter(x => x !== id) : [...arr, id])
-
   const temFiltro = fAreas.length + fSiglas.length + fGrupos.length + fSubs.length > 0 || soPendentes || !!busca.trim()
   const limpar = () => { setFAreas([]); setFSiglas([]); setFGrupos([]); setFSubs([]); setSoPendentes(false); setBusca('') }
   const totalPendentes = equips.filter(e => pendenciasEquip(e).length > 0).length
@@ -271,105 +269,35 @@ export default function EquipamentosPage() {
         </div>
       )}
 
-      {/* ── Filtros combináveis ─────────────────────────────────────────── */}
-      <div className="card p-3 mb-6 space-y-2.5">
-        {/* Busca por TAG / nome */}
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] font-mono uppercase tracking-widest text-white/30 w-16 flex-shrink-0">Busca</span>
-          <input value={busca} onChange={e => setBusca(e.target.value)}
-            placeholder="TAG ou nome do equipamento…"
-            className="input text-[12px] py-1 flex-1" />
-        </div>
-        {/* Áreas */}
-        {areasPresentes.length > 0 && (
-          <div className="flex items-start gap-2 flex-wrap">
-            <span className="text-[10px] font-mono uppercase tracking-widest text-white/30 w-16 pt-1.5 flex-shrink-0">Áreas</span>
-            <div className="flex gap-1.5 flex-wrap flex-1">
-              {areasPresentes.map(a => {
-                const on = fAreas.includes(a.id)
-                return (
-                  <button key={a.id} type="button" onClick={() => toggle(fAreas, setFAreas, a.id)}
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] transition-all"
-                    style={{ background: on ? `${a.cor}22` : 'rgba(255,255,255,0.03)', color: on ? a.cor : 'rgba(255,255,255,0.6)', border: `1px solid ${on ? a.cor + '66' : 'rgba(255,255,255,0.08)'}` }}>
-                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: a.cor }}/>{a.nome}<span className="opacity-50 font-mono">{a.n}</span>
-                  </button>
-                )
-              })}
-            </div>
+      {/* ── Busca + filtros (dropdowns) ─────────────────────────────────── */}
+      <div className="card p-3 mb-6">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Busca inline */}
+          <div className="relative flex-1 min-w-[200px]">
+            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/30"/>
+            <input value={busca} onChange={e => setBusca(e.target.value)}
+              placeholder="Buscar por TAG ou nome…"
+              className="input text-[12px] py-1.5 pl-8 w-full" />
           </div>
-        )}
-        {/* Siglas */}
-        {siglasPresentes.length > 0 && (
-          <div className="flex items-start gap-2 flex-wrap">
-            <span className="text-[10px] font-mono uppercase tracking-widest text-white/30 w-16 pt-1.5 flex-shrink-0">Siglas</span>
-            <div className="flex gap-1.5 flex-wrap flex-1">
-              {siglasPresentes.map(s => {
-                const on = fSiglas.includes(s.sigla)
-                return (
-                  <button key={s.sigla} type="button" onClick={() => toggle(fSiglas, setFSiglas, s.sigla)}
-                    title={s.significado || 'Sigla não cadastrada em Áreas & Siglas'}
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-mono transition-all"
-                    style={{ background: on ? `${s.cor}22` : 'rgba(255,255,255,0.03)', color: on ? s.cor : 'rgba(255,255,255,0.55)', border: `1px solid ${on ? s.cor + '66' : 'rgba(255,255,255,0.08)'}` }}>
-                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: s.cor }}/>{s.sigla}<span className="opacity-50">{s.n}</span>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        )}
-        {/* Grupos */}
-        {grupos.length > 0 && (
-          <div className="flex items-start gap-2 flex-wrap">
-            <span className="text-[10px] font-mono uppercase tracking-widest text-white/30 w-16 pt-1.5 flex-shrink-0">Grupos</span>
-            <div className="flex gap-1.5 flex-wrap flex-1">
-              {grupos.map(g => {
-                const cor = GRUPO_CORES[g.cor] ?? '#94A3B8'
-                const Icon = ICONES[g.id] ?? Gauge
-                const on = fGrupos.includes(g.id)
-                const n = equips.filter(e => e.grupoId === g.id).length
-                return (
-                  <button key={g.id} type="button" onClick={() => toggle(fGrupos, setFGrupos, g.id)}
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] transition-all"
-                    style={{ background: on ? `${cor}22` : 'rgba(255,255,255,0.03)', color: on ? cor : 'rgba(255,255,255,0.6)', border: `1px solid ${on ? cor + '66' : 'rgba(255,255,255,0.08)'}` }}>
-                    <Icon size={12} style={{ color: cor }}/>{g.nome}<span className="opacity-50 font-mono">{n}</span>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        )}
-        {/* Subgrupos */}
-        {grupos.length > 0 && (
-          <div className="flex items-start gap-2 flex-wrap">
-            <span className="text-[10px] font-mono uppercase tracking-widest text-white/30 w-16 pt-1.5 flex-shrink-0">Subgr.</span>
-            <div className="flex gap-1.5 flex-wrap flex-1">
-              {grupos.flatMap(g => g.subgrupos.map(s => {
-                const cor = GRUPO_CORES[g.cor] ?? '#94A3B8'
-                const on = fSubs.includes(s.id)
-                const n = equips.filter(e => e.subgrupoId === s.id).length
-                if (n === 0 && !on) return null
-                return (
-                  <button key={s.id} type="button" onClick={() => toggle(fSubs, setFSubs, s.id)}
-                    className="badge font-mono transition-all hover:brightness-125"
-                    style={{ background: on ? `${cor}30` : `${cor}10`, color: cor, border: `1px solid ${cor}${on ? '66' : '22'}`, fontSize: 9 }}>
-                    {s.nome} <span className="opacity-60">{n}</span>
-                  </button>
-                )
-              }))}
-            </div>
-          </div>
-        )}
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          {totalPendentes > 0 ? (
+          {/* Dropdowns de filtro */}
+          <FilterDropdown label="Áreas" selected={fAreas} onChange={setFAreas}
+            options={areasPresentes.map(a => ({ id: a.id, label: a.nome, count: a.n, color: a.cor }))} />
+          <FilterDropdown label="Siglas" selected={fSiglas} onChange={setFSiglas}
+            options={siglasPresentes.map(s => ({ id: s.sigla, label: s.significado ? `${s.sigla} · ${s.significado}` : s.sigla, count: s.n, color: s.cor }))} />
+          <FilterDropdown label="Grupos" selected={fGrupos} onChange={setFGrupos}
+            options={grupos.map(g => ({ id: g.id, label: g.nome, count: equips.filter(e => e.grupoId === g.id).length, color: GRUPO_CORES[g.cor] ?? '#94A3B8' }))} />
+          <FilterDropdown label="Subgrupos" selected={fSubs} onChange={setFSubs}
+            options={grupos.flatMap(g => g.subgrupos.map(s => ({ id: s.id, label: s.nome, count: equips.filter(e => e.subgrupoId === s.id).length, color: GRUPO_CORES[g.cor] ?? '#94A3B8' }))).filter(o => o.count > 0 || fSubs.includes(o.id))} />
+          {totalPendentes > 0 && (
             <button type="button" onClick={() => setSoPendentes(v => !v)}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] transition-all"
-              style={{ background: soPendentes ? 'rgba(245,158,11,0.18)' : 'rgba(255,255,255,0.03)', color: soPendentes ? '#F59E0B' : 'rgba(255,255,255,0.55)', border: `1px solid ${soPendentes ? 'rgba(245,158,11,0.5)' : 'rgba(255,255,255,0.08)'}` }}>
-              <AlertTriangle size={12}/> Com pendência <span className="opacity-60 font-mono">{totalPendentes}</span>
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] border transition-all"
+              style={{ background: soPendentes ? 'rgba(245,158,11,0.15)' : 'rgba(255,255,255,0.03)', color: soPendentes ? '#F59E0B' : 'rgba(255,255,255,0.6)', borderColor: soPendentes ? 'rgba(245,158,11,0.5)' : 'rgba(255,255,255,0.1)' }}>
+              <AlertTriangle size={12}/> Pendência <span className="opacity-60 font-mono">{totalPendentes}</span>
             </button>
-          ) : <span/>}
+          )}
           {temFiltro && (
-            <button type="button" onClick={limpar} className="flex items-center gap-1 text-[11px] text-white/45 hover:text-white px-2 py-0.5 rounded-lg border border-white/10 hover:border-white/25 transition-all">
-              <X size={11}/> Limpar filtros
+            <button type="button" onClick={limpar} className="flex items-center gap-1 text-[11px] text-white/45 hover:text-white px-2 py-1.5 rounded-lg border border-white/10 hover:border-white/25 transition-all">
+              <X size={11}/> Limpar
             </button>
           )}
         </div>

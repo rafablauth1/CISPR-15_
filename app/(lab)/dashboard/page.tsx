@@ -11,9 +11,13 @@ import { fmt, diasAte } from '@/lib/utils'
 import { RELATORIOS_KEY, AGENDA_KEY } from '@/app/cispr15/types'
 import { lerTempos, mediaDuracao, formatDuracao, type TempoTrabalho } from '@/lib/tempos'
 import { DonutChart, BarChart, HBarChart, ChartCard } from '@/components/Charts'
+import { FilterDropdown } from '@/components/FilterDropdown'
 import type { EquipamentoEMC } from '@/lib/equipamentos/tipos'
 import type { Checagem } from '@/lib/checagens/tipos'
 import type { Norma } from '@/lib/normas/tipos'
+import type { Taxonomia } from '@/lib/taxonomia/tipos'
+import { siglaDaTag } from '@/lib/taxonomia/tipos'
+import { GRUPO_CORES } from '@/lib/grupos-icons'
 
 const MESES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 
@@ -124,6 +128,8 @@ export default function DashboardPage() {
   const [agenda,     setAgenda]     = useState<any[]>([])
   const [ano,        setAno]        = useState<number>(new Date().getFullYear())
   const [tempos,     setTempos]     = useState<TempoTrabalho[]>([])
+  const [tax,        setTax]        = useState<Taxonomia>({ areas: [], siglas: [], tipos: [] })
+  const [qSiglas,    setQSiglas]    = useState<string[]>([])
   const [aba,        setAba]        = useState<'cispr15' | 'qualidade' | 'atalhos'>('cispr15')
 
   useEffect(() => {
@@ -131,10 +137,12 @@ export default function DashboardPage() {
       fetch('/api/equipamentos').then(r => r.json()),
       fetch('/api/checagens').then(r => r.json()),
       fetch('/api/normas').then(r => r.json()),
-    ]).then(([e, c, n]) => {
+      fetch('/api/taxonomia').then(r => r.json()),
+    ]).then(([e, c, n, t]) => {
       setEquips(Array.isArray(e) ? e : [])
       setChecagens(Array.isArray(c) ? c : [])
       setNormas(Array.isArray(n) ? n : [])
+      if (t && !t.error) setTax({ areas: t.areas ?? [], siglas: t.siglas ?? [], tipos: t.tipos ?? [] })
     }).catch(() => {})
 
     loadList('getRelatorios', 'relatorios', RELATORIOS_KEY).then(setRelatorios)
@@ -198,10 +206,25 @@ export default function DashboardPage() {
     return { emissao, agendaT }
   }, [tempos, ano])
 
-  const vencidas  = checagens.filter(c => c.status === 'reprovado').length
-  const pendentes = checagens.filter(c => c.status === 'atencao').length
-  const emDia     = checagens.length - vencidas - pendentes
+  // Filtro por TAG (sigla) da aba Qualidade — escopa checagens e equipamentos
+  const checagensQ = qSiglas.length ? checagens.filter(c => qSiglas.includes(siglaDaTag(c.equipamentoTag))) : checagens
+  const equipsQ    = qSiglas.length ? equips.filter(e => qSiglas.includes(siglaDaTag(e.tag))) : equips
+
+  const vencidas  = checagensQ.filter(c => c.status === 'reprovado').length
+  const pendentes = checagensQ.filter(c => c.status === 'atencao').length
+  const emDia     = checagensQ.length - vencidas - pendentes
   const agendaPendentes = agenda.filter((a: any) => !a?.numRelatorio).length
+
+  // Siglas disponíveis no filtro da Qualidade (com significado/cor da área)
+  const siglasDash = (() => {
+    const cont = new Map<string, number>()
+    for (const e of equips) { const s = siglaDaTag(e.tag); if (s) cont.set(s, (cont.get(s) ?? 0) + 1) }
+    return [...cont.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([sigla, n]) => {
+      const def = tax.siglas.find(x => x.sigla === sigla)
+      const area = def ? tax.areas.find(a => a.id === def.areaId) : undefined
+      return { id: sigla, label: def?.significado ? `${sigla} · ${def.significado}` : sigla, count: n, color: area ? GRUPO_CORES[area.cor] : '#94A3B8' }
+    })
+  })()
   // Agenda de execução — ensaios ainda não emitidos, ordenados pela previsão de saída
   const agendaProximos = [...agenda]
     .filter((a: any) => !a?.numRelatorio)
@@ -212,14 +235,14 @@ export default function DashboardPage() {
     })
     .slice(0, 6)
 
-  // Equipamentos por grupo
+  // Equipamentos por grupo (respeita o filtro de TAG da Qualidade)
   const porGrupo = useMemo(() => {
     const map: Record<string, number> = {}
-    for (const e of equips) { const g = (e as any).grupoId || 'outros'; map[g] = (map[g] ?? 0) + 1 }
+    for (const e of equipsQ) { const g = (e as any).grupoId || 'outros'; map[g] = (map[g] ?? 0) + 1 }
     return Object.entries(map).map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value).slice(0, 8)
-  }, [equips])
+  }, [equipsQ])
 
-  const proximas = [...checagens]
+  const proximas = [...checagensQ]
     .sort((a, b) => {
       const da = diasAte(a.proximaChecagem)
       const db = diasAte(b.proximaChecagem)
@@ -336,16 +359,25 @@ export default function DashboardPage() {
       {/* ── Qualidade — checagens + equipamentos ───────────────────────── */}
       {aba === 'qualidade' && (
         <div className="space-y-6">
+          {siglasDash.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[11px] text-white/40">Filtrar por TAG:</span>
+              <FilterDropdown label="Siglas" selected={qSiglas} onChange={setQSiglas} options={siglasDash} />
+              {qSiglas.length > 0 && (
+                <button type="button" onClick={() => setQSiglas([])} className="text-[11px] text-white/40 hover:text-white px-2 py-1 rounded-lg border border-white/10 hover:border-white/25 transition-all">Limpar</button>
+              )}
+            </div>
+          )}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard href="/checagens"    icon={<ClipboardCheck size={18} />} label="Checagens vencendo" value={pendentes}       color="#F59E0B" />
             <StatCard href="/checagens"    icon={<AlertTriangle size={18} />}  label="Checagens vencidas" value={vencidas}        color="#F87171" />
-            <StatCard href="/equipamentos" icon={<Cpu size={18} />}            label="Equipamentos"       value={equips.length}   color="#4F8EF7" />
+            <StatCard href="/equipamentos" icon={<Cpu size={18} />}            label="Equipamentos"       value={equipsQ.length}  color="#4F8EF7" />
             <StatCard href="/normas"       icon={<BookOpen size={18} />}       label="Normas"             value={normas.length}   color="#9B8CFF" />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <ChartCard title="Checagens por status">
-              <DonutChart centerTop={checagens.length} centerSub="checagens"
+              <DonutChart centerTop={checagensQ.length} centerSub="checagens"
                 segments={[
                   { label: 'Em dia',   value: emDia,     color: '#34D399' },
                   { label: 'Vencendo', value: pendentes, color: '#F59E0B' },
