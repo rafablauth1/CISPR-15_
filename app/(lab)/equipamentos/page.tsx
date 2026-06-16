@@ -84,7 +84,7 @@ export default function EquipamentosPage() {
   const [impProgresso, setImpProgresso] = useState<string | null>(null)
   const [impRelatorio, setImpRelatorio] = useState<RelatorioImport | null>(null)
   const [rascunho, setRascunho] = useState<RascunhoItem[]>([])
-  const [verRascunho, setVerRascunho] = useState(false)
+  const [abaEquip, setAbaEquip] = useState<'lista' | 'rascunho'>('lista')
 
   // Carrega filtros salvos (1×, no mount)
   useEffect(() => {
@@ -269,6 +269,60 @@ export default function EquipamentosPage() {
         </div>
       )}
 
+      {/* Sub-abas: Equipamentos | Rascunho */}
+      <div className="flex items-center gap-1 border-b border-white/8 mb-5">
+        {([['lista', 'Equipamentos', equips.length], ['rascunho', 'Rascunho', rascunho.length]] as const).map(([id, label, n]) => (
+          <button key={id} type="button" onClick={() => setAbaEquip(id)}
+            className={cn('flex items-center gap-1.5 px-3.5 py-2 text-[12px] font-medium rounded-t-lg transition-all border-b-2 -mb-px',
+              abaEquip === id ? 'text-white border-gold' : 'text-white/40 border-transparent hover:text-white/70')}>
+            {id === 'rascunho' && <FileWarning size={13} className={abaEquip === id ? 'text-amber-400' : ''}/>}
+            {label}
+            {n > 0 && <span className={cn('text-[9px] font-mono px-1.5 py-0.5 rounded-md',
+              id === 'rascunho' ? 'bg-amber-400/20 text-amber-300' : 'bg-white/10 text-white/50')}>{n}</span>}
+          </button>
+        ))}
+      </div>
+
+      {/* ══ Aba RASCUNHO — TAGs de pasta não cadastradas ═══════════════════ */}
+      {abaEquip === 'rascunho' && (
+        rascunho.length === 0 ? (
+          <div className="card p-10 text-center text-white/25 text-sm">
+            Nenhum rascunho. As pastas que não puderem ser cadastradas na importação aparecem aqui.
+          </div>
+        ) : (
+          <div className="card overflow-hidden">
+            <div className="px-4 py-2.5 border-b border-white/5 flex items-center gap-2">
+              <FileWarning size={15} className="text-amber-400"/>
+              <span className="text-[12px] text-amber-300/90 font-medium">{rascunho.length} pasta(s) não cadastrada(s)</span>
+              <span className="text-[10px] text-white/30">— cadastre manualmente em "Novo Equipamento"</span>
+            </div>
+            <table className="w-full text-[12px]">
+              <thead className="tbl-head">
+                <tr><th className="w-32">TAG / Pasta</th><th>Motivo</th><th className="w-24">Quando</th><th className="w-16"></th></tr>
+              </thead>
+              <tbody>
+                {rascunho.map((r, i) => (
+                  <tr key={i} className="tbl-row">
+                    <td><span className="font-mono text-amber-300/80">{r.tag || r.folder}</span></td>
+                    <td className="text-white/60">{r.motivo}</td>
+                    <td className="font-mono text-[10px] text-white/35">{r.em ? fmt(r.em.slice(0, 10)) : '—'}</td>
+                    <td>
+                      {r.certPath && (
+                        <button type="button" title="Abrir o PDF da pasta"
+                          onClick={() => (window as unknown as { electronAPI?: { openPath?: (p: string) => void } }).electronAPI?.openPath?.(r.certPath!)}
+                          className="text-white/30 hover:text-teal transition-colors text-[11px] underline">PDF</button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      )}
+
+      {/* ══ Aba LISTA ══════════════════════════════════════════════════════ */}
+      {abaEquip === 'lista' && (<>
       {/* ── Busca + filtros (dropdowns) ─────────────────────────────────── */}
       <div className="card p-3 mb-6">
         <div className="flex items-center gap-2 flex-wrap">
@@ -302,34 +356,6 @@ export default function EquipamentosPage() {
           )}
         </div>
       </div>
-
-      {/* ── Rascunho (não cadastrados) ──────────────────────────────────── */}
-      {rascunho.length > 0 && (
-        <div className="card mb-6 overflow-hidden">
-          <button type="button" onClick={() => setVerRascunho(v => !v)}
-            className="w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-white/3 transition-colors">
-            <FileWarning size={15} className="text-amber-400"/>
-            <span className="text-[12px] font-medium text-amber-300/90">Rascunho — não cadastrados ({rascunho.length})</span>
-            <span className="text-[10px] text-white/30 ml-1">cadastre estes manualmente</span>
-            <ChevronRight size={14} className={cn('ml-auto text-white/30 transition-transform', verRascunho && 'rotate-90')}/>
-          </button>
-          {verRascunho && (
-            <div className="border-t border-white/5 max-h-60 overflow-y-auto">
-              <table className="w-full text-[11px]">
-                <thead className="tbl-head"><tr><th className="w-28">TAG/Pasta</th><th>Motivo</th></tr></thead>
-                <tbody>
-                  {rascunho.map((r, i) => (
-                    <tr key={i} className="tbl-row">
-                      <td><span className="font-mono text-amber-300/80">{r.tag || r.folder}</span></td>
-                      <td className="text-white/55">{r.motivo}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* ── Lista ───────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
@@ -400,6 +426,7 @@ export default function EquipamentosPage() {
           </table>
         </div>
       )}
+      </>)}
     </div>
   )
 }
