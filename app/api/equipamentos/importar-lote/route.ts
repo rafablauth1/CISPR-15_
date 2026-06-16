@@ -3,6 +3,7 @@ import { lerJSON, escreverJSON } from '@/lib/dados'
 import type { EquipamentoEMC, GrupoId, SubgrupoId } from '@/lib/equipamentos/tipos'
 import type { Certificado } from '@/lib/certificados/tipos'
 import { parsearDadosPadrao, parsearMetadadosCertificado, classificarCertificadoLabelo, resolverTag, limparCampo } from '@/lib/certificados/parser'
+import { extrairMetadadosGenerico, extrairAcreditacao } from '@/lib/certificados/extrair-generico'
 import { parsearCertificadoRBC } from '@/lib/interpolacao'
 import { corrigirGrandezasPorLayout } from '@/lib/certificados/layout'
 import { grandezasDoCertificado, mesclarGrandezas } from '@/lib/certificados/registrar-grandezas'
@@ -12,7 +13,10 @@ const ARQ_EQUIP    = 'equipamentos.json'
 const ARQ_CERT     = 'certificados.json'
 const ARQ_RASCUNHO = 'rascunho-equipamentos.json'
 
-interface RascunhoItem { tag: string; folder: string; motivo: string; certPath?: string; em: string }
+interface RascunhoItem {
+  tag: string; folder: string; motivo: string; certPath?: string; em: string
+  lab?: string; acreditacao?: string; equipamento?: string
+}
 
 interface ItemScan {
   folder: string
@@ -107,8 +111,17 @@ export async function POST(req: NextRequest) {
       // Só cadastra se for MESMO certificado do LABELO (nº no padrão, não-formulário).
       const classif = classificarCertificadoLabelo(it.text)
       if (!classif.ok) {
-        pulados.push({ tag, motivo: classif.motivo || 'Não é certificado do LABELO' })
-        rascunho.push({ tag, folder: it.folder, motivo: classif.motivo || 'Não é certificado do LABELO', certPath: it.certPath || undefined, em: agora })
+        // Tenta identificar o laboratório emissor (CAL XXXX) e dados básicos.
+        const g = extrairMetadadosGenerico(it.text)
+        const labTxt = g.laboratorio || (g.acreditacao ? `Lab ${g.acreditacao}` : '')
+        const motivo = labTxt
+          ? `Outro laboratório — ${labTxt}`
+          : (classif.motivo || 'Não é certificado do LABELO')
+        pulados.push({ tag, motivo })
+        rascunho.push({
+          tag, folder: it.folder, motivo, certPath: it.certPath || undefined, em: agora,
+          lab: g.laboratorio, acreditacao: g.acreditacao, equipamento: g.nome,
+        })
         continue
       }
 
@@ -157,6 +170,7 @@ export async function POST(req: NextRequest) {
           equipamentoTag: tag,
           numero: numeroCert,
           laboratorio: meta.laboratorio || 'LABELO/PUCRS',
+          acreditacao: extrairAcreditacao(it.text),
           dataEmissao,
           dataValidade: dataEmissao ? addM(dataEmissao, equip.intervaloCalibracao || 12) : undefined,
           itens: [],

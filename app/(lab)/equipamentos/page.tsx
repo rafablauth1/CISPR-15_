@@ -26,7 +26,7 @@ interface RelatorioImport {
   pulados: { tag: string; motivo: string }[]
   erros: { folder: string; motivo: string }[]
 }
-interface RascunhoItem { tag: string; folder: string; motivo: string; certPath?: string; em: string }
+interface RascunhoItem { tag: string; folder: string; motivo: string; certPath?: string; em: string; lab?: string; acreditacao?: string; equipamento?: string }
 
 interface ScanResult {
   ok: boolean
@@ -453,6 +453,7 @@ export default function EquipamentosPage() {
                       {rascSort === 'asc' ? <ArrowUp size={11}/> : <ArrowDown size={11}/>}
                     </span>
                   </th>
+                  <th className="w-44">Laboratório</th>
                   <th className="w-24">Quando</th><th className="w-16"></th>
                 </tr>
               </thead>
@@ -465,6 +466,11 @@ export default function EquipamentosPage() {
                     </td>
                     <td><span className="font-mono text-amber-300/80">{r.tag || r.folder}</span></td>
                     <td className="text-white/60">{r.motivo}</td>
+                    <td>
+                      {r.lab || r.acreditacao ? (
+                        <span className="text-[11px] text-white/70">{r.lab || '—'}{r.acreditacao && <span className="text-white/35 font-mono ml-1">{r.acreditacao}</span>}</span>
+                      ) : <span className="text-white/20 text-[11px]">—</span>}
+                    </td>
                     <td className="font-mono text-[10px] text-white/35">{r.em ? fmt(r.em.slice(0, 10)) : '—'}</td>
                     <td>
                       {r.certPath && (

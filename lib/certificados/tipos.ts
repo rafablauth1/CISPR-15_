@@ -23,6 +23,7 @@ export interface Certificado {
   equipamentoTag: string
   numero: string               // n° do certificado (ex: "R0042-2025")
   laboratorio: string
+  acreditacao?: string         // n° de acreditação Cgcre do lab emissor (ex: "CAL 0024")
   dataEmissao: string          // YYYY-MM-DD
   dataValidade?: string        // YYYY-MM-DD (12 ou 24 meses)
   normaRastreabilidade?: string
