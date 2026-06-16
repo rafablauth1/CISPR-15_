@@ -58,6 +58,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   scanCertificados:(pastaMae)=> ipcRenderer.invoke('equip:scan-certificados', { pastaMae }),
   listMae:         (pastaMae)=> ipcRenderer.invoke('equip:list-mae',          { pastaMae }),
   scanBatch:       (folders) => ipcRenderer.invoke('equip:scan-batch',        { folders }),
+  rescanPendentes: (itens)   => ipcRenderer.invoke('equip:rescan',            { itens }),
   extractPdfPage1: (base64)  => ipcRenderer.invoke('pdf:extract-page1', { base64 }),
 
   // Follow-up PDF direto

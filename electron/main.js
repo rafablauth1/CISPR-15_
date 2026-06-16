@@ -1029,6 +1029,29 @@ ipcMain.handle('equip:scan-batch', async (_, { folders }) => {
   } catch (err) { return { ok: false, error: String(err) } }
 })
 
+// Re-varredura: re-lê PDFs já conhecidos pelo certPath (itens pendentes do
+// rascunho). Se o PDF original não tiver texto, tenta os outros PDFs da pasta.
+ipcMain.handle('equip:rescan', async (_, { itens }) => {
+  try {
+    const resultados = []
+    for (const it of (itens || [])) {
+      const folder = it.folder || ''
+      const certPath = it.certPath
+      try {
+        if (certPath && fs.existsSync(certPath)) {
+          const { items, text } = await pdfTextLayout(fs.readFileSync(certPath))
+          if (text && text.trim().length > 20) { resultados.push({ folder, certPath, text, items }); continue }
+          // sem texto → tenta a pasta inteira (escolhe o cert LABELO se houver)
+          resultados.push(await scanUmaPasta(folder, path.dirname(certPath)))
+        } else {
+          resultados.push({ folder, certPath: certPath || null, error: 'PDF não encontrado' })
+        }
+      } catch (e) { resultados.push({ folder, certPath: certPath || null, error: 'Falha ao reler: ' + String(e) }) }
+    }
+    return { ok: true, resultados }
+  } catch (err) { return { ok: false, error: String(err) } }
+})
+
 // (compat) Escaneia a pasta-mãe inteira de uma vez — evite para muitos itens.
 ipcMain.handle('equip:scan-certificados', async (_, { pastaMae }) => {
   try {

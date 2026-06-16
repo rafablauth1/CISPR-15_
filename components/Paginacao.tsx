@@ -31,10 +31,10 @@ export function Paginacao({ total, porPagina, setPorPagina, pagina, setPagina, o
           {(pg - 1) * porPagina + 1}–{Math.min(pg * porPagina, total)} de {total}
         </span>
         <div className="flex items-center gap-1">
-          <button type="button" disabled={pg <= 1} onClick={() => setPagina(p => Math.max(1, p - 1))}
+          <button type="button" disabled={pg <= 1} onClick={() => setPagina(() => Math.max(1, pg - 1))}
             className="px-2 py-1 rounded-md border border-white/10 hover:border-white/25 disabled:opacity-30 disabled:cursor-not-allowed transition-all">‹</button>
           <span className="font-mono text-white/50 px-1">{pg}/{totalPaginas}</span>
-          <button type="button" disabled={pg >= totalPaginas} onClick={() => setPagina(p => Math.min(totalPaginas, p + 1))}
+          <button type="button" disabled={pg >= totalPaginas} onClick={() => setPagina(() => Math.min(totalPaginas, pg + 1))}
             className="px-2 py-1 rounded-md border border-white/10 hover:border-white/25 disabled:opacity-30 disabled:cursor-not-allowed transition-all">›</button>
         </div>
       </div>

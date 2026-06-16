@@ -26,7 +26,7 @@ interface RelatorioImport {
   pulados: { tag: string; motivo: string }[]
   erros: { folder: string; motivo: string }[]
 }
-interface RascunhoItem { tag: string; folder: string; motivo: string; certPath?: string; em: string; lab?: string; acreditacao?: string; equipamento?: string }
+interface RascunhoItem { tag: string; folder: string; motivo: string; certPath?: string; em: string; lab?: string; acreditacao?: string; equipamento?: string; cadastravel?: boolean }
 
 interface ScanResult {
   ok: boolean
@@ -37,8 +37,8 @@ type LabAPI = {
   scanCertificados?: (p: string) => Promise<ScanResult>
   listMae?: (p: string) => Promise<{ ok: boolean; error?: string; folders?: { folder: string; dir: string }[] }>
   scanBatch?: (folders: { folder: string; dir: string }[]) => Promise<ScanResult>
+  rescanPendentes?: (itens: { folder: string; certPath?: string }[]) => Promise<ScanResult>
   browseFolder?: (t: string) => Promise<{ canceled?: boolean; folderPath?: string }>
-  getSettings?: () => Promise<{ senhaEmissao?: string }>
 }
 
 const ICONES: Record<string, React.ElementType> = {
@@ -120,7 +120,6 @@ export default function EquipamentosPage() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [fPend, setFPend] = useState<string[]>([])
   const [pronto,  setPronto]  = useState(false)
-  const [senhaApp, setSenhaApp] = useState<string>('')
 
   // Importação em lote
   const [impProgresso, setImpProgresso] = useState<string | null>(null)
@@ -130,6 +129,8 @@ export default function EquipamentosPage() {
   const [sel, setSel] = useState<string[]>([])   // ids selecionados p/ exclusão em lote
   const [selRasc, setSelRasc] = useState<string[]>([])  // folders selecionados no rascunho
   const [rascSort, setRascSort] = useState<'asc' | 'desc'>('asc')  // ordenação do rascunho por motivo
+  const [fMotivo, setFMotivo] = useState<string[]>([])              // filtro por motivo no rascunho
+  const [rescanLoading, setRescanLoading] = useState(false)
   const [porPagina, setPorPagina] = useState(25)
   const [pagina, setPagina] = useState(1)
   const [porPagRasc, setPorPagRasc] = useState(25)
@@ -174,20 +175,13 @@ export default function EquipamentosPage() {
       if (t && !t.error) setTax({ areas: t.areas ?? [], siglas: t.siglas ?? [], tipos: t.tipos ?? [] })
     }).catch(() => {})
     carregarRascunho()
-    const api = (window as unknown as { electronAPI?: LabAPI }).electronAPI
-    api?.getSettings?.().then(s => setSenhaApp(s?.senhaEmissao || '')).catch(() => {})
   }, [])
 
-  // Exclusão TOTAL (equipamentos + certificados) — protegida por senha.
+  // Exclusão TOTAL (equipamentos + certificados) — protegida por senha fixa.
   async function excluirTudo() {
-    if (senhaApp) {
-      const tentativa = window.prompt('Senha para excluir TODOS os equipamentos e certificados:')
-      if (tentativa === null) return
-      if (tentativa !== senhaApp) { alert('Senha incorreta.'); return }
-    } else {
-      const ok = window.prompt('Sem senha configurada. Para confirmar, digite EXCLUIR:')
-      if (ok !== 'EXCLUIR') { if (ok !== null) alert('Cancelado.'); return }
-    }
+    const tentativa = window.prompt('Senha para excluir TODOS os equipamentos e certificados:')
+    if (tentativa === null) return
+    if (tentativa !== 'EMC2026') { alert('Senha incorreta.'); return }
     if (!confirm('Tem CERTEZA? Isso apaga TODOS os equipamentos e certificados cadastrados. Não dá pra desfazer.')) return
     try {
       await fetch('/api/equipamentos',  { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ all: true }) })
@@ -294,8 +288,14 @@ export default function EquipamentosPage() {
   const pgAtual = Math.min(pagina, totalPaginas)
   const equipsPagina = equipsFiltrados.slice((pgAtual - 1) * porPagina, pgAtual * porPagina)
 
-  // Rascunho ordenado por motivo + paginado
-  const rascOrdenado = [...rascunho].sort((a, b) => (a.motivo || '').localeCompare(b.motivo || '', 'pt') * (rascSort === 'asc' ? 1 : -1))
+  // Motivos distintos (para o filtro) + rascunho filtrado/ordenado/paginado
+  const motivosRasc = (() => {
+    const m = new Map<string, number>()
+    for (const r of rascunho) { const k = r.motivo || '—'; m.set(k, (m.get(k) ?? 0) + 1) }
+    return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([id, n]) => ({ id, label: id, count: n }))
+  })()
+  const rascFiltrado = rascunho.filter(r => fMotivo.length === 0 || fMotivo.includes(r.motivo || '—'))
+  const rascOrdenado = [...rascFiltrado].sort((a, b) => (a.motivo || '').localeCompare(b.motivo || '', 'pt') * (rascSort === 'asc' ? 1 : -1))
   const pgRascAtual = Math.min(pagRasc, Math.max(1, Math.ceil(rascOrdenado.length / porPagRasc)))
   const rascPagina = rascOrdenado.slice((pgRascAtual - 1) * porPagRasc, pgRascAtual * porPagRasc)
 
@@ -326,6 +326,31 @@ export default function EquipamentosPage() {
       body: JSON.stringify(all ? { all: true } : { folders }),
     })
     if (r.ok) { setSelRasc([]); carregarRascunho() } else alert('Falha ao limpar rascunho.')
+  }
+
+  // Re-varre os PDFs pendentes (com certPath) e tenta cadastrar de novo.
+  async function rescanRascunho() {
+    const api = (window as unknown as { electronAPI?: LabAPI }).electronAPI
+    if (!api?.rescanPendentes) { alert('Disponível apenas no aplicativo.'); return }
+    const alvo = rascunho.filter(r => r.certPath)
+    if (!alvo.length) { alert('Nenhum item com PDF para revarrer.'); return }
+    setRescanLoading(true)
+    try {
+      const CHUNK = 25
+      for (let i = 0; i < alvo.length; i += CHUNK) {
+        const lote = alvo.slice(i, i + CHUNK).map(r => ({ folder: r.folder, certPath: r.certPath }))
+        const scan = await api.rescanPendentes(lote)
+        if (!scan.ok || !scan.resultados) continue
+        await fetch('/api/equipamentos/importar-lote', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ itens: scan.resultados }),
+        })
+      }
+      fetch('/api/equipamentos').then(x => x.json()).then(e => setEquips(Array.isArray(e) ? e : [])).catch(() => {})
+      carregarRascunho()
+      alert('Re-varredura concluída.')
+    } catch (e) { alert('Erro: ' + String(e)) }
+    finally { setRescanLoading(false) }
   }
 
   const SortTh = ({ k, label, className }: { k: SortKey; label: string; className?: string }) => (
@@ -424,9 +449,15 @@ export default function EquipamentosPage() {
           <div className="card overflow-hidden">
             <div className="px-4 py-2.5 border-b border-white/5 flex items-center gap-2 flex-wrap">
               <FileWarning size={15} className="text-amber-400"/>
-              <span className="text-[12px] text-amber-300/90 font-medium">{rascunho.length} pasta(s) não cadastrada(s)</span>
-              <span className="text-[10px] text-white/30">— cadastre manualmente em "Novo Equipamento"</span>
+              <span className="text-[12px] text-amber-300/90 font-medium">{rascunho.length} não cadastrada(s)</span>
+              <FilterDropdown label="Motivo" selected={fMotivo} onChange={setFMotivo}
+                options={motivosRasc.map(m => ({ id: m.id, label: m.label, count: m.count }))} />
               <div className="ml-auto flex items-center gap-2">
+                <button type="button" onClick={rescanRascunho} disabled={rescanLoading}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] text-teal border border-teal/30 hover:bg-teal/10 transition-all disabled:opacity-50">
+                  {rescanLoading ? <Loader2 size={12} className="animate-spin"/> : <Search size={12}/>}
+                  {rescanLoading ? 'Varrendo…' : 'Varrer novamente'}
+                </button>
                 {selRasc.length > 0 && (
                   <button type="button" onClick={() => excluirRascunho(false)}
                     className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] bg-red-500/15 text-red-300 border border-red-500/40 hover:bg-red-500/25 transition-all">
@@ -454,6 +485,7 @@ export default function EquipamentosPage() {
                     </span>
                   </th>
                   <th className="w-44">Laboratório</th>
+                  <th className="w-24">Situação</th>
                   <th className="w-24">Quando</th><th className="w-16"></th>
                 </tr>
               </thead>
@@ -470,6 +502,11 @@ export default function EquipamentosPage() {
                       {r.lab || r.acreditacao ? (
                         <span className="text-[11px] text-white/70">{r.lab || '—'}{r.acreditacao && <span className="text-white/35 font-mono ml-1">{r.acreditacao}</span>}</span>
                       ) : <span className="text-white/20 text-[11px]">—</span>}
+                    </td>
+                    <td>
+                      {r.cadastravel
+                        ? <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-teal/15 text-teal border border-teal/30">Cadastrável</span>
+                        : <span className="text-[9px] font-mono px-1.5 py-0.5 rounded-md bg-white/5 text-white/30 border border-white/10">Sem TAG/PDF</span>}
                     </td>
                     <td className="font-mono text-[10px] text-white/35">{r.em ? fmt(r.em.slice(0, 10)) : '—'}</td>
                     <td>

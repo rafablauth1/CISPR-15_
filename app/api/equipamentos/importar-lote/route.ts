@@ -15,8 +15,11 @@ const ARQ_RASCUNHO = 'rascunho-equipamentos.json'
 
 interface RascunhoItem {
   tag: string; folder: string; motivo: string; certPath?: string; em: string
-  lab?: string; acreditacao?: string; equipamento?: string
+  lab?: string; acreditacao?: string; equipamento?: string; cadastravel?: boolean
 }
+
+// Padrão de TAG: 2–4 dígitos + 3 letras (ex.: "1234EMC", "10TEL", "9999LUM").
+const RE_TAG = /\b(\d{2,4})\s*([A-Za-z]{3})\b/
 
 interface ItemScan {
   folder: string
@@ -93,18 +96,22 @@ export async function POST(req: NextRequest) {
 
     for (const it of itens) {
       if (it.error || !it.text) {
-        erros.push({ folder: it.folder, motivo: it.error || 'PDF sem texto legível' })
-        rascunho.push({ tag: '', folder: it.folder, motivo: it.error || 'PDF sem texto legível', certPath: it.certPath || undefined, em: agora })
+        // Sem PDF/texto: provável escaneado ou pasta vazia → não dá pra cadastrar.
+        const motivo = it.certPath ? (it.error || 'PDF sem texto (provável escaneado)') : 'Sem PDF na pasta'
+        erros.push({ folder: it.folder, motivo })
+        rascunho.push({ tag: '', folder: it.folder, motivo, certPath: it.certPath || undefined, em: agora, cadastravel: false })
         continue
       }
       const dados = parsearDadosPadrao(it.text)
+      // Radar: o PDF tem um padrão de TAG (ex.: 1234EMC)? Então é cadastrável.
+      const temPadraoTag = RE_TAG.test(it.text)
 
       // TAG: vem do certificado (tem a sigla); pasta é só reserva. Exige sufixo de letras.
       const tag = resolverTag(it.folder, dados.tag, it.text)
       if (!tag) {
-        const motivo = 'TAG sem sigla (3 letras finais) — não encontrada no certificado'
+        const motivo = 'TAG não encontrada (padrão 1234ABC ausente no certificado)'
         pulados.push({ tag: it.folder, motivo })
-        rascunho.push({ tag: it.folder, folder: it.folder, motivo, certPath: it.certPath || undefined, em: agora })
+        rascunho.push({ tag: it.folder, folder: it.folder, motivo, certPath: it.certPath || undefined, em: agora, cadastravel: temPadraoTag })
         continue
       }
 
@@ -120,7 +127,7 @@ export async function POST(req: NextRequest) {
         pulados.push({ tag, motivo })
         rascunho.push({
           tag, folder: it.folder, motivo, certPath: it.certPath || undefined, em: agora,
-          lab: g.laboratorio, acreditacao: g.acreditacao, equipamento: g.nome,
+          lab: g.laboratorio, acreditacao: g.acreditacao, equipamento: g.nome, cadastravel: true,
         })
         continue
       }
