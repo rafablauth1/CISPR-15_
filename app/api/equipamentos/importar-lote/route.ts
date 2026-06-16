@@ -2,14 +2,17 @@ import { NextRequest, NextResponse } from 'next/server'
 import { lerJSON, escreverJSON } from '@/lib/dados'
 import type { EquipamentoEMC, GrupoId, SubgrupoId } from '@/lib/equipamentos/tipos'
 import type { Certificado } from '@/lib/certificados/tipos'
-import { parsearDadosPadrao, parsearMetadadosCertificado } from '@/lib/certificados/parser'
+import { parsearDadosPadrao, parsearMetadadosCertificado, classificarCertificadoLabelo, resolverTag, limparCampo } from '@/lib/certificados/parser'
 import { parsearCertificadoRBC } from '@/lib/interpolacao'
 import { corrigirGrandezasPorLayout } from '@/lib/certificados/layout'
 import { grandezasDoCertificado, mesclarGrandezas } from '@/lib/certificados/registrar-grandezas'
 import { addM } from '@/lib/utils'
 
-const ARQ_EQUIP = 'equipamentos.json'
-const ARQ_CERT  = 'certificados.json'
+const ARQ_EQUIP    = 'equipamentos.json'
+const ARQ_CERT     = 'certificados.json'
+const ARQ_RASCUNHO = 'rascunho-equipamentos.json'
+
+interface RascunhoItem { tag: string; folder: string; motivo: string; certPath?: string; em: string }
 
 interface ItemScan {
   folder: string
@@ -43,10 +46,8 @@ function inferTipo(txt: string): { grupoId: GrupoId; subgrupoId: SubgrupoId } {
   return r('medidores', 'analisador-espectro')
 }
 
-function tagDeFolder(folder: string, dadosTag?: string): string {
-  if (dadosTag) return dadosTag.toUpperCase().replace(/\s+/g, '')
-  const m = folder.match(/(\d{2,6}\s*[A-Za-z]{2,5})/)
-  return (m ? m[1] : folder).toUpperCase().replace(/\s+/g, '')
+export async function GET() {
+  return NextResponse.json(lerJSON<RascunhoItem[]>(ARQ_RASCUNHO, []))
 }
 
 export async function POST(req: NextRequest) {
@@ -62,9 +63,11 @@ export async function POST(req: NextRequest) {
 
     const sucessos: string[] = []   // novas TAGs cadastradas
     const atualizados: string[] = [] // TAG já existia → só anexou certificado
-    const pulados: { tag: string; motivo: string }[] = []  // não-LABELO
+    const pulados: { tag: string; motivo: string }[] = []  // não-LABELO / inválido → rascunho
     const erros: { folder: string; motivo: string }[] = [] // sem PDF / ilegível
     const novosCerts: Certificado[] = []
+    const rascunho: RascunhoItem[] = []
+    const agora = new Date().toISOString()
 
     let seq = Date.now()
     const novoId = () => String(seq++)
@@ -72,14 +75,25 @@ export async function POST(req: NextRequest) {
     for (const it of itens) {
       if (it.error || !it.text) {
         erros.push({ folder: it.folder, motivo: it.error || 'PDF sem texto legível' })
+        rascunho.push({ tag: '', folder: it.folder, motivo: it.error || 'PDF sem texto legível', certPath: it.certPath || undefined, em: agora })
         continue
       }
       const dados = parsearDadosPadrao(it.text)
-      const tag   = tagDeFolder(it.folder, dados.tag)
 
-      // Só cadastra se o certificado for do LABELO; senão, avisa (cadastro manual).
-      if (!/LABELO/i.test(it.text)) {
-        pulados.push({ tag, motivo: 'Certificado não é do LABELO — cadastrar manualmente' })
+      // TAG: nome da pasta (é a TAG) com OCR de fallback; precisa do sufixo de letras.
+      const tag = resolverTag(it.folder, dados.tag)
+      if (!tag) {
+        const motivo = 'TAG sem sigla (3 letras finais) — provável erro de leitura'
+        pulados.push({ tag: it.folder, motivo })
+        rascunho.push({ tag: it.folder, folder: it.folder, motivo, certPath: it.certPath || undefined, em: agora })
+        continue
+      }
+
+      // Só cadastra se for MESMO certificado do LABELO (nº no padrão, não-formulário).
+      const classif = classificarCertificadoLabelo(it.text)
+      if (!classif.ok) {
+        pulados.push({ tag, motivo: classif.motivo || 'Não é certificado do LABELO' })
+        rascunho.push({ tag, folder: it.folder, motivo: classif.motivo || 'Não é certificado do LABELO', certPath: it.certPath || undefined, em: agora })
         continue
       }
 
@@ -87,7 +101,8 @@ export async function POST(req: NextRequest) {
       const rbc  = parsearCertificadoRBC(it.text)
       const pontos = it.items?.length ? corrigirGrandezasPorLayout(rbc.pontos, it.items) : rbc.pontos
       const dataEmissao = meta.dataEmissao || dados.ultimaCalibracao || ''
-      const numeroCert  = meta.numero || dados.numeroCertificado || rbc.numeroCert || ''
+      // Nº do certificado: o padrão LABELO validado tem prioridade.
+      const numeroCert  = classif.numero || meta.numero || dados.numeroCertificado || ''
 
       // Equipamento: cria se a TAG é nova; senão reaproveita o existente.
       let equip = byTag.get(tag)
@@ -98,16 +113,16 @@ export async function POST(req: NextRequest) {
         equip = {
           id: novoId(),
           tag,
-          nome: dados.nome || it.folder,
+          nome: limparCampo(dados.nome, 80) || tag,
           grupoId, subgrupoId,
           status: 'ativo',
           grandezas: [],
           ultimaCalibracao: dataEmissao,
           proximaCalibracao: dataEmissao ? addM(dataEmissao, intervalo) : '',
           intervaloCalibracao: intervalo,
-          fabricante: dados.fabricante,
-          modelo: dados.modelo,
-          serie: dados.serie,
+          fabricante: limparCampo(dados.fabricante, 50),
+          modelo: limparCampo(dados.modelo, 40),
+          serie: limparCampo(dados.serie, 30),
           labCalibracao: 'LABELO/PUCRS',
           numeroCertificado: numeroCert,
           procedimentos: dados.procedimentos,
@@ -151,6 +166,19 @@ export async function POST(req: NextRequest) {
     // Persistência em UMA escrita por arquivo (rápido mesmo com muitas TAGs).
     escreverJSON(ARQ_EQUIP, equipamentos)
     escreverJSON(ARQ_CERT, [...novosCerts, ...certificados])
+
+    // Rascunho: acumula as não-cadastradas (dedupe por folder), e remove as que
+    // acabaram de ser cadastradas com sucesso.
+    if (rascunho.length || sucessos.length || atualizados.length) {
+      const prev = lerJSON<RascunhoItem[]>(ARQ_RASCUNHO, [])
+      const cadastradas = new Set([...sucessos, ...atualizados])
+      const map = new Map<string, RascunhoItem>()
+      for (const r of [...prev, ...rascunho]) {
+        if (cadastradas.has(r.tag)) continue
+        map.set(r.folder || r.tag, r)
+      }
+      escreverJSON(ARQ_RASCUNHO, [...map.values()])
+    }
 
     return NextResponse.json({
       total: itens.length,

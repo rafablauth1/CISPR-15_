@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Plus, ChevronRight, Zap, Gauge, Waves, Radio, SlidersHorizontal, Thermometer, FolderInput, Loader2, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react'
+import { Plus, ChevronRight, Zap, Gauge, Waves, Radio, SlidersHorizontal, Thermometer, FolderInput, Loader2, CheckCircle2, AlertTriangle, XCircle, ArrowUpDown, ArrowUp, ArrowDown, FileWarning, X } from 'lucide-react'
 import { fmt } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { EquipamentoEMC, GrupoId } from '@/lib/equipamentos/tipos'
@@ -24,6 +24,7 @@ interface RelatorioImport {
   pulados: { tag: string; motivo: string }[]
   erros: { folder: string; motivo: string }[]
 }
+interface RascunhoItem { tag: string; folder: string; motivo: string; certPath?: string; em: string }
 
 interface ScanResult {
   ok: boolean
@@ -41,6 +42,9 @@ const ICONES: Record<string, React.ElementType> = {
   'grandezas-ambientais': Thermometer,
 }
 
+type SortKey = 'tag' | 'nome' | 'grupo' | 'sub' | 'prox' | 'status'
+const FILTROS_KEY = 'equip_filtros_v1'
+
 function StatusPill({ status }: { status: string }) {
   if (status === 'ativo')    return <span className="badge-success">Ativo</span>
   if (status === 'calibrar') return <span className="badge-warning">Calibrar</span>
@@ -51,18 +55,60 @@ export default function EquipamentosPage() {
   const [equips, setEquips] = useState<EquipamentoEMC[]>([])
   const [grupos, setGrupos] = useState<Grupo[]>([])
   const [tax, setTax] = useState<Taxonomia>({ areas: [], siglas: [], tipos: [] })
-  // Filtro ativo: por grupo (card), subgrupo (badge) ou sigla (3 letras da TAG)
-  const [filtro, setFiltro] = useState<{ tipo: 'grupo' | 'subgrupo' | 'sigla'; id: string; label: string } | null>(null)
-  // Importação em lote (pasta-mãe → 1 pasta por TAG → …Certificado.pdf)
+
+  // Filtros MÚLTIPLOS (combináveis) + ordenação — persistidos entre navegações.
+  const [fSiglas, setFSiglas] = useState<string[]>([])
+  const [fGrupos, setFGrupos] = useState<string[]>([])
+  const [fSubs,   setFSubs]   = useState<string[]>([])
+  const [sortKey, setSortKey] = useState<SortKey>('tag')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const [pronto,  setPronto]  = useState(false)
+
+  // Importação em lote
   const [impProgresso, setImpProgresso] = useState<string | null>(null)
   const [impRelatorio, setImpRelatorio] = useState<RelatorioImport | null>(null)
+  const [rascunho, setRascunho] = useState<RascunhoItem[]>([])
+  const [verRascunho, setVerRascunho] = useState(false)
+
+  // Carrega filtros salvos (1×, no mount)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(FILTROS_KEY)
+      if (raw) {
+        const s = JSON.parse(raw)
+        setFSiglas(s.fSiglas ?? []); setFGrupos(s.fGrupos ?? []); setFSubs(s.fSubs ?? [])
+        if (s.sortKey) setSortKey(s.sortKey); if (s.sortDir) setSortDir(s.sortDir)
+      }
+    } catch {}
+    setPronto(true)
+  }, [])
+
+  // Salva filtros sempre que mudam (após o carregamento inicial)
+  useEffect(() => {
+    if (!pronto) return
+    try { localStorage.setItem(FILTROS_KEY, JSON.stringify({ fSiglas, fGrupos, fSubs, sortKey, sortDir })) } catch {}
+  }, [pronto, fSiglas, fGrupos, fSubs, sortKey, sortDir])
+
+  function carregarRascunho() {
+    fetch('/api/equipamentos/importar-lote').then(r => r.json()).then(d => setRascunho(Array.isArray(d) ? d : [])).catch(() => {})
+  }
+
+  useEffect(() => {
+    Promise.all([
+      fetch('/api/equipamentos').then(r => r.json()),
+      fetch('/api/grupos').then(r => r.json()),
+      fetch('/api/taxonomia').then(r => r.json()),
+    ]).then(([e, g, t]) => {
+      setEquips(Array.isArray(e) ? e : [])
+      setGrupos(Array.isArray(g) ? g : [])
+      if (t && !t.error) setTax({ areas: t.areas ?? [], siglas: t.siglas ?? [], tipos: t.tipos ?? [] })
+    }).catch(() => {})
+    carregarRascunho()
+  }, [])
 
   async function importarPastaMae() {
     const api = (window as unknown as { electronAPI?: LabAPI }).electronAPI
-    if (!api?.scanCertificados || !api?.browseFolder) {
-      alert('Disponível apenas no aplicativo (Electron).')
-      return
-    }
+    if (!api?.scanCertificados || !api?.browseFolder) { alert('Disponível apenas no aplicativo (Electron).'); return }
     const sel = await api.browseFolder('Pasta-mãe — uma subpasta por TAG, cada uma com o …Certificado.pdf')
     if (!sel || sel.canceled || !sel.folderPath) return
     try {
@@ -77,47 +123,24 @@ export default function EquipamentosPage() {
       const rel = await r.json()
       if (!r.ok) { setImpProgresso(null); alert(rel.error || 'Falha na importação.'); return }
       setImpRelatorio(rel as RelatorioImport)
-      // Recarrega a lista de equipamentos
       fetch('/api/equipamentos').then(x => x.json()).then(e => setEquips(Array.isArray(e) ? e : [])).catch(() => {})
-    } catch (e) {
-      alert('Erro: ' + String(e))
-    } finally {
-      setImpProgresso(null)
-    }
+      carregarRascunho()
+    } catch (e) { alert('Erro: ' + String(e)) }
+    finally { setImpProgresso(null) }
   }
 
-  useEffect(() => {
-    Promise.all([
-      fetch('/api/equipamentos').then(r => r.json()),
-      fetch('/api/grupos').then(r => r.json()),
-      fetch('/api/taxonomia').then(r => r.json()),
-    ]).then(([e, g, t]) => {
-      setEquips(Array.isArray(e) ? e : [])
-      setGrupos(Array.isArray(g) ? g : [])
-      if (t && !t.error) setTax({ areas: t.areas ?? [], siglas: t.siglas ?? [], tipos: t.tipos ?? [] })
-    }).catch(() => {})
-  }, [])
+  const toggle = (arr: string[], set: (v: string[]) => void, id: string) =>
+    set(arr.includes(id) ? arr.filter(x => x !== id) : [...arr, id])
 
-  const equipsByGrupo = (grupoId: string) => equips.filter(e => e.grupoId === grupoId)
+  const temFiltro = fSiglas.length + fGrupos.length + fSubs.length > 0
+  const limpar = () => { setFSiglas([]); setFGrupos([]); setFSubs([]) }
 
-  // Clica no card → filtra por grupo; clica de novo no mesmo → limpa
-  function toggleGrupo(id: string, label: string) {
-    setFiltro(f => (f?.tipo === 'grupo' && f.id === id) ? null : { tipo: 'grupo', id, label })
-  }
-  // Clica na badge → filtra por subgrupo
-  function toggleSubgrupo(id: string, label: string) {
-    setFiltro(f => (f?.tipo === 'subgrupo' && f.id === id) ? null : { tipo: 'subgrupo', id, label })
+  function clicarSort(k: SortKey) {
+    if (sortKey === k) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(k); setSortDir('asc') }
   }
 
-  const equipsFiltrados = !filtro
-    ? equips
-    : filtro.tipo === 'grupo'
-      ? equips.filter(e => e.grupoId === filtro.id)
-      : filtro.tipo === 'sigla'
-        ? equips.filter(e => siglaDaTag(e.tag) === filtro.id)
-        : equips.filter(e => e.subgrupoId === filtro.id)
-
-  // Siglas presentes nas TAGs (3 letras finais) + significado/área da taxonomia
+  // Siglas presentes nas TAGs + significado/área da taxonomia
   const siglasPresentes = (() => {
     const cont = new Map<string, number>()
     for (const e of equips) { const s = siglaDaTag(e.tag); if (s) cont.set(s, (cont.get(s) ?? 0) + 1) }
@@ -127,9 +150,34 @@ export default function EquipamentosPage() {
       return { sigla, n, significado: def?.significado, cor: area ? GRUPO_CORES[area.cor] : '#94A3B8' }
     })
   })()
-  function toggleSigla(id: string, label: string) {
-    setFiltro(f => (f?.tipo === 'sigla' && f.id === id) ? null : { tipo: 'sigla', id, label })
-  }
+
+  // Aplica filtros (AND entre dimensões, OR dentro de cada uma) + ordenação
+  const grupoNome = (id: string) => grupos.find(g => g.id === id)?.nome ?? id
+  const equipsFiltrados = (() => {
+    let lista = equips.filter(e =>
+      (fSiglas.length === 0 || fSiglas.includes(siglaDaTag(e.tag))) &&
+      (fGrupos.length === 0 || fGrupos.includes(e.grupoId)) &&
+      (fSubs.length   === 0 || fSubs.includes(e.subgrupoId)),
+    )
+    const dir = sortDir === 'asc' ? 1 : -1
+    const val = (e: EquipamentoEMC): string =>
+      sortKey === 'tag'   ? e.tag :
+      sortKey === 'nome'  ? e.nome :
+      sortKey === 'grupo' ? grupoNome(e.grupoId) :
+      sortKey === 'sub'   ? e.subgrupoId :
+      sortKey === 'prox'  ? (e.proximaCalibracao || '') :
+                            e.status
+    lista = [...lista].sort((a, b) => val(a).localeCompare(val(b), 'pt', { numeric: true }) * dir)
+    return lista
+  })()
+
+  const SortTh = ({ k, label, className }: { k: SortKey; label: string; className?: string }) => (
+    <th className={cn('cursor-pointer select-none hover:text-white/80', className)} onClick={() => clicarSort(k)}>
+      <span className="inline-flex items-center gap-1">{label}
+        {sortKey === k ? (sortDir === 'asc' ? <ArrowUp size={11}/> : <ArrowDown size={11}/>) : <ArrowUpDown size={11} className="opacity-30"/>}
+      </span>
+    </th>
+  )
 
   return (
     <div>
@@ -137,19 +185,15 @@ export default function EquipamentosPage() {
         <div>
           <p className="page-eyebrow">Laboratório · EMC</p>
           <h1 className="page-title">Equipamentos</h1>
-          <p className="page-sub">Por grupo e subgrupo</p>
+          <p className="page-sub">Filtros combináveis · ordenável</p>
         </div>
         <div className="flex items-center gap-2">
-          <Link href="/equipamentos/novo" className="btn-primary">
-            <Plus size={13}/> Novo Equipamento
-          </Link>
+          <Link href="/equipamentos/novo" className="btn-primary"><Plus size={13}/> Novo Equipamento</Link>
           <button type="button" onClick={importarPastaMae} disabled={!!impProgresso} className="btn-secondary">
             {impProgresso ? <Loader2 size={13} className="animate-spin"/> : <FolderInput size={13}/>}
             {impProgresso ? 'Importando…' : 'Importar pasta-mãe'}
           </button>
-          <Link href="/checagens/nova" className="btn-secondary">
-            <Plus size={13}/> Nova Checagem
-          </Link>
+          <Link href="/checagens/nova" className="btn-secondary"><Plus size={13}/> Nova Checagem</Link>
         </div>
       </div>
 
@@ -179,7 +223,7 @@ export default function EquipamentosPage() {
               )}
               {impRelatorio.pulados.length > 0 && (
                 <div>
-                  <p className="flex items-center gap-1.5 text-amber-400 font-medium mb-1"><AlertTriangle size={14}/> Cadastrar manualmente — não-LABELO ({impRelatorio.pulados.length})</p>
+                  <p className="flex items-center gap-1.5 text-amber-400 font-medium mb-1"><AlertTriangle size={14}/> Não cadastrados — vão pro rascunho ({impRelatorio.pulados.length})</p>
                   <ul className="space-y-0.5">{impRelatorio.pulados.map((p, i) => <li key={i} className="text-white/60"><b className="text-amber-300/80">{p.tag}</b> — {p.motivo}</li>)}</ul>
                 </div>
               )}
@@ -190,107 +234,118 @@ export default function EquipamentosPage() {
                 </div>
               )}
             </div>
-            <div className="flex justify-end mt-5">
-              <button type="button" onClick={() => setImpRelatorio(null)} className="btn-primary">Fechar</button>
+            <div className="flex justify-end mt-5"><button type="button" onClick={() => setImpRelatorio(null)} className="btn-primary">Fechar</button></div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Filtros combináveis ─────────────────────────────────────────── */}
+      <div className="card p-3 mb-6 space-y-2.5">
+        {/* Siglas */}
+        {siglasPresentes.length > 0 && (
+          <div className="flex items-start gap-2 flex-wrap">
+            <span className="text-[10px] font-mono uppercase tracking-widest text-white/30 w-16 pt-1.5 flex-shrink-0">Siglas</span>
+            <div className="flex gap-1.5 flex-wrap flex-1">
+              {siglasPresentes.map(s => {
+                const on = fSiglas.includes(s.sigla)
+                return (
+                  <button key={s.sigla} type="button" onClick={() => toggle(fSiglas, setFSiglas, s.sigla)}
+                    title={s.significado || 'Sigla não cadastrada em Áreas & Siglas'}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-mono transition-all"
+                    style={{ background: on ? `${s.cor}22` : 'rgba(255,255,255,0.03)', color: on ? s.cor : 'rgba(255,255,255,0.55)', border: `1px solid ${on ? s.cor + '66' : 'rgba(255,255,255,0.08)'}` }}>
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: s.cor }}/>{s.sigla}<span className="opacity-50">{s.n}</span>
+                  </button>
+                )
+              })}
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Siglas das TAGs (laboratórios) — filtro rápido */}
-      {siglasPresentes.length > 0 && (
-        <div className="flex items-center gap-2 flex-wrap mb-6">
-          <span className="text-[10px] font-mono uppercase tracking-widest text-white/30 mr-1">Siglas:</span>
-          {siglasPresentes.map(s => {
-            const ativo = filtro?.tipo === 'sigla' && filtro.id === s.sigla
-            return (
-              <button key={s.sigla} type="button"
-                onClick={() => toggleSigla(s.sigla, s.significado ? `${s.sigla} · ${s.significado}` : s.sigla)}
-                title={s.significado || 'Sigla não cadastrada em Áreas & Siglas'}
-                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-mono transition-all"
-                style={{
-                  background: ativo ? `${s.cor}22` : 'rgba(255,255,255,0.03)',
-                  color: ativo ? s.cor : 'rgba(255,255,255,0.55)',
-                  border: `1px solid ${ativo ? s.cor + '66' : 'rgba(255,255,255,0.08)'}`,
-                }}>
-                <span className="w-1.5 h-1.5 rounded-full" style={{ background: s.cor }}/>
-                {s.sigla}
-                <span className="opacity-50">{s.n}</span>
-              </button>
-            )
-          })}
-        </div>
-      )}
-
-      {/* Grupos */}
-      {grupos.length > 0 && (
-        <>
-          <h2 className="font-display font-semibold text-[13px] text-white/60 uppercase tracking-widest mb-3">Grupos</h2>
-          <div className="grid grid-cols-3 gap-4 mb-8">
-            {grupos.map(g => {
-              const cor       = GRUPO_CORES[g.cor] ?? '#94A3B8'
-              const Icon      = ICONES[g.id] ?? Gauge
-              const total     = equipsByGrupo(g.id).length
-              const grupoAtivo = filtro?.tipo === 'grupo' && filtro.id === g.id
-              return (
-                <div key={g.id}
-                  className={cn('card p-4 transition-all', grupoAtivo ? 'ring-1' : 'hover:border-white/15')}
-                  style={grupoAtivo ? { borderColor: `${cor}66`, boxShadow: `0 0 0 1px ${cor}66`, background: `${cor}0A` } : undefined}>
-                  {/* Cabeçalho clicável → filtra por grupo */}
-                  <button type="button" onClick={() => toggleGrupo(g.id, g.nome)}
-                    className="w-full flex items-center gap-3 mb-3 text-left">
-                    <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                         style={{ background: `${cor}18`, border: `1px solid ${cor}28` }}>
-                      <Icon size={18} style={{ color: cor }}/>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="font-semibold text-[13px] text-white truncate">{g.nome}</p>
-                      <p className="text-[10px] text-white/35 font-mono">{total} equipamento{total !== 1 ? 's' : ''}</p>
-                    </div>
+        )}
+        {/* Grupos */}
+        {grupos.length > 0 && (
+          <div className="flex items-start gap-2 flex-wrap">
+            <span className="text-[10px] font-mono uppercase tracking-widest text-white/30 w-16 pt-1.5 flex-shrink-0">Grupos</span>
+            <div className="flex gap-1.5 flex-wrap flex-1">
+              {grupos.map(g => {
+                const cor = GRUPO_CORES[g.cor] ?? '#94A3B8'
+                const Icon = ICONES[g.id] ?? Gauge
+                const on = fGrupos.includes(g.id)
+                const n = equips.filter(e => e.grupoId === g.id).length
+                return (
+                  <button key={g.id} type="button" onClick={() => toggle(fGrupos, setFGrupos, g.id)}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] transition-all"
+                    style={{ background: on ? `${cor}22` : 'rgba(255,255,255,0.03)', color: on ? cor : 'rgba(255,255,255,0.6)', border: `1px solid ${on ? cor + '66' : 'rgba(255,255,255,0.08)'}` }}>
+                    <Icon size={12} style={{ color: cor }}/>{g.nome}<span className="opacity-50 font-mono">{n}</span>
                   </button>
-                  {/* Badges de subgrupo clicáveis → filtram por subgrupo */}
-                  <div className="flex flex-wrap gap-1">
-                    {g.subgrupos.map(s => {
-                      const subAtivo = filtro?.tipo === 'subgrupo' && filtro.id === s.id
-                      return (
-                        <button key={s.id} type="button"
-                          onClick={() => toggleSubgrupo(s.id, `${g.nome} · ${s.nome}`)}
-                          className="badge font-mono transition-all hover:brightness-125"
-                          style={{
-                            background: subAtivo ? `${cor}30` : `${cor}12`,
-                            color: cor,
-                            border: `1px solid ${cor}${subAtivo ? '66' : '22'}`,
-                            fontSize: 9,
-                          }}>
-                          {s.numero} {s.nome}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              )
-            })}
+                )
+              })}
+            </div>
           </div>
-          <hr className="border-white/6 mb-8"/>
-        </>
-      )}
-
-      {/* Lista */}
-      <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
-        <div className="flex items-center gap-2">
-          <h2 className="font-display font-semibold text-[13px] text-white/60 uppercase tracking-widest">
-            {filtro ? 'Filtrado' : 'Todos os equipamentos'}
-          </h2>
-          {filtro && (
-            <button type="button" onClick={() => setFiltro(null)}
-              className="flex items-center gap-1.5 text-[11px] font-mono text-white/50 hover:text-white px-2 py-0.5 rounded-lg border border-white/10 hover:border-white/25 transition-all">
-              {filtro.label}
-              <span className="text-white/40">✕</span>
+        )}
+        {/* Subgrupos */}
+        {grupos.length > 0 && (
+          <div className="flex items-start gap-2 flex-wrap">
+            <span className="text-[10px] font-mono uppercase tracking-widest text-white/30 w-16 pt-1.5 flex-shrink-0">Subgr.</span>
+            <div className="flex gap-1.5 flex-wrap flex-1">
+              {grupos.flatMap(g => g.subgrupos.map(s => {
+                const cor = GRUPO_CORES[g.cor] ?? '#94A3B8'
+                const on = fSubs.includes(s.id)
+                const n = equips.filter(e => e.subgrupoId === s.id).length
+                if (n === 0 && !on) return null
+                return (
+                  <button key={s.id} type="button" onClick={() => toggle(fSubs, setFSubs, s.id)}
+                    className="badge font-mono transition-all hover:brightness-125"
+                    style={{ background: on ? `${cor}30` : `${cor}10`, color: cor, border: `1px solid ${cor}${on ? '66' : '22'}`, fontSize: 9 }}>
+                    {s.nome} <span className="opacity-60">{n}</span>
+                  </button>
+                )
+              }))}
+            </div>
+          </div>
+        )}
+        {temFiltro && (
+          <div className="flex justify-end">
+            <button type="button" onClick={limpar} className="flex items-center gap-1 text-[11px] text-white/45 hover:text-white px-2 py-0.5 rounded-lg border border-white/10 hover:border-white/25 transition-all">
+              <X size={11}/> Limpar filtros
             </button>
+          </div>
+        )}
+      </div>
+
+      {/* ── Rascunho (não cadastrados) ──────────────────────────────────── */}
+      {rascunho.length > 0 && (
+        <div className="card mb-6 overflow-hidden">
+          <button type="button" onClick={() => setVerRascunho(v => !v)}
+            className="w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-white/3 transition-colors">
+            <FileWarning size={15} className="text-amber-400"/>
+            <span className="text-[12px] font-medium text-amber-300/90">Rascunho — não cadastrados ({rascunho.length})</span>
+            <span className="text-[10px] text-white/30 ml-1">cadastre estes manualmente</span>
+            <ChevronRight size={14} className={cn('ml-auto text-white/30 transition-transform', verRascunho && 'rotate-90')}/>
+          </button>
+          {verRascunho && (
+            <div className="border-t border-white/5 max-h-60 overflow-y-auto">
+              <table className="w-full text-[11px]">
+                <thead className="tbl-head"><tr><th className="w-28">TAG/Pasta</th><th>Motivo</th></tr></thead>
+                <tbody>
+                  {rascunho.map((r, i) => (
+                    <tr key={i} className="tbl-row">
+                      <td><span className="font-mono text-amber-300/80">{r.tag || r.folder}</span></td>
+                      <td className="text-white/55">{r.motivo}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
+      )}
+
+      {/* ── Lista ───────────────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+        <h2 className="font-display font-semibold text-[13px] text-white/60 uppercase tracking-widest">
+          {temFiltro ? 'Filtrado' : 'Todos os equipamentos'}
+        </h2>
         <span className="text-[11px] text-white/30 font-mono">
-          {filtro ? `${equipsFiltrados.length} de ${equips.length}` : `${equips.length} total`}
+          {temFiltro ? `${equipsFiltrados.length} de ${equips.length}` : `${equips.length} total`}
         </span>
       </div>
 
@@ -303,12 +358,12 @@ export default function EquipamentosPage() {
           <table className="w-full">
             <thead className="tbl-head">
               <tr>
-                <th>Tag</th>
-                <th>Nome</th>
-                <th>Grupo</th>
-                <th>Subgrupo</th>
-                <th>Próx. Calibração</th>
-                <th>Status</th>
+                <SortTh k="tag" label="Tag"/>
+                <SortTh k="nome" label="Nome"/>
+                <SortTh k="grupo" label="Grupo"/>
+                <SortTh k="sub" label="Subgrupo"/>
+                <SortTh k="prox" label="Próx. Calibração"/>
+                <SortTh k="status" label="Status"/>
                 <th></th>
               </tr>
             </thead>

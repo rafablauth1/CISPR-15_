@@ -381,3 +381,58 @@ export function parsearMetadadosCertificado(texto: string): {
 
   return { numero, laboratorio, dataEmissao }
 }
+
+// ─── Validação de certificado LABELO ──────────────────────────────────────
+// Nº de certificado do LABELO: uma destas letras + 4 dígitos + "/" (ou "-") + ano.
+const LETRAS_LABELO = 'EFRTLVPBJQA'
+
+/** Extrai o número do certificado no padrão LABELO (ex.: "R0047/2025"). */
+export function numeroCertificadoLabelo(texto: string): string | null {
+  const re = new RegExp(`\\b([${LETRAS_LABELO}])\\s?(\\d{4})\\s?[/-]\\s?((?:19|20)\\d{2})\\b`, 'g')
+  const m = re.exec(texto || '')
+  return m ? `${m[1]}${m[2]}/${m[3]}` : null
+}
+
+/**
+ * Decide se um PDF é mesmo um certificado de calibração do LABELO.
+ * Regras (qualquer falha → não cadastra, vai pro rascunho):
+ *  - não pode ser formulário interno (FOR 6xxx / Análise Crítica);
+ *  - precisa ter nº de certificado no padrão LABELO;
+ *  - precisa mencionar LABELO ou o título "Certificado de Calibração".
+ */
+export function classificarCertificadoLabelo(texto: string): {
+  ok: boolean; numero: string | null; motivo?: string
+} {
+  const t = texto || ''
+  if (/\bFOR\s*6\d{3}\b/i.test(t) || /an[áa]lise\s+cr[íi]tica/i.test(t)) {
+    return { ok: false, numero: null, motivo: 'É formulário (FOR / Análise Crítica), não certificado' }
+  }
+  const numero = numeroCertificadoLabelo(t)
+  if (!numero) {
+    return { ok: false, numero: null, motivo: 'Sem nº de certificado LABELO (ex.: R0047/2025)' }
+  }
+  if (!/LABELO/i.test(t) && !/certificado\s+de\s+calibra[çc][ãa]o/i.test(t)) {
+    return { ok: false, numero, motivo: 'Não parece certificado do LABELO' }
+  }
+  return { ok: true, numero }
+}
+
+/**
+ * Resolve a TAG do equipamento priorizando o NOME DA PASTA (que é a TAG), com
+ * o OCR como fallback. Exige sufixo de 2–4 letras (a sigla). Sem sufixo → null
+ * (não cadastra: provável erro de leitura).
+ */
+export function resolverTag(folder: string, ocrTag?: string): string | null {
+  for (const cand of [folder, ocrTag]) {
+    const c = (cand || '').toUpperCase().replace(/\s+/g, '')
+    const m = c.match(/(\d{2,6}[A-Z]{2,4})(?![A-Z0-9])/)
+    if (m) return m[1]
+  }
+  return null
+}
+
+/** Corta um campo do OCR: vazio ou maior que `max` → undefined (provável lixo). */
+export function limparCampo(v: string | undefined, max: number): string | undefined {
+  const s = (v || '').trim()
+  return s && s.length <= max ? s : undefined
+}
