@@ -5,7 +5,7 @@ import Link from 'next/link'
 import {
   Cpu, BookOpen, ClipboardCheck, AlertTriangle, ChevronRight, ArrowRight,
   Calendar, FileText, Settings, ShieldCheck, Clock, GitBranch,
-  Timer, Hourglass, LayoutGrid, BarChart3,
+  Timer, Hourglass,
 } from 'lucide-react'
 import { fmt, diasAte } from '@/lib/utils'
 import { RELATORIOS_KEY, AGENDA_KEY } from '@/app/cispr15/types'
@@ -124,7 +124,7 @@ export default function DashboardPage() {
   const [agenda,     setAgenda]     = useState<any[]>([])
   const [ano,        setAno]        = useState<number>(new Date().getFullYear())
   const [tempos,     setTempos]     = useState<TempoTrabalho[]>([])
-  const [aba,        setAba]        = useState<'resumo' | 'indicadores' | 'checagens' | 'atalhos'>('resumo')
+  const [aba,        setAba]        = useState<'cispr15' | 'qualidade' | 'atalhos'>('cispr15')
 
   useEffect(() => {
     Promise.all([
@@ -202,6 +202,15 @@ export default function DashboardPage() {
   const pendentes = checagens.filter(c => c.status === 'atencao').length
   const emDia     = checagens.length - vencidas - pendentes
   const agendaPendentes = agenda.filter((a: any) => !a?.numRelatorio).length
+  // Agenda de execução — ensaios ainda não emitidos, ordenados pela previsão de saída
+  const agendaProximos = [...agenda]
+    .filter((a: any) => !a?.numRelatorio)
+    .sort((a: any, b: any) => {
+      const da = parseData(a?.previsaoSaida)?.getTime() ?? Infinity
+      const db = parseData(b?.previsaoSaida)?.getTime() ?? Infinity
+      return da - db
+    })
+    .slice(0, 6)
 
   // Equipamentos por grupo
   const porGrupo = useMemo(() => {
@@ -241,10 +250,9 @@ export default function DashboardPage() {
       {/* Sub-abas clicáveis — tudo na mesma tela */}
       {(() => {
         const abas = [
-          { id: 'resumo'      as const, label: 'Resumo',            icon: LayoutGrid },
-          { id: 'indicadores' as const, label: 'Indicadores',       icon: BarChart3 },
-          { id: 'checagens'   as const, label: 'Próximas checagens', icon: ClipboardCheck },
-          { id: 'atalhos'     as const, label: 'Acesso rápido',      icon: ArrowRight },
+          { id: 'cispr15'   as const, label: 'CISPR 15',      icon: FileText },
+          { id: 'qualidade' as const, label: 'Qualidade',     icon: ShieldCheck },
+          { id: 'atalhos'   as const, label: 'Acesso rápido', icon: ArrowRight },
         ]
         return (
           <div className="flex items-center gap-1 border-b border-white/8 mb-5">
@@ -259,8 +267,8 @@ export default function DashboardPage() {
         )
       })()}
 
-      {/* ── Resumo ─────────────────────────────────────────────────────── */}
-      {aba === 'resumo' && (
+      {/* ── CISPR 15 — relatórios + agenda de execução ─────────────────── */}
+      {aba === 'cispr15' && (
         <div className="space-y-6">
           <div>
             <p className="font-display font-semibold text-[11px] text-white/45 uppercase tracking-[2px] mb-2.5">Produção de relatórios · {ano}</p>
@@ -274,77 +282,108 @@ export default function DashboardPage() {
               <StatCard icon={<Timer size={18} />} label="Tempo médio de emissão"
                 value={formatDuracao(trabalhoStats.emissao.mediaMs)}
                 sub={trabalhoStats.emissao.n ? `${trabalhoStats.emissao.n} emissão(ões)` : 'sem dados ainda'} color="#9B8CFF" />
-              <StatCard icon={<Hourglass size={18} />} label="Tempo médio de cadastro"
-                value={formatDuracao(trabalhoStats.agendaT.mediaMs)}
-                sub={trabalhoStats.agendaT.n ? `${trabalhoStats.agendaT.n} cadastro(s)` : 'sem dados ainda'} color="#34D399" />
+              <StatCard href="/agenda" icon={<Calendar size={18} />} label="Agenda pendente" value={agendaPendentes}
+                sub="ensaios a emitir" color="#4F8EF7" />
             </div>
           </div>
-          <div>
-            <p className="font-display font-semibold text-[11px] text-white/45 uppercase tracking-[2px] mb-2.5">Qualidade & Agenda</p>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <StatCard href="/agenda"       icon={<Calendar size={18} />}       label="Agenda pendente"    value={agendaPendentes} color="#4F8EF7" />
-              <StatCard href="/checagens"    icon={<ClipboardCheck size={18} />} label="Checagens vencendo" value={pendentes}       color="#F59E0B" />
-              <StatCard href="/checagens"    icon={<AlertTriangle size={18} />}  label="Checagens vencidas" value={vencidas}        color="#F87171" />
-              <StatCard href="/equipamentos" icon={<Cpu size={18} />}            label="Equipamentos"       value={equips.length}   color="#4F8EF7" />
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <ChartCard title={`Relatórios por mês · ${ano}`}>
+              <BarChart data={porMes} color="#9B8CFF" />
+            </ChartCard>
+            <ChartCard title={`Emendas — não conformidades · ${ano}`}>
+              <DonutChart centerTop={`${emendaStats.pct}%`} centerSub="com emenda"
+                segments={[
+                  { label: 'Sem emenda', value: emendaStats.semEmenda, color: '#34D399' },
+                  { label: 'Com emenda', value: emendaStats.comEmenda, color: '#F87171' },
+                ]} />
+            </ChartCard>
+          </div>
+
+          {/* Agenda de execução */}
+          <div className="card p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-display font-semibold text-[13px] text-white flex items-center gap-2">
+                <Calendar size={15} className="text-blue-400"/> Agenda de execução
+              </h2>
+              <Link href="/agenda" className="text-[11px] text-white/35 hover:text-white flex items-center gap-1 transition-colors">
+                Ver agenda <ChevronRight size={11} />
+              </Link>
             </div>
+            {agendaProximos.length === 0 ? (
+              <p className="text-white/25 text-sm py-6 text-center">Nenhum ensaio pendente na agenda.</p>
+            ) : (
+              <table className="w-full">
+                <thead className="tbl-head">
+                  <tr><th>Protocolo</th><th>Cliente / Produto</th><th>Entrada</th><th>Previsão saída</th></tr>
+                </thead>
+                <tbody>
+                  {agendaProximos.map((a: any) => (
+                    <tr key={a.id} className="tbl-row">
+                      <td><span className="tag-chip mr-2">{a.protocolo || '—'}</span></td>
+                      <td className="text-white/70">{a.cliente || '—'}<span className="text-white/35"> · {a.produto || a.tipo || ''}</span></td>
+                      <td className="font-mono text-[11px]">{fmt(a.dataEntrada)}</td>
+                      <td className="font-mono text-[11px]">{fmt(a.previsaoSaida)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       )}
 
-      {/* ── Indicadores ────────────────────────────────────────────────── */}
-      {aba === 'indicadores' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <ChartCard title={`Relatórios por mês · ${ano}`}>
-            <BarChart data={porMes} color="#9B8CFF" />
-          </ChartCard>
-          <ChartCard title={`Emendas — não conformidades · ${ano}`}>
-            <DonutChart centerTop={`${emendaStats.pct}%`} centerSub="com emenda"
-              segments={[
-                { label: 'Sem emenda', value: emendaStats.semEmenda, color: '#34D399' },
-                { label: 'Com emenda', value: emendaStats.comEmenda, color: '#F87171' },
-              ]} />
-          </ChartCard>
-          <ChartCard title="Checagens por status">
-            <DonutChart centerTop={checagens.length} centerSub="checagens"
-              segments={[
-                { label: 'Em dia',   value: emDia,     color: '#34D399' },
-                { label: 'Vencendo', value: pendentes, color: '#F59E0B' },
-                { label: 'Vencidas', value: vencidas,  color: '#F87171' },
-              ]} />
-          </ChartCard>
-          <ChartCard title="Equipamentos por grupo">
-            <HBarChart data={porGrupo} color="#4F8EF7" />
-          </ChartCard>
-        </div>
-      )}
-
-      {/* ── Próximas checagens ─────────────────────────────────────────── */}
-      {aba === 'checagens' && (
-        <div className="card p-5">
-          <div className="flex items-center justify-end mb-3">
-            <Link href="/checagens" className="text-[11px] text-white/35 hover:text-white flex items-center gap-1 transition-colors">
-              Ver todas <ChevronRight size={11} />
-            </Link>
+      {/* ── Qualidade — checagens + equipamentos ───────────────────────── */}
+      {aba === 'qualidade' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatCard href="/checagens"    icon={<ClipboardCheck size={18} />} label="Checagens vencendo" value={pendentes}       color="#F59E0B" />
+            <StatCard href="/checagens"    icon={<AlertTriangle size={18} />}  label="Checagens vencidas" value={vencidas}        color="#F87171" />
+            <StatCard href="/equipamentos" icon={<Cpu size={18} />}            label="Equipamentos"       value={equips.length}   color="#4F8EF7" />
+            <StatCard href="/normas"       icon={<BookOpen size={18} />}       label="Normas"             value={normas.length}   color="#9B8CFF" />
           </div>
-          {proximas.length === 0 ? (
-            <p className="text-white/25 text-sm py-6 text-center">Nenhuma checagem registrada.</p>
-          ) : (
-            <table className="w-full">
-              <thead className="tbl-head">
-                <tr><th>Equipamento</th><th>Data</th><th>Próxima</th><th>Status</th></tr>
-              </thead>
-              <tbody>
-                {proximas.map(c => (
-                  <tr key={c.id} className="tbl-row">
-                    <td><span className="tag-chip mr-2">{c.equipamentoTag}</span></td>
-                    <td>{fmt(c.data)}</td>
-                    <td>{fmt(c.proximaChecagem)}</td>
-                    <td><StatusBadge status={c.status} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <ChartCard title="Checagens por status">
+              <DonutChart centerTop={checagens.length} centerSub="checagens"
+                segments={[
+                  { label: 'Em dia',   value: emDia,     color: '#34D399' },
+                  { label: 'Vencendo', value: pendentes, color: '#F59E0B' },
+                  { label: 'Vencidas', value: vencidas,  color: '#F87171' },
+                ]} />
+            </ChartCard>
+            <ChartCard title="Equipamentos por grupo">
+              <HBarChart data={porGrupo} color="#4F8EF7" />
+            </ChartCard>
+          </div>
+
+          <div className="card p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-display font-semibold text-[13px] text-white">Próximas checagens</h2>
+              <Link href="/checagens" className="text-[11px] text-white/35 hover:text-white flex items-center gap-1 transition-colors">
+                Ver todas <ChevronRight size={11} />
+              </Link>
+            </div>
+            {proximas.length === 0 ? (
+              <p className="text-white/25 text-sm py-6 text-center">Nenhuma checagem registrada.</p>
+            ) : (
+              <table className="w-full">
+                <thead className="tbl-head">
+                  <tr><th>Equipamento</th><th>Data</th><th>Próxima</th><th>Status</th></tr>
+                </thead>
+                <tbody>
+                  {proximas.map(c => (
+                    <tr key={c.id} className="tbl-row">
+                      <td><span className="tag-chip mr-2">{c.equipamentoTag}</span></td>
+                      <td>{fmt(c.data)}</td>
+                      <td>{fmt(c.proximaChecagem)}</td>
+                      <td><StatusBadge status={c.status} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
         </div>
       )}
 

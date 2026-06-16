@@ -69,9 +69,11 @@ export default function EquipamentosPage() {
   const [tax, setTax] = useState<Taxonomia>({ areas: [], siglas: [], tipos: [] })
 
   // Filtros MÚLTIPLOS (combináveis) + ordenação — persistidos entre navegações.
+  const [fAreas,  setFAreas]  = useState<string[]>([])
   const [fSiglas, setFSiglas] = useState<string[]>([])
   const [fGrupos, setFGrupos] = useState<string[]>([])
   const [fSubs,   setFSubs]   = useState<string[]>([])
+  const [busca,   setBusca]   = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('tag')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [soPendentes, setSoPendentes] = useState(false)
@@ -89,6 +91,7 @@ export default function EquipamentosPage() {
       const raw = localStorage.getItem(FILTROS_KEY)
       if (raw) {
         const s = JSON.parse(raw)
+        setFAreas(s.fAreas ?? [])
         setFSiglas(s.fSiglas ?? []); setFGrupos(s.fGrupos ?? []); setFSubs(s.fSubs ?? [])
         setSoPendentes(!!s.soPendentes)
         if (s.sortKey) setSortKey(s.sortKey); if (s.sortDir) setSortDir(s.sortDir)
@@ -100,8 +103,8 @@ export default function EquipamentosPage() {
   // Salva filtros sempre que mudam (após o carregamento inicial)
   useEffect(() => {
     if (!pronto) return
-    try { localStorage.setItem(FILTROS_KEY, JSON.stringify({ fSiglas, fGrupos, fSubs, sortKey, sortDir, soPendentes })) } catch {}
-  }, [pronto, fSiglas, fGrupos, fSubs, sortKey, sortDir, soPendentes])
+    try { localStorage.setItem(FILTROS_KEY, JSON.stringify({ fAreas, fSiglas, fGrupos, fSubs, sortKey, sortDir, soPendentes })) } catch {}
+  }, [pronto, fAreas, fSiglas, fGrupos, fSubs, sortKey, sortDir, soPendentes])
 
   function carregarRascunho() {
     fetch('/api/equipamentos/importar-lote').then(r => r.json()).then(d => setRascunho(Array.isArray(d) ? d : [])).catch(() => {})
@@ -146,9 +149,19 @@ export default function EquipamentosPage() {
   const toggle = (arr: string[], set: (v: string[]) => void, id: string) =>
     set(arr.includes(id) ? arr.filter(x => x !== id) : [...arr, id])
 
-  const temFiltro = fSiglas.length + fGrupos.length + fSubs.length > 0 || soPendentes
-  const limpar = () => { setFSiglas([]); setFGrupos([]); setFSubs([]); setSoPendentes(false) }
+  const temFiltro = fAreas.length + fSiglas.length + fGrupos.length + fSubs.length > 0 || soPendentes || !!busca.trim()
+  const limpar = () => { setFAreas([]); setFSiglas([]); setFGrupos([]); setFSubs([]); setSoPendentes(false); setBusca('') }
   const totalPendentes = equips.filter(e => pendenciasEquip(e).length > 0).length
+
+  // Área de um equipamento = área da sigla da sua TAG (via taxonomia)
+  const areaDoEquip = (e: EquipamentoEMC) =>
+    tax.siglas.find(x => x.sigla === siglaDaTag(e.tag))?.areaId ?? ''
+  // Áreas presentes (com pelo menos 1 equipamento)
+  const areasPresentes = (() => {
+    const cont = new Map<string, number>()
+    for (const e of equips) { const a = areaDoEquip(e); if (a) cont.set(a, (cont.get(a) ?? 0) + 1) }
+    return tax.areas.filter(a => cont.has(a.id)).map(a => ({ id: a.id, nome: a.nome, n: cont.get(a.id)!, cor: GRUPO_CORES[a.cor] ?? '#94A3B8' }))
+  })()
 
   function clicarSort(k: SortKey) {
     if (sortKey === k) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -169,11 +182,14 @@ export default function EquipamentosPage() {
   // Aplica filtros (AND entre dimensões, OR dentro de cada uma) + ordenação
   const grupoNome = (id: string) => grupos.find(g => g.id === id)?.nome ?? id
   const equipsFiltrados = (() => {
+    const q = busca.trim().toLowerCase()
     let lista = equips.filter(e =>
+      (fAreas.length  === 0 || fAreas.includes(areaDoEquip(e))) &&
       (fSiglas.length === 0 || fSiglas.includes(siglaDaTag(e.tag))) &&
       (fGrupos.length === 0 || fGrupos.includes(e.grupoId)) &&
       (fSubs.length   === 0 || fSubs.includes(e.subgrupoId)) &&
-      (!soPendentes || pendenciasEquip(e).length > 0),
+      (!soPendentes || pendenciasEquip(e).length > 0) &&
+      (!q || e.tag.toLowerCase().includes(q) || e.nome.toLowerCase().includes(q)),
     )
     const dir = sortDir === 'asc' ? 1 : -1
     const val = (e: EquipamentoEMC): string =>
@@ -257,6 +273,31 @@ export default function EquipamentosPage() {
 
       {/* ── Filtros combináveis ─────────────────────────────────────────── */}
       <div className="card p-3 mb-6 space-y-2.5">
+        {/* Busca por TAG / nome */}
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-mono uppercase tracking-widest text-white/30 w-16 flex-shrink-0">Busca</span>
+          <input value={busca} onChange={e => setBusca(e.target.value)}
+            placeholder="TAG ou nome do equipamento…"
+            className="input text-[12px] py-1 flex-1" />
+        </div>
+        {/* Áreas */}
+        {areasPresentes.length > 0 && (
+          <div className="flex items-start gap-2 flex-wrap">
+            <span className="text-[10px] font-mono uppercase tracking-widest text-white/30 w-16 pt-1.5 flex-shrink-0">Áreas</span>
+            <div className="flex gap-1.5 flex-wrap flex-1">
+              {areasPresentes.map(a => {
+                const on = fAreas.includes(a.id)
+                return (
+                  <button key={a.id} type="button" onClick={() => toggle(fAreas, setFAreas, a.id)}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] transition-all"
+                    style={{ background: on ? `${a.cor}22` : 'rgba(255,255,255,0.03)', color: on ? a.cor : 'rgba(255,255,255,0.6)', border: `1px solid ${on ? a.cor + '66' : 'rgba(255,255,255,0.08)'}` }}>
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: a.cor }}/>{a.nome}<span className="opacity-50 font-mono">{a.n}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
         {/* Siglas */}
         {siglasPresentes.length > 0 && (
           <div className="flex items-start gap-2 flex-wrap">
