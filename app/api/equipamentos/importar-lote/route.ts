@@ -3,7 +3,8 @@ import { lerJSON, escreverJSON } from '@/lib/dados'
 import type { EquipamentoEMC, GrupoId, SubgrupoId } from '@/lib/equipamentos/tipos'
 import type { Certificado } from '@/lib/certificados/tipos'
 import { parsearDadosPadrao, parsearMetadadosCertificado, classificarCertificadoLabelo, resolverTag, limparCampo } from '@/lib/certificados/parser'
-import { extrairMetadadosGenerico, extrairAcreditacao } from '@/lib/certificados/extrair-generico'
+import { extrairMetadadosGenerico, extrairAcreditacao, extrairNomeLaboratorio } from '@/lib/certificados/extrair-generico'
+import { lerLaboratorios, salvarLaboratorios, nomeDoLab, registrarLab } from '@/lib/laboratorios/registro'
 import { parsearCertificadoRBC } from '@/lib/interpolacao'
 import { corrigirGrandezasPorLayout } from '@/lib/certificados/layout'
 import { grandezasDoCertificado, mesclarGrandezas } from '@/lib/certificados/registrar-grandezas'
@@ -91,6 +92,8 @@ export async function POST(req: NextRequest) {
     const novosCerts: Certificado[] = []
     const rascunho: RascunhoItem[] = []
     const foldersOk = new Set<string>()   // pastas cadastradas nesta rodada (limpa do rascunho)
+    const labs = lerLaboratorios()        // registro CAL → laboratório (auto-descoberta)
+    let labsMudou = false
     const agora = new Date().toISOString()
 
     let seq = Date.now()
@@ -153,16 +156,18 @@ export async function POST(req: NextRequest) {
       // Só cadastra se for MESMO certificado do LABELO (nº no padrão, não-formulário).
       const classif = classificarCertificadoLabelo(it.text)
       if (!classif.ok) {
-        // Tenta identificar o laboratório emissor (CAL XXXX) e dados básicos.
+        // Identifica o laboratório emissor pelo CAL (registro) + nome do texto.
         const g = extrairMetadadosGenerico(it.text)
-        const labTxt = g.laboratorio || (g.acreditacao ? `Lab ${g.acreditacao}` : '')
+        const nomeGuess = nomeDoLab(labs, g.acreditacao) || extrairNomeLaboratorio(it.text)
+        if (g.acreditacao && registrarLab(labs, g.acreditacao, nomeGuess)) labsMudou = true
+        const labTxt = nomeGuess || (g.acreditacao ? `Lab ${g.acreditacao}` : '')
         const motivo = labTxt
           ? `Outro laboratório — ${labTxt}`
           : (classif.motivo || 'Não é certificado do LABELO')
         pulados.push({ tag, motivo })
         rascunho.push({
           tag, folder: it.folder, motivo, certPath: it.certPath || undefined, em: agora,
-          lab: g.laboratorio, acreditacao: g.acreditacao, equipamento: g.nome, cadastravel: true,
+          lab: nomeGuess, acreditacao: g.acreditacao, equipamento: g.nome, cadastravel: true,
         })
         continue
       }
@@ -238,6 +243,7 @@ export async function POST(req: NextRequest) {
     // Persistência em UMA escrita por arquivo (rápido mesmo com muitas TAGs).
     escreverJSON(ARQ_EQUIP, equipamentos)
     escreverJSON(ARQ_CERT, [...novosCerts, ...certificados])
+    if (labsMudou) salvarLaboratorios(labs)   // novos laboratórios descobertos
 
     // Rascunho: acumula as não-cadastradas (dedupe por folder), e remove as que
     // acabaram de ser cadastradas com sucesso.

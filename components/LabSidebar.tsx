@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, FileText, Cpu, BookOpen, Calendar,
-  ClipboardCheck, Network, Ruler, Settings, Award, FlaskConical, Layers, Target, Tags,
+  ClipboardCheck, Network, Ruler, Settings, Award, FlaskConical, Layers, Target, Tags, BadgeCheck,
 } from 'lucide-react'
 import { LOTE_KEY } from '@/app/cispr15/types'
 
@@ -35,6 +35,7 @@ const NAV: NavGroup[] = [
       { href: '/normas',              icon: BookOpen,       label: 'Normas' },
       { href: '/procedimentos',       icon: FlaskConical,   label: 'Procedimentos' },
       { href: '/certificados',        icon: Award,          label: 'Certificados' },
+      { href: '/laboratorios',        icon: BadgeCheck,     label: 'Laboratórios' },
       { href: '/planos-calibracao',   icon: Target,         label: 'Planos de Calibração' },
       { href: '/equipamentos/grupos', icon: Network,        label: 'Grupos' },
       { href: '/taxonomia',           icon: Tags,           label: 'Áreas & Siglas' },

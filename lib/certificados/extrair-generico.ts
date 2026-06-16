@@ -23,6 +23,19 @@ export function labPorAcreditacao(cal?: string): string | undefined {
   return LABS_POR_CAL[`CAL ${cal.replace(/\D/g, '')}`]
 }
 
+/** Tenta achar o NOME do laboratório emissor na 1ª página (best-effort). */
+export function extrairNomeLaboratorio(texto: string): string | undefined {
+  const linhas = (texto || '').split(/[\r\n]+|\s\|\s/).map(l => l.trim()).filter(Boolean).slice(0, 30)
+  for (const l of linhas) {
+    // pula o boilerplate de acreditação/rodapé/cabeçalho
+    if (/acreditad|cgcre|iso\/?iec|17025|p[áa]gina|certificad|av\.|telefone|e-?mail|website|cliente/i.test(l)) continue
+    if (/(laborat[óo]rio|metrolog|calibra[çc]|trescal|metroqu|metrosul|instrumed|keysight|observat[óo]rio|labelo)/i.test(l) && l.length >= 4 && l.length <= 80) {
+      return l.replace(/\s{2,}.*/, '').replace(/[•\-–:]\s*$/, '').trim()
+    }
+  }
+  return undefined
+}
+
 export interface MetaGenerica {
   numero?: string; nome?: string; fabricante?: string; modelo?: string
   serie?: string; tag?: string; acreditacao?: string; laboratorio?: string
