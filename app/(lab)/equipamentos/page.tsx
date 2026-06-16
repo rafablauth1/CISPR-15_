@@ -92,6 +92,24 @@ const PEND_OPCOES: { id: string; label: string }[] = [
   { id: 'serie',      label: 'Sem série' },
   { id: 'calibracao', label: 'Sem data de calibração' },
 ]
+// Degraus (log-ish) do filtro "vencido há ≥": 0 = qualquer, até 5 anos.
+const VENC_DEGRAUS: { meses: number; label: string }[] = [
+  { meses: 0,  label: 'qualquer' },
+  { meses: 1,  label: '1 mês' },
+  { meses: 2,  label: '2 meses' },
+  { meses: 3,  label: '3 meses' },
+  { meses: 6,  label: '6 meses' },
+  { meses: 12, label: '1 ano' },
+  { meses: 24, label: '2 anos' },
+  { meses: 36, label: '3 anos' },
+  { meses: 60, label: '5 anos+' },
+]
+// Há quantos meses está vencido (0 se não está vencido ou sem data).
+function mesesVencido(e: EquipamentoEMC): number {
+  const d = diasAte(e.proximaCalibracao)
+  return typeof d === 'number' && d < 0 ? Math.floor(-d / 30) : 0
+}
+
 function codigosPendencia(e: EquipamentoEMC): string[] {
   const c: string[] = []
   if (calibVencida(e))                                    c.push('vencido')
@@ -116,6 +134,7 @@ export default function EquipamentosPage() {
   const [sortKey, setSortKey] = useState<SortKey>('tag')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [fPend, setFPend] = useState<string[]>([])
+  const [vencIdx, setVencIdx] = useState(0)   // índice no degrau log de "vencido há ≥ X"
   const [pronto,  setPronto]  = useState(false)
 
   // Importação em lote
@@ -157,7 +176,7 @@ export default function EquipamentosPage() {
   }, [pronto, fAreas, fSiglas, fGrupos, fSubs, sortKey, sortDir, fPend])
 
   // Volta pra página 1 quando o filtro/busca/tamanho muda
-  useEffect(() => { setPagina(1) }, [busca, fAreas, fSiglas, fGrupos, fSubs, fPend, porPagina])
+  useEffect(() => { setPagina(1) }, [busca, fAreas, fSiglas, fGrupos, fSubs, fPend, vencIdx, porPagina])
 
   function carregarRascunho() {
     fetch('/api/equipamentos/importar-lote').then(r => r.json()).then(d => setRascunho(Array.isArray(d) ? d : [])).catch(() => {})
@@ -267,7 +286,11 @@ export default function EquipamentosPage() {
       (fSiglas.length === 0 || fSiglas.includes(siglaDaTag(e.tag))) &&
       (fGrupos.length === 0 || fGrupos.includes(e.grupoId)) &&
       (fSubs.length   === 0 || fSubs.includes(e.subgrupoId)) &&
-      (fPend.length === 0 || fPend.some(t => codigosPendencia(e).includes(t))) &&
+      (fPend.length === 0 || fPend.some(t => {
+        const cods = codigosPendencia(e)
+        if (t === 'vencido') return cods.includes('vencido') && mesesVencido(e) >= VENC_DEGRAUS[vencIdx].meses
+        return cods.includes(t)
+      })) &&
       (!q || e.tag.toLowerCase().includes(q) || e.nome.toLowerCase().includes(q)),
     )
     const dir = sortDir === 'asc' ? 1 : -1
@@ -573,6 +596,16 @@ export default function EquipamentosPage() {
             </button>
           )}
         </div>
+        {/* Slider de "vencido há ≥" (só quando o filtro Vencido está ativo) */}
+        {fPend.includes('vencido') && (
+          <div className="flex items-center gap-3 mt-3 pt-3 border-t border-white/5">
+            <span className="text-[11px] text-white/45 flex-shrink-0">Vencido há ≥</span>
+            <input type="range" min={0} max={VENC_DEGRAUS.length - 1} step={1} value={vencIdx}
+              onChange={e => setVencIdx(Number(e.target.value))}
+              className="flex-1 max-w-xs accent-red-400 cursor-pointer"/>
+            <span className="text-[12px] font-mono text-red-300/90 w-20">{VENC_DEGRAUS[vencIdx].label}</span>
+          </div>
+        )}
       </div>
 
       {/* ── Lista ───────────────────────────────────────────────────────── */}
