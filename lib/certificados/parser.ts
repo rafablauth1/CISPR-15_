@@ -293,7 +293,7 @@ export function parsearDadosPadrao(texto: string): DadosPadrao {
     .replace(/Caracter\s*[íi]sticas/gi, 'Características')
   const token = (re: RegExp): string | undefined => { const m = tn.match(re); return m?.[1]?.trim() || undefined }
   // termina no PRÓXIMO rótulo — PREFIXOS (robusto a splits) + marcador genérico "Nº:"
-  const STOP = '(?:Protoc|Fabric|Modelo|TAG|Procedim|M[ée]todo|Padr|Nome|Caracter|Certificad|N[º°o]?\\s*de\\s*S[ée]rie|N[º°o]\\s*:)'
+  const STOP = '(?:Protoc|Fabric|Modelo|TAG|Procedim|M[ée]todo|Padr|Nome|Caracter|Certificad|N(?:[º°o.]*|[úu]mero)\\s*de\\s*(?:S[ée]rie|Identifica[çc][ãa]o)|N[º°o]\\s*:)'
   const campo = (label: string): string | undefined => {
     // fronteira ANTES do STOP (prefixos como "Protoc" casam no início de "Protocolo")
     const m = tn.match(new RegExp(label + '\\s*:?\\s*(.+?)\\s+' + STOP, 'i'))
@@ -304,12 +304,18 @@ export function parsearDadosPadrao(texto: string): DadosPadrao {
   const nome       = campo('\\bNome')
   const fabricante = campo('\\bFabricante')
   const modelo     = campo('\\bModelo')   // para no Protocolo/TAG/etc — não cola o protocolo
-  const serie      = token(/\bN[º°o]?\s*de\s*S[ée]rie\s*:?\s*([A-Za-z0-9.\-/]+)/i)
+  // Série: aceita "Nº de Série" e "Número de Série". Em alguns certs LABELO a série
+  // vem rotulada como "Nº de Identificação" — usa como FALLBACK (não rouba a TAG).
+  const serie      = token(/\bN(?:[º°o.]*|[úu]mero)\s*de\s*S[ée]rie\s*:?\s*([A-Za-z0-9.\-/]+)/i)
+    ?? token(/\bN(?:[º°o.]*|[úu]mero)\s*de\s*Identifica[çc][ãa]o\s*:?\s*([A-Za-z0-9.\-/]+)/i)
   const protocolo  = token(/\bProtocolo\s*N?[º°o.]*\s*:?\s*([A-Za-z0-9.\-/]+)/i)
   // TAG: pega o número + sufixo de letras (ex.: "3217 EMC" ou "3217EMC" → 3217EMC)
   const tag = (token(/\bTAG\s*N?[º°o.]*\s*:?\s*(\d+\s*[A-Za-z]{2,5})/i)
     ?? token(/\bTAG\s*N?[º°o.]*\s*:?\s*([A-Za-z0-9]+)/i))?.replace(/\s+/g, '')
-  const labCalibracao = /LABELO/i.test(t) ? 'LABELO/PUCRS' : undefined
+  // LABELO só quando houver a acreditação CAL 0024 (o "selinho" do LABELO).
+  // A palavra "LABELO" sozinha não vale — ela aparece como CLIENTE em certificados
+  // de outros laboratórios.
+  const labCalibracao = ehAcreditacaoLabelo(t) ? 'LABELO/PUCRS' : undefined
 
   // número do certificado: "Certificado de Calibração Nº X0000/20XX" (o próprio).
   // Senão, o ÚLTIMO X0000/20XX da página (os anteriores são dos padrões usados).
@@ -387,6 +393,15 @@ export function parsearMetadadosCertificado(texto: string): {
 // União das letras citadas (V L R E F T M + P B J Q A).
 const LETRAS_LABELO = 'ABEFJLMPQRTV'
 
+// Acreditação do LABELO (o "selinho"): CAL 0024. Marcador DEFINITIVO do modelo
+// LABELO. Exige o contexto do EMISSOR ("...acreditado ... sob o número CAL 0024"),
+// porque um "CAL 0024" solto pode ser um PADRÃO calibrado pelo LABELO citado na
+// rastreabilidade de um certificado de OUTRO laboratório (falso-positivo).
+export const CAL_LABELO = 'CAL 0024'
+export function ehAcreditacaoLabelo(texto: string): boolean {
+  return /sob\s+o\s+n[úu]mero\s+(?:CAL\s*)?0*24\b/i.test(texto || '')
+}
+
 /** Extrai o número do certificado no padrão LABELO (ex.: "R0047/2025").
  *  Tolerante a OCR: letra + 3–5 dígitos + separador (/ . -) + ano (2 ou 4 díg),
  *  com espaços no meio; a letra não pode estar grudada em outra letra/dígito. */
@@ -417,14 +432,15 @@ export function classificarCertificadoLabelo(texto: string): {
     return { ok: false, numero: null, motivo: 'É formulário (FOR / Análise Crítica), não certificado' }
   }
   const numero = numeroCertificadoLabelo(t)
-  const ehLabelo  = /LABELO/i.test(t)
   const temTitulo = /certificado\s+de\s+calibra[çc][ãa]o/i.test(t)
-  // Achou o nº no padrão → certificado. Senão, aceita se for nitidamente LABELO.
-  if (numero || (ehLabelo && temTitulo)) return { ok: true, numero }
-  if (!ehLabelo && !temTitulo) {
-    return { ok: false, numero: null, motivo: 'Não parece certificado do LABELO' }
+  // É LABELO SÓ com a acreditação CAL 0024 (o selinho do modelo conhecido).
+  // A palavra "LABELO" não basta — é o CLIENTE em certificados de outros labs
+  // (CTJ, Elus, etc.), inclusive alguns com nº no formato parecido (ex.: P-7405/24).
+  if (!ehAcreditacaoLabelo(t)) {
+    return { ok: false, numero: null, motivo: 'Outro laboratório — sem a acreditação CAL 0024 do LABELO' }
   }
-  return { ok: false, numero: null, motivo: 'Sem nº de certificado LABELO (ex.: R0047/2025)' }
+  if (numero || temTitulo) return { ok: true, numero }
+  return { ok: false, numero: null, motivo: 'CAL 0024 presente, mas sem título/nº de certificado de calibração' }
 }
 
 /**
