@@ -832,7 +832,11 @@ export default function LotePage() {
     // photos remain in LOTE_KEY so they're still accessible within the session.
     const novoSemFotos = { ...novo, photos: [] as typeof novo.photos }
     const listaSemFotos = [...lista, novoSemFotos]
-    if (api) { try { await api.saveRelatorios(listaSemFotos) } catch {} }
+    if (api) {
+      try { await api.saveRelatorios(listaSemFotos) } catch {}
+      // Vincula fotos+DOCX ao relatório (assets por id) p/ reabrir completo em qualquer PC
+      try { if (api.saveRelatorioAssets) await api.saveRelatorioAssets(novo.id, am.photos ?? [], am.docxHtml ?? null) } catch {}
+    }
     try {
       localStorage.setItem(RELATORIOS_KEY, JSON.stringify(listaSemFotos))
     } catch {

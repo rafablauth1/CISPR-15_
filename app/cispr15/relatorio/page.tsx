@@ -533,24 +533,31 @@ export default function Cispr15RelatorioPage() {
     ? formatEmendaNumero(cfg.numRelatorio, emendaDraft.emendaNum)
     : cfg.numRelatorio
 
-  /* Salva fotos + DOCX como arquivos na mesma pasta da EUT do PDF */
+  /* "Salvar arquivos": VINCULA as fotos + DOCX ao relatório (assets por id), em vez
+     de copiar pra pasta da EUT (que duplicava arquivos já existentes). Ao reabrir o
+     protocolo, resolverAssets() puxa esses arquivos de volta pra dentro do PDF.
+     Sem id de relatório (relatório ainda não salvo), cai no export pra pasta. */
   async function salvarArquivos() {
     if (!cfg) return
     const api = (window as any).electronAPI
-    if (!api?.exportRelatorioFiles) { alert('Disponível apenas no aplicativo.'); return }
     const fotos = photos.map(p => ({ name: p.name, base64: (p.url.split(',')[1] ?? '') }))
     if (!fotos.length && !docx.html) { alert('Sem fotos nem DOCX para salvar.'); return }
+    const relId = emendaDraft?.relatorioId
+      || (typeof window !== 'undefined' ? sessionStorage.getItem('relatorioAtualId') : null)
     setSavingFiles('loading')
     try {
+      if (relId && api?.saveRelatorioAssets) {
+        const res = await api.saveRelatorioAssets(relId, fotos, docx.html ?? null)
+        if (res?.ok) { setSavingFiles('ok'); setTimeout(() => setSavingFiles('idle'), 4000) }
+        else { setSavingFiles('error'); alert('Erro ao vincular arquivos: ' + (res?.error ?? 'desconhecido')) }
+        return
+      }
+      // Fallback (sem id / fora do Electron): exporta pra pasta como antes.
+      if (!api?.exportRelatorioFiles) { setSavingFiles('idle'); alert('Disponível apenas no aplicativo.'); return }
       const folderPath = emendaDraft?.eutFolderPath ?? eutFolder ?? null
       const res = await api.exportRelatorioFiles(folderPath, displayNum || cfg.numRelatorio, fotos, docx.html, docx.filename)
-      if (res?.ok) {
-        setSavingFiles('ok')
-        setTimeout(() => setSavingFiles('idle'), 4000)
-      } else {
-        setSavingFiles('error')
-        alert('Erro ao salvar arquivos: ' + (res?.error ?? 'desconhecido'))
-      }
+      if (res?.ok) { setSavingFiles('ok'); setTimeout(() => setSavingFiles('idle'), 4000) }
+      else { setSavingFiles('error'); alert('Erro ao salvar arquivos: ' + (res?.error ?? 'desconhecido')) }
     } catch (e: any) {
       setSavingFiles('error')
       alert('Erro ao salvar arquivos: ' + (e?.message ?? e))
@@ -921,16 +928,16 @@ export default function Cispr15RelatorioPage() {
             : <><Printer size={14} /> Baixar PDF</>}
         </button>
 
-        {/* Salvar fotos + DOCX na pasta da EUT (ao lado do Baixar PDF) */}
+        {/* Vincular fotos + DOCX ao relatório (puxados de volta ao reabrir o protocolo) */}
         <button
           disabled={savingFiles === 'loading'}
           onClick={salvarArquivos}
-          title="Salvar as fotos e o DOCX na pasta da EUT (junto do PDF)"
+          title="Vincular as fotos e o DOCX a este relatório — ao reabrir o protocolo eles voltam pra dentro do PDF (sem duplicar arquivos na pasta)"
           className="btn-secondary flex items-center gap-2 px-4 py-2 text-sm disabled:opacity-60">
           {savingFiles === 'loading' ? <Loader2 size={14} className="animate-spin" /> :
            savingFiles === 'ok'      ? <CheckCircle2 size={14} className="text-green-400" /> :
            <Save size={14} />}
-          {savingFiles === 'ok' ? 'Arquivos salvos' : 'Salvar arquivos'}
+          {savingFiles === 'ok' ? 'Arquivos vinculados' : 'Salvar arquivos'}
         </button>
 
         {/* Assinar e Publicar — apenas em modo emenda */}

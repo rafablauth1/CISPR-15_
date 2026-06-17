@@ -348,6 +348,7 @@ export default function Cispr15ConfigPage() {
     if (!confirm('Fechar formulário atual e iniciar um novo em branco?')) return
     ;[CFG_KEY, PHOTOS_KEY, LOCKED_KEY].forEach(k => localStorage.removeItem(k))
     ;[DOCX_HTML_KEY, DOCX_NAME_KEY].forEach(k => sessionStorage.removeItem(k))
+    sessionStorage.removeItem('relatorioAtualId')
     setCfg(DEFAULTS)
     setPhotos([])
     setDocx({ loading: false, html: null, filename: null })
@@ -359,6 +360,7 @@ export default function Cispr15ConfigPage() {
     if (!confirm('Limpar TODOS os dados do formulário e anexos?')) return
     ;[CFG_KEY, PHOTOS_KEY, LOCKED_KEY].forEach(k => localStorage.removeItem(k))
     ;[DOCX_HTML_KEY, DOCX_NAME_KEY].forEach(k => sessionStorage.removeItem(k))
+    sessionStorage.removeItem('relatorioAtualId')
     setCfg(DEFAULTS)
     setPhotos([])
     setDocx({ loading: false, html: null, filename: null })
@@ -792,6 +794,7 @@ export default function Cispr15ConfigPage() {
           }
         } catch {}
       }
+      try { sessionStorage.setItem('relatorioAtualId', id) } catch {}   // habilita "Salvar arquivos" a re-vincular
 
       // 2) Cache local (best-effort) — pode estourar a cota sem comprometer o save acima.
       try {
@@ -854,6 +857,7 @@ export default function Cispr15ConfigPage() {
     if (docxHtml) sessionStorage.setItem(DOCX_HTML_KEY, docxHtml)
     else sessionStorage.removeItem(DOCX_HTML_KEY)
     sessionStorage.setItem(DOCX_NAME_KEY, entry.docxFilename ?? '')
+    sessionStorage.setItem('relatorioAtualId', entry.id)   // p/ "Salvar arquivos" vincular assets
     if (entry.eutFolderPath) {
       setEutFolder(entry.eutFolderPath)
       sessionStorage.setItem('eutFolderPath', entry.eutFolderPath)
@@ -931,6 +935,7 @@ export default function Cispr15ConfigPage() {
     if (docxHtml) sessionStorage.setItem(DOCX_HTML_KEY, docxHtml)
     else sessionStorage.removeItem(DOCX_HTML_KEY)
     sessionStorage.setItem(DOCX_NAME_KEY, entry.docxFilename ?? '')
+    sessionStorage.setItem('relatorioAtualId', entry.id)   // p/ "Salvar arquivos" vincular assets
     setLocked(true)
     router.push('/cispr15/relatorio')
   }
