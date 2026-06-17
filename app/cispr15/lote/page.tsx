@@ -454,7 +454,7 @@ export default function LotePage() {
   const [resultado,   setResultado]   = useState<{ reprovados: { protocolo: string; testes: string[]; trechos: string[] }[]; total: number; checked: boolean } | null>(null)
   const [emitidos,    setEmitidos]    = useState<Record<number, string>>({}) // index → numRelatorio
   const [equipamentos,setEquipamentos] = useState<EquipamentoSalvo[]>([])
-  const [emitModal,   setEmitModal]   = useState<{ conformes: number; reprovadosNomes: string[] } | null>(null)
+  const [emitModal,   setEmitModal]   = useState<{ conformes: number; reprovadosNomes: string[]; pendentesNomes: string[] } | null>(null)
   const [importMae,   setImportMae]   = useState<{ loading: boolean; msg: string } | null>(null)
   const maeRef = useRef<HTMLInputElement>(null)
   const [baixando,    setBaixando]    = useState<{ done: number; total: number; erros: string[] } | null>(null)
@@ -701,6 +701,37 @@ export default function LotePage() {
     } catch {}
   }
 
+  /* Arquivo pendente no lote: NÃO emite. Garante que o item continue na agenda
+     (sem nº de relatório), marcado como pendente e com uma nota explicativa. */
+  async function retornarPendenteParaAgenda(am: LoteAmostra) {
+    try {
+      const proto = (am.protocolo || '').trim().toLowerCase()
+      if (!proto) return
+      const api = (window as any).electronAPI
+      let lista: AgendaItem[] = []
+      if (api) { const r = await api.getAgenda().catch(() => null); if (r?.ok && Array.isArray(r.agenda)) lista = r.agenda }
+      if (!lista.length) { const raw = localStorage.getItem(AGENDA_KEY); if (raw) { try { lista = JSON.parse(raw) } catch {} } }
+
+      const nota = `⏳ Arquivo pendente — não emitido no lote (${new Date().toLocaleDateString('pt-BR')})`
+      const aplicar = (item: AgendaItem): AgendaItem => ({
+        ...item,
+        numRelatorio: '', dataEmissao: '', pdfPath: undefined,   // continua na agenda (não emitido)
+        observacoes: (item.observacoes || '').includes('Arquivo pendente')
+          ? item.observacoes
+          : [item.observacoes?.trim(), nota].filter(Boolean).join('\n'),
+        tags: Array.from(new Set([...(item.tags ?? []), 'pendente'])),
+      })
+
+      const existe = lista.some(it => it.protocolo?.trim().toLowerCase() === proto)
+      const updated = existe
+        ? lista.map(it => it.protocolo?.trim().toLowerCase() === proto ? aplicar(it) : it)
+        : [...lista, aplicar(amostraParaAgenda(am))]
+
+      if (api) await api.saveAgenda(updated).catch(() => null)
+      localStorage.setItem(AGENDA_KEY, JSON.stringify(updated))
+    } catch {}
+  }
+
   async function verificarConformidade() {
     if (!lote) return
     // Auto-avalia cada amostra que tenha docx: "Fail" no relatório Radimation → reprovado.
@@ -734,11 +765,21 @@ export default function LotePage() {
     const reprovadosIdx = lote.amostras
       .map((a, i) => a.conformidade === 'reprovado' ? i : -1)
       .filter(i => i >= 0)
-    const conformes = lote.amostras.filter(a => a.conformidade !== 'reprovado')
-    if (conformes.length === 0) { alert('Nenhuma amostra para emitir.'); return }
+    // Arquivo pendente (sem docx/avaliação) NÃO é emitido — volta para a agenda.
+    const pendentesIdx = lote.amostras
+      .map((a, i) => a.conformidade === 'pendente' ? i : -1)
+      .filter(i => i >= 0)
+    const conformes = lote.amostras.filter(a => a.conformidade === 'conforme')
+    if (conformes.length === 0) {
+      alert(pendentesIdx.length
+        ? `Nenhuma amostra conforme para emitir. ${pendentesIdx.length} com arquivo pendente — anexe/avalie o relatório ou elas voltam para a agenda.`
+        : 'Nenhuma amostra para emitir.')
+      return
+    }
     setEmitModal({
       conformes: conformes.length,
       reprovadosNomes: reprovadosIdx.map(i => `Amostra ${i + 1}`),
+      pendentesNomes: pendentesIdx.map(i => `Amostra ${i + 1}`),
     })
   }
 
@@ -831,8 +872,16 @@ export default function LotePage() {
 
   async function emitirLote() {
     if (!lote) return
-    const paraEmitir = lote.amostras.map((a, i) => ({ a, i })).filter(({ a }) => a.conformidade !== 'reprovado')
-    if (paraEmitir.length === 0) { alert('Nenhuma amostra para emitir.'); return }
+    // Só emite as CONFORMES. Reprovadas são ignoradas; arquivo pendente não emite.
+    const paraEmitir = lote.amostras.map((a, i) => ({ a, i })).filter(({ a }) => a.conformidade === 'conforme')
+    const pendentes = lote.amostras.filter(a => a.conformidade === 'pendente')
+    if (paraEmitir.length === 0) {
+      for (const am of pendentes) await retornarPendenteParaAgenda(am)
+      alert(pendentes.length
+        ? `Nenhuma amostra conforme para emitir.\n${pendentes.length} amostra(s) com arquivo pendente foram marcadas e voltaram para a agenda.`
+        : 'Nenhuma amostra para emitir.')
+      return
+    }
     setEmitindo(true)
     const novosEmitidos: Record<number, string> = {}
     try {
@@ -868,6 +917,11 @@ export default function LotePage() {
         for (const i of Object.keys(novosEmitidos)) {
           registrarTempo({ tipo: 'emissao', protocolo: lote.amostras[Number(i)]?.protocolo, numRelatorio: novosEmitidos[Number(i)], duracaoMs: porRel })
         }
+      }
+      // Arquivo pendente: não emite — marca como pendente e devolve à agenda.
+      for (const am of pendentes) await retornarPendenteParaAgenda(am)
+      if (pendentes.length) {
+        alert(`${pendentes.length} amostra(s) com arquivo pendente não foram emitidas — ficaram marcadas como pendente e voltaram para a agenda.`)
       }
     } catch (err: any) {
       alert(`Erro ao emitir lote: ${err.message}`)
@@ -1275,9 +1329,18 @@ export default function LotePage() {
                   </span>
                 </div>
               )}
-              {emitModal.reprovadosNomes.length === 0 && (
+              {emitModal.pendentesNomes.length > 0 && (
+                <div className="flex items-start gap-2 text-amber-400">
+                  <Shield size={14} className="mt-0.5 shrink-0" />
+                  <span>
+                    <b>{emitModal.pendentesNomes.length}</b> com arquivo pendente — não serão emitidas e voltam para a agenda:{' '}
+                    <span className="font-mono text-[11px]">{emitModal.pendentesNomes.join(', ')}</span>
+                  </span>
+                </div>
+              )}
+              {emitModal.reprovadosNomes.length === 0 && emitModal.pendentesNomes.length === 0 && (
                 <div className="flex items-center gap-2 text-white/40 text-xs">
-                  <Shield size={12} /> Nenhuma amostra reprovada.
+                  <Shield size={12} /> Nenhuma amostra reprovada ou pendente.
                 </div>
               )}
             </div>
