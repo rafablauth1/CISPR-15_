@@ -8,6 +8,8 @@
 // Metroquality, Padrão Balanças, Senai...). Os termos foram generalizados
 // para também cobrir laboratórios novos que sigam convenções parecidas.
 
+import { aplicarExtratorLab, normData } from './extratores-lab'
+
 // Acreditação (Cgcre) → nome do laboratório. CAL 0024 = LABELO.
 // Estes são os já conhecidos; o registro auto-descoberto cobre o resto.
 export const LABS_POR_CAL: Record<string, string> = {
@@ -142,6 +144,7 @@ export function extrairTag(texto: string): string | undefined {
     'TAG',
     'C[óo]d(?:igo)?\\.?\\s*de\\s*Identifica[çc][ãa]o\\s+do\\s+propriet[áa]rio',
     'C[óo]d(?:igo)?\\.?\\s*de\\s*Identifica[çc][ãa]o',
+    'N[úu]mero\\s*de\\s*Identifica[çc][ãa]o',
     'N[º°o.]*\\s*de\\s*Identifica[çc][ãa]o',
     'Identifica[çc][ãa]o\\s+do\\s+Conjunto',
     'Identifica[çc][ãa]o\\s+do\\s+Instrumento',
@@ -159,6 +162,34 @@ export function extrairTag(texto: string): string | undefined {
   return undefined
 }
 
+/** Data DE CALIBRAÇÃO (genérico). Procura o rótulo (PT/EN, "data" ou "período")
+ *  e pega a data logo após; se não achar, usa uma data cuja vizinhança fale de
+ *  calibração e NÃO de emissão/validade/recebimento. Normaliza p/ dd/mm/aaaa
+ *  (aceita dd/mm/aaaa, "05 de outubro de 2022" e "3 Fev 2025"). */
+export function extrairDataCalibracao(texto: string): string | undefined {
+  const t = (texto || '').slice(0, 6000)
+  const reData = /\d{1,2}\s*[/.\-]\s*\d{1,2}\s*[/.\-]\s*\d{4}|\d{1,2}\s+(?:de\s+)?[A-Za-zçãéêíóôõ]{3,12}\.?\s+(?:de\s+)?\d{4}/gi
+  // 1) rótulo de calibração → data nos ~80 chars seguintes (sem cruzar emissão/validade)
+  const reLabel = /(?:data|per[íi]odo)\s*d[aeo]?\s*calibra[çc][ãa]o|calibration\s*date|date\s*of\s*calibration/gi
+  let m: RegExpExecArray | null
+  while ((m = reLabel.exec(t))) {
+    const ini = m.index + m[0].length
+    const depois = t.slice(ini, ini + 80)
+    const corte = depois.search(/emiss|valid|venc|receb|pr[óo]xim/i)
+    const d = normData(corte >= 0 ? depois.slice(0, corte) : depois)
+    if (d) return d
+  }
+  // 2) fallback: data cuja vizinhança fala de "calibra" e não de emissão/validade
+  for (const dm of t.matchAll(reData)) {
+    const i = dm.index ?? 0
+    const ctx = t.slice(Math.max(0, i - 45), i + dm[0].length + 12)
+    if (/calibra/i.test(ctx) && !/emiss|valid|venc|receb|pr[óo]xim/i.test(ctx)) {
+      const d = normData(dm[0]); if (d) return d
+    }
+  }
+  return undefined
+}
+
 /** Extrai metadados da 1ª página de um certificado de qualquer laboratório. */
 export function extrairMetadadosGenerico(texto: string): MetaGenerica {
   const t = (texto || '').slice(0, 4500)   // foco na folha de rosto
@@ -170,15 +201,18 @@ export function extrairMetadadosGenerico(texto: string): MetaGenerica {
     t.match(/\b(WO-\d{6,10})\b/i) ||
     t.match(/\b([A-Z]\d{5,7}\/\d{4})\b/)
   const acred = extrairAcreditacao(texto)
-  return {
+  const meta: MetaGenerica = {
     numero:     numM ? limpa(numM[1]).replace(/\s+/g, '') : undefined,
     nome:       campo(t, ['Nome', 'Equipamento', 'Descri[çc][ãa]o', 'Denomina[çc][ãa]o', 'Instrumento', 'Measuring\\s*Instrument', 'Equipment', 'Description', 'Instrument', 'Item\\s*calibrad\\w*', 'Item', 'Objeto(?:\\s*calibrad\\w*)?', 'Unidade\\s*sob\\s*teste']),
     fabricante: campo(t, ['Fabricante', 'Marca', 'Nome\\s+do\\s+Fabricante', 'Manufacturer', 'Make', 'Maker'], 50),
     modelo:     campo(t, ['Modelo(?:\\s*N[º°o.]*)?', 'Model(?:\\s*\\/?\\s*Type)?', 'Tipo', 'Type'], 40),
-    serie:      campo(t, ['N[º°o.]*\\s*de\\s*S[ée]rie', 'N[º°o.]*\\s*S[ée]rie', 'S[ée]rie\\s*N[º°o.]*', 'S[ée]rie', 'Serial(?:\\s*N\\w*)?', 'Serial\\s*Number', 'S\\/?N'], 30),
+    // aceita "Nº de Série" E "Número de Série" (N[º°o.]* não casa "Número")
+    serie:      campo(t, ['N[úu]mero\\s*de\\s*S[ée]rie', 'N[º°o.]*\\s*de\\s*S[ée]rie', 'N[º°o.]*\\s*S[ée]rie', 'S[ée]rie\\s*N[º°o.]*', 'S[ée]rie', 'Serial(?:\\s*N\\w*)?', 'Serial\\s*Number', 'S\\/?N'], 30),
     tag:        extrairTag(t),
     acreditacao: acred,
     laboratorio: identificarLaboratorio(texto, acred),
-    dataCalibracao: campo(t, ['Data\\s*da\\s*Calibra[çc][ãa]o', 'Calibration\\s*Date', 'Data\\s*de\\s*Calibra[çc][ãa]o', 'Test\\s*Date'], 24),
+    dataCalibracao: extrairDataCalibracao(texto),
   }
+  // overlay: extrator específico do lab preenche o que o genérico errou/não achou
+  return { ...meta, ...aplicarExtratorLab(meta.laboratorio, texto) }
 }

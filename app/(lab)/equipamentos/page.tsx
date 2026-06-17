@@ -701,7 +701,11 @@ export default function EquipamentosPage() {
                         className="accent-teal cursor-pointer"/>
                     </td>
                     <td><span className="tag-chip">{e.tag}</span></td>
-                    <td className="font-medium text-white/80">{e.nome}</td>
+                    <td className="font-medium text-white/80">
+                      {e.nome && e.nome !== e.tag
+                        ? e.nome
+                        : <span className="text-white/35 italic font-normal">sem nome</span>}
+                    </td>
                     <td>
                       <span className="inline-flex items-center gap-1.5">
                         <Icon size={12} style={{ color: cor }}/>

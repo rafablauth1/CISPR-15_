@@ -131,11 +131,14 @@ export async function POST(req: NextRequest) {
         foldersOk.add(it.folder)
         if (byTag.has(tagA)) { atualizados.push(tagA); continue }
         const { grupoId, subgrupoId } = inferTipo(`${g.nome || dados.nome || ''} ${it.folder}`)
+        // data de calibração extraída (dd/mm/aaaa) → ISO yyyy-mm-dd p/ o cadastro
+        const dcal = (g.dataCalibracao || '').match(/(\d{2})\/(\d{2})\/(\d{4})/)
+        const isoCal = dcal ? `${dcal[3]}-${dcal[2]}-${dcal[1]}` : (dados.ultimaCalibracao || '')
         const equipA: EquipamentoEMC = {
           id: novoId(), tag: tagA,
-          nome: limparCampo(g.nome || dados.nome, 80) || tagA,
+          nome: limparCampo(g.nome || dados.nome, 80) || '',   // nome NUNCA = TAG; vazio sinaliza "preencher"
           grupoId, subgrupoId, status: 'ativo', grandezas: [],
-          ultimaCalibracao: '', proximaCalibracao: '', intervaloCalibracao: 12,
+          ultimaCalibracao: isoCal, proximaCalibracao: isoCal ? addM(isoCal, 12) : '', intervaloCalibracao: 12,
           fabricante: limparCampo(g.fabricante || dados.fabricante, 50),
           modelo: limparCampo(g.modelo || dados.modelo, 40),
           serie: limparCampo(g.serie || dados.serie, 30),
@@ -188,7 +191,7 @@ export async function POST(req: NextRequest) {
         equip = {
           id: novoId(),
           tag,
-          nome: limparCampo(dados.nome, 80) || tag,
+          nome: limparCampo(dados.nome, 80) || '',   // nome NUNCA = TAG; vazio sinaliza "preencher"
           grupoId, subgrupoId,
           status: 'ativo',
           grandezas: [],
