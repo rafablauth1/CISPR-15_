@@ -100,7 +100,7 @@ function PageHeader({ cfg, numDisplay }: { cfg: Cispr15Config; numDisplay?: stri
   const amostraParts = [cfg.produto, cfg.modelo, cfg.fabricante].filter(Boolean)
   return (
     <div style={{ marginBottom: 10 }}>
-      <div style={{ background: GRAY2, border: '1px solid #999', padding: '5px 14px 8px' }}>
+      <div style={{ background: GRAY2, border: '1.5px solid #666', padding: '5px 14px 8px' }}>
         <p style={{ textAlign: 'center', fontSize: '6.5pt', fontStyle: 'italic', color: '#000', margin: '0 0 5px' }}>
           Laboratório de Ensaio acreditado pela Cgcre de acordo com a ABNT NBR ISO/IEC 17025 sob o número CRL 0075
         </p>
@@ -963,9 +963,9 @@ export default function Cispr15RelatorioPage() {
         {/* ══ PÁGINA 1 — CAPA ══ */}
         <Page first flow>
           {/* Cabeçalho da capa — layout Word */}
-          <div style={{ border: '1px solid #999', marginBottom: 10, overflow: 'hidden' }}>
+          <div style={{ border: '1.5px solid #666', marginBottom: 10, overflow: 'hidden' }}>
             {/* Topo branco: logo PUCRS + texto universidade + CRL */}
-            <div style={{ display: 'flex', alignItems: 'center', background: '#fff', minHeight: 80, borderBottom: '1px solid #bbb' }}>
+            <div style={{ display: 'flex', alignItems: 'center', background: '#fff', minHeight: 80, borderBottom: '1px solid #888' }}>
               <div style={{ width: 82, flexShrink: 0, padding: 7, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <img src={PUCRS_LOGO} alt="PUCRS" style={{ width: 66, height: 'auto', display: 'block' }} />
               </div>
@@ -980,7 +980,7 @@ export default function Cispr15RelatorioPage() {
               </div>
             </div>
             {/* Parte cinza: texto acred + Relatório de Ensaio / Nº */}
-            <div style={{ background: GRAY2, borderTop: '1px solid #bbb', padding: '5px 14px 8px' }}>
+            <div style={{ background: GRAY2, borderTop: '1px solid #888', padding: '5px 14px 8px' }}>
               <p style={{ textAlign: 'center', fontSize: '6.5pt', fontStyle: 'italic', color: 'rgb(0, 0, 0)', margin: '0 0 5px' }}>
                 Laboratório de Ensaio acreditado pela Cgcre de acordo com a ABNT NBR ISO/IEC 17025 sob o número CRL 0075
               </p>
