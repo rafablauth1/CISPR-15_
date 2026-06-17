@@ -1,14 +1,20 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { Plus, Trash2, Save, Check, Loader2, BadgeCheck } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Plus, Trash2, Save, Check, Loader2, BadgeCheck, Upload } from 'lucide-react'
 import type { LaboratorioCal } from '@/lib/laboratorios/registro'
+import { extrairAcreditacao, identificarLaboratorio, extrairNomeLaboratorio } from '@/lib/certificados/extrair-generico'
+import { fileToBase64 } from '@/lib/utils'
+
+const normCal = (c: string) => `CAL ${(c.match(/\d{3,4}/) || [''])[0]}`
 
 export default function LaboratoriosPage() {
   const [labs, setLabs] = useState<LaboratorioCal[]>([])
   const [carregando, setCarregando] = useState(true)
   const [salvando, setSalvando] = useState(false)
   const [salvo, setSalvo] = useState(false)
+  const [importando, setImportando] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     fetch('/api/laboratorios').then(r => r.json()).then(d => setLabs(Array.isArray(d) ? d : [])).catch(() => {}).finally(() => setCarregando(false))
@@ -19,6 +25,46 @@ export default function LaboratoriosPage() {
   }
   const add = () => { setLabs(ls => [...ls, { cal: '', nome: '', modelo: '' }]); setSalvo(false) }
   const del = (i: number) => { setLabs(ls => ls.filter((_, idx) => idx !== i)); setSalvo(false) }
+
+  /* Cadastro via UPLOAD: lê os PDFs, extrai o CAL (selinho de acreditação) e o
+     nome do laboratório emissor, e associa CAL → nome no registro. */
+  async function importarCertificados(files: FileList) {
+    const api = (window as unknown as { electronAPI?: { extractPdfText?: (b: string) => Promise<{ text?: string }> } }).electronAPI
+    if (!api?.extractPdfText) { alert('Disponível apenas no aplicativo.'); return }
+    setImportando(true)
+    try {
+      const achados = new Map<string, string>()   // CAL → melhor nome encontrado
+      let lidos = 0, semCal = 0
+      for (const f of Array.from(files)) {
+        if (!f.name.toLowerCase().endsWith('.pdf')) continue
+        lidos++
+        try {
+          const res = await api.extractPdfText(await fileToBase64(f))
+          const texto = res?.text || ''
+          const cal = extrairAcreditacao(texto)
+          if (!cal) { semCal++; continue }
+          const k = normCal(cal)
+          const nome = identificarLaboratorio(texto, cal) || extrairNomeLaboratorio(texto) || ''
+          if (!achados.has(k) || (!achados.get(k) && nome)) achados.set(k, nome)
+        } catch { semCal++ }
+      }
+      // merge no estado atual (não sobrescreve nome já preenchido)
+      const map = new Map(labs.map(l => [normCal(l.cal), { ...l }]))
+      let add = 0, upd = 0
+      for (const [cal, nome] of achados) {
+        const ex = map.get(cal)
+        if (ex) { if (!ex.nome && nome) { ex.nome = nome; upd++ } }
+        else { map.set(cal, { cal, nome, modelo: '' }); add++ }
+      }
+      setLabs([...map.values()]); setSalvo(false)
+      alert(
+        `${lidos} certificado(s) lido(s).\n` +
+        `CAL novos: ${add} · atualizados: ${upd}` +
+        (semCal ? `\nSem CAL (escaneado/ilegível): ${semCal}` : '') +
+        `\n\nRevise os nomes e clique em Salvar.`
+      )
+    } finally { setImportando(false) }
+  }
 
   async function salvar() {
     setSalvando(true)
@@ -40,6 +86,13 @@ export default function LaboratoriosPage() {
           <p className="page-sub">Acreditação (CAL do selo azul) → laboratório. Novos labs aparecem aqui automaticamente na importação.</p>
         </div>
         <div className="flex items-center gap-2">
+          <input ref={fileRef} type="file" accept="application/pdf" multiple className="hidden"
+            onChange={e => { if (e.target.files?.length) importarCertificados(e.target.files); e.target.value = '' }} />
+          <button type="button" onClick={() => fileRef.current?.click()} disabled={importando} className="btn-secondary"
+            title="Ler PDFs de certificados e associar o CAL (selo de acreditação) ao nome do laboratório emissor">
+            {importando ? <Loader2 size={13} className="animate-spin"/> : <Upload size={13}/>}
+            {importando ? 'Lendo…' : 'Importar certificados'}
+          </button>
           <button type="button" onClick={add} className="btn-secondary"><Plus size={13}/> Laboratório</button>
           <button type="button" onClick={salvar} disabled={salvando} className="btn-primary">
             {salvando ? <Loader2 size={13} className="animate-spin"/> : salvo ? <Check size={13}/> : <Save size={13}/>}
