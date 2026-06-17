@@ -6,7 +6,7 @@
 
 **Sistema de gestão de ensaios EMC e laboratório — LABELO / PUCRS**
 
-![Versão](https://img.shields.io/badge/versão-1.0.32-E6B73C?style=flat-square)
+![Versão](https://img.shields.io/badge/versão-1.0.82-E6B73C?style=flat-square)
 ![Plataforma](https://img.shields.io/badge/plataforma-Windows-blue?style=flat-square)
 ![Electron](https://img.shields.io/badge/Electron-31-47848F?style=flat-square&logo=electron)
 ![Next.js](https://img.shields.io/badge/Next.js-14-black?style=flat-square&logo=next.js)
@@ -27,7 +27,7 @@ Aplicativo **desktop** (roda offline, sem servidor) para o **LABELO/PUCRS** que 
 | **Equipamentos** | Inventário dos instrumentos por grupo/subgrupo |
 | **Normas** | Biblioteca normativa (CISPR 15/11/32, IEC 61000-4-x, NBR 15947) com PDF |
 | **Checagens** | Checagens intermediárias com periodicidade e rastreabilidade |
-| **Certificados** | Certificados de calibração (pontos 1D e grade 2D freq × nível) |
+| **Certificados** | Certificados de calibração (pontos 1D e grade 2D freq × nível) + importação de certificados de **outros laboratórios** com identificação automática do lab emissor |
 | **Procedimentos** | Editor de IT/PC e checagem por certificado com interpolação |
 | **Grandezas** | Grandezas metrológicas por equipamento |
 
@@ -105,6 +105,7 @@ Pastas de dados (suporte a unidades de rede/UNC), pasta de PDFs, planilha Excel,
 - Banco de clientes e histórico de relatórios
 - **Checagens**: criar, **editar** e **excluir**; marcar pontos do certificado pela TAG (1D e grade 2D) com **interpolação** linear/bilinear
 - Gestão de **equipamentos**, **certificados**, **normas** e **grandezas**
+- Importação em **lote** de certificados de **outros laboratórios**: identifica o lab emissor (por acreditação CAL ou assinatura do nome) e extrai TAG/fabricante/modelo/série mesmo em layouts variados (PT/EN)
 - **Procedimentos** IT/PC com editor próprio
 - Dados em pasta de rede compartilhada (qualquer UNC)
 - **Atualização automática** via GitHub Releases (zip, sem reinstalação)
@@ -122,7 +123,7 @@ public/       assets estáticos servidos
 assets/       ícones do app
 bin/          wmf2png.exe (conversor WMF/EMF)
 build/        installer.nsh (NSIS)
-scripts/      publish-update.js (pós-build)
+scripts/      publish-update.js (pós-build) e utilitários de extração de certificados
 tools/        utilitários de dev (geração de manual, screenshots, wmf2png)
 docs/         manuais (DOCX/PDF) e docs/screenshots/ (imagens)
 ```
@@ -169,7 +170,7 @@ npm run dist:publish
 | Frontend | Next.js 14 + React 18 + Tailwind CSS |
 | PDF | Puppeteer Core + assinatura digital (node-forge / @signpdf) |
 | Office | Mammoth (DOCX → HTML) + xlsx / xlsx-populate |
-| OCR | Windows OCR API |
+| OCR | Windows OCR API + Tesseract.js · extração de certificados multi-laboratório (heurística PT/EN) |
 | Atualização | GitHub Releases + updater customizado (zip) |
 
 ---

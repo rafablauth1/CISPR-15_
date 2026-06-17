@@ -22,3 +22,7 @@ tsconfig.tsbuildinfo
 # temporários do Office e lixo
 ~$*
 null
+
+# saídas locais de análise de certificados (não versionar)
+tmp_cert_extract/
+tmp_test/
