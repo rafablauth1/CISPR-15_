@@ -560,6 +560,12 @@ function ItemModal({ item, isNew, onSave, onClose, clientes, customTags, onCusto
                 {campoTravavel('recebidoPorEmc', 'text', 'Funcionário EMC')}
               </div>
             </div>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input type="checkbox" className="accent-teal w-3.5 h-3.5"
+                checked={!!form.recebimentoEmcOk}
+                onChange={e => setForm(prev => ({ ...prev, recebimentoEmcOk: e.target.checked }))} />
+              <span className="text-[11px] text-white/60">Confirmo o recebimento da amostra (EMC)</span>
+            </label>
           </div>
 
           {/* Devolução: EMC → LUM (somente após emissão) */}
@@ -580,6 +586,12 @@ function ItemModal({ item, isNew, onSave, onClose, clientes, customTags, onCusto
                   {campoTravavel('recebidoPorLum', 'text', 'Funcionário LUM')}
                 </div>
               </div>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" className="accent-gold w-3.5 h-3.5"
+                  checked={!!form.recebimentoLumOk}
+                  onChange={e => setForm(prev => ({ ...prev, recebimentoLumOk: e.target.checked }))} />
+                <span className="text-[11px] text-white/60">Confirmo o recebimento da amostra (LUM)</span>
+              </label>
             </div>
           ) : (
             <p className="text-[10px] text-white/25 flex items-center gap-1.5 px-1">
