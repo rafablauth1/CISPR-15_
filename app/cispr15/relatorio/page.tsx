@@ -300,6 +300,8 @@ export default function Cispr15RelatorioPage() {
     const dHtml = sessionStorage.getItem(DOCX_HTML_KEY)
     const dName = sessionStorage.getItem(DOCX_NAME_KEY)
     if (dHtml) setDocx({ loading: false, html: dHtml, filename: dName })
+    const eutP = sessionStorage.getItem('eutFolderPath')   // pasta do docx → onde salvar o PDF
+    if (eutP) setEutFolder(eutP)
     try {
       const rawP = localStorage.getItem(PHOTOS_KEY)
       if (rawP) {
@@ -348,7 +350,17 @@ export default function Cispr15RelatorioPage() {
     })
   })
 
+  /* Lembra a pasta onde está o arquivo (docx). No Electron, File.path é o caminho
+     absoluto — é nessa pasta (a pasta da EUT) que o "Baixar PDF" deve salvar. */
+  function lembrarPastaDoArquivo(file?: File) {
+    const p = (file as unknown as { path?: string })?.path
+    if (!p) return
+    const dir = p.replace(/[\\/][^\\/]*$/, '')
+    if (dir) { setEutFolder(dir); try { sessionStorage.setItem('eutFolderPath', dir) } catch {} }
+  }
+
   async function handleDocx(file: File) {
+    lembrarPastaDoArquivo(file)
     setDocx({ loading: true, html: null, filename: null })
     try {
       const fd = new FormData(); fd.append('file', file)
@@ -366,6 +378,7 @@ export default function Cispr15RelatorioPage() {
   }
 
   async function handleDocxTodos(file: File) {
+    lembrarPastaDoArquivo(file)
     setDocx({ loading: true, html: null, filename: null })
     setPerResult({
       conduzida: { html: null, filename: null, loading: true },
@@ -864,8 +877,8 @@ export default function Cispr15RelatorioPage() {
             try {
               const api = (window as any).electronAPI
               if (api) {
-                // Electron: printToPDF direto na pasta da EUT
-                const folderPath = emendaDraft?.eutFolderPath ?? null
+                // Electron: printToPDF direto na pasta do docx (pasta da EUT)
+                const folderPath = emendaDraft?.eutFolderPath ?? eutFolder ?? null
                 const result = await api.salvarPDFNaEut(filename, folderPath)
                 if (result.ok) {
                   setSavedFile(result.filePath ?? filename)
