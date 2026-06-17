@@ -99,7 +99,10 @@ const ehLixo = (v: string) =>
 const CUT_INLINE = /\s+(?:Fabricante|Marca|Manufacturer|Modelo|Model|Tipo|Type|N[º°o.]*\s*de\s*S[ée]rie|Serial|S\/?N|C[óo]d(?:igo)?\b|Identifica|Data|Faixa|Resolu|Endere)\b.*$/i
 
 const arruma = (s: string, max: number) => {
-  const v = limpa(s).replace(CUT_INLINE, '').replace(/\s{2,}.*/, '').replace(/[•\-–:\s]+$/, '').trim()
+  // pdfTextLayout separa COLUNAS por TAB — o valor é a 1ª coluna não-vazia
+  // (corta "34970A\tCliente" → "34970A"; "\tACE-LDG…" → "ACE-LDG…").
+  const col = (s || '').split('\t').map(c => c.trim()).filter(Boolean)[0] || ''
+  const v = limpa(col).replace(CUT_INLINE, '').replace(/\s{2,}.*/, '').replace(/[•\-–:\s]+$/, '').trim()
   return v && !ehLixo(v) && !ehRotulo(v) && v.length <= max ? v : undefined
 }
 
@@ -124,6 +127,31 @@ function campo(texto: string, rotulos: string[], max = 80): string | undefined {
         const prox = arruma(linhas[j], max)
         if (prox) return prox
         break
+      }
+    }
+  }
+  return undefined
+}
+
+// Layout em COLUNAS (pdfTextLayout): o rótulo está numa célula (separadas por TAB)
+// e o valor na MESMA célula (após ":") ou na PRÓXIMA célula. Cobre linhas tipo
+// "Valor de uma Divisão:\t1 cN.m\tNº de série:\t6GX 030371" e
+// "Nome do Fabricante\tKn Waagen\tNúmero de Série\t12.079.10".
+function campoMultiColuna(texto: string, rotulos: string[], max = 80): string | undefined {
+  const linhas = texto.split(/[\r\n]+/)
+  for (const r of rotulos) {
+    const re = new RegExp('^(?:' + r + ')(?![A-Za-zÀ-ÿ])\\s*[:\\-–]?\\s*(.*)$', 'i')
+    for (const linha of linhas) {
+      const cells = linha.split('\t').map(c => c.trim()).filter(Boolean)
+      for (let i = 0; i < cells.length; i++) {
+        const m = cells[i].match(re)
+        if (!m) continue
+        const mesma = arruma(m[1], max)   // valor na mesma célula (após o rótulo)
+        if (mesma) return mesma
+        for (let j = i + 1; j < cells.length; j++) {   // senão, próxima célula
+          const v = arruma(cells[j], max)
+          if (v) return v
+        }
       }
     }
   }
@@ -190,6 +218,18 @@ export function extrairDataCalibracao(texto: string): string | undefined {
   return undefined
 }
 
+// Descarta "nome de equipamento" obviamente inválido: unidade, endereço, lixo curto,
+// nome do CLIENTE (não é o equipamento) ou fragmento de frase do corpo do certificado.
+function nomeValido(n?: string): string | undefined {
+  if (!n) return undefined
+  const s = n.trim()
+  if (s.length < 4) return undefined
+  if (/^[(\d]/.test(s) || /^(av|rua|al|rod)\b/i.test(s) || /^do\b/i.test(s)) return undefined
+  if (/uni[ãa]o\s+brasileira|pucrs|educa[çc][ãa]o\s+e\s+assist|\bcliente\b/i.test(s)) return undefined
+  if (/calibrad|calibrated|condi[çc][õo]es|resultad/i.test(s)) return undefined
+  return s
+}
+
 /** Extrai metadados da 1ª página de um certificado de qualquer laboratório. */
 export function extrairMetadadosGenerico(texto: string): MetaGenerica {
   const t = (texto || '').slice(0, 4500)   // foco na folha de rosto
@@ -201,13 +241,19 @@ export function extrairMetadadosGenerico(texto: string): MetaGenerica {
     t.match(/\b(WO-\d{6,10})\b/i) ||
     t.match(/\b([A-Z]\d{5,7}\/\d{4})\b/)
   const acred = extrairAcreditacao(texto)
+  // Rótulos por campo (reutilizados em campo() e campoMultiColuna()).
+  const ROT_NOME = ['Nome', 'Equipamento', 'Descri[çc][ãa]o', 'Denomina[çc][ãa]o', 'Instrumento', 'Measuring\\s*Instrument', 'Equipment', 'Description', 'Instrument', 'Item\\s*calibrad\\w*', 'Item', 'Objeto(?:\\s*calibrad\\w*)?', 'Unidade\\s*sob\\s*teste']
+  const ROT_FAB  = ['Fabricante', 'Marca', 'Nome\\s+do\\s+Fabricante', 'Manufacturer', 'Make', 'Maker']
+  const ROT_MOD  = ['Modelo(?:\\s*N[º°o.]*)?', 'Model(?:\\s*\\/?\\s*Type)?', 'Tipo', 'Type']
+  // aceita "Nº de Série" E "Número de Série" (N[º°o.]* não casa "Número")
+  const ROT_SER  = ['N[úu]mero\\s*de\\s*S[ée]rie', 'N[º°o.]*\\s*de\\s*S[ée]rie', 'N[º°o.]*\\s*S[ée]rie', 'S[ée]rie\\s*N[º°o.]*', 'S[ée]rie', 'Serial(?:\\s*N\\w*)?', 'Serial\\s*Number', 'S\\/?N']
+  // genérico (linha) com fallback MULTI-COLUNA (pdfTextLayout separa colunas por TAB)
   const meta: MetaGenerica = {
     numero:     numM ? limpa(numM[1]).replace(/\s+/g, '') : undefined,
-    nome:       campo(t, ['Nome', 'Equipamento', 'Descri[çc][ãa]o', 'Denomina[çc][ãa]o', 'Instrumento', 'Measuring\\s*Instrument', 'Equipment', 'Description', 'Instrument', 'Item\\s*calibrad\\w*', 'Item', 'Objeto(?:\\s*calibrad\\w*)?', 'Unidade\\s*sob\\s*teste']),
-    fabricante: campo(t, ['Fabricante', 'Marca', 'Nome\\s+do\\s+Fabricante', 'Manufacturer', 'Make', 'Maker'], 50),
-    modelo:     campo(t, ['Modelo(?:\\s*N[º°o.]*)?', 'Model(?:\\s*\\/?\\s*Type)?', 'Tipo', 'Type'], 40),
-    // aceita "Nº de Série" E "Número de Série" (N[º°o.]* não casa "Número")
-    serie:      campo(t, ['N[úu]mero\\s*de\\s*S[ée]rie', 'N[º°o.]*\\s*de\\s*S[ée]rie', 'N[º°o.]*\\s*S[ée]rie', 'S[ée]rie\\s*N[º°o.]*', 'S[ée]rie', 'Serial(?:\\s*N\\w*)?', 'Serial\\s*Number', 'S\\/?N'], 30),
+    nome:       nomeValido(campo(t, ROT_NOME) ?? campoMultiColuna(t, ROT_NOME)),
+    fabricante: campo(t, ROT_FAB, 50)     ?? campoMultiColuna(t, ROT_FAB, 50),
+    modelo:     campo(t, ROT_MOD, 40)     ?? campoMultiColuna(t, ROT_MOD, 40),
+    serie:      campo(t, ROT_SER, 30)     ?? campoMultiColuna(t, ROT_SER, 30),
     tag:        extrairTag(t),
     acreditacao: acred,
     laboratorio: identificarLaboratorio(texto, acred),

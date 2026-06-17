@@ -25,60 +25,22 @@ export function normData(s?: string): string | undefined {
   return undefined
 }
 
-/** 1ª data dd/mm/aaaa que aparece no texto (na maioria dos certs = a calibração). */
-function primeiraData(t: string): string | undefined {
-  const m = t.match(/\b\d{1,2}\/\d{1,2}\/\d{4}\b/)
-  return m ? normData(m[0]) : undefined
-}
-
-/** 2ª data de um par de datas GRUDADAS (ex.: "11/02/202617/02/2026" → 17/02/2026).
- *  Vários labs imprimem recebimento+emissão ou entrada+calibração coladas. */
-function segundaDataColada(t: string): string | undefined {
-  const m = t.match(/(\d{2}\/\d{2}\/\d{4})(\d{2}\/\d{2}\/\d{4})/)
-  return m ? normData(m[2]) : undefined
-}
-
 const cap = (t: string, re: RegExp) => { const m = t.match(re); return m ? (m[1] || '').trim() : undefined }
 
 // Chave = nome canônico devolvido por identificarLaboratorio() em extrair-generico.
+// IMPORTANTE: a extração do app é por COORDENADAS (pdfTextLayout) e sai LIMPA, com
+// colunas separadas por TAB. O extrator GENÉRICO já resolve a grande maioria. Só
+// adicione um extrator por lab para o que o genérico realmente NÃO pega no layout
+// limpo — caso contrário ele SOBRESCREVE com valor pior (já aconteceu).
 export const EXTRATORES_LAB: Record<string, (t: string) => CamposLab> = {
-  // Barômetro: modelo tipo 623ADV, série após "Instrumento:", 1ª data = calibração.
-  'CTJ': (t) => ({
-    modelo: cap(t, /\b(\d{3}[A-Z]{3})\b/),
-    serie:  cap(t, /Instrumento:\s*(\d{6,8})\b/i),
-    dataCalibracao: primeiraData(t),
-  }),
-  // Vazão: fabricante "Alfa Instrumentos", modelo na linha seguinte, série de 8 díg.
-  'Elus Instrumentação': (t) => ({
-    fabricante: cap(t, /\b(Alfa\s+Instrumentos)\b/i),
-    modelo:     cap(t, /Alfa\s+Instrumentos\s*\r?\n\s*([^\r\n]+)/i),
-    serie:      cap(t, /\b(\d{8})\b/),
-    dataCalibracao: primeiraData(t),
-  }),
-  // Torquímetro GEDORE: série "6GX 030371"; datas recebimento+emissão coladas.
-  'K&L Metrologia': (t) => ({
-    serie:  cap(t, /\b(\d[A-Z]{2}\s?\d{6})\b/),
-    dataCalibracao: segundaDataColada(t) || primeiraData(t),
-  }),
-  // Massa: linha "EOSN 90302980LUM"; entrada+calibração coladas (2ª = calibração).
-  'Metroquality': (t) => ({
-    serie:  cap(t, /EOSN?\s*(\d{6,9})/i),
-    dataCalibracao: segundaDataColada(t),
-  }),
-  // Lâmpada: "Modelo/Tipo: 230 V 20 W".
+  // Inmetro (lâmpada): modelo vem inline "Modelo/Tipo: 230 V 20 W" (não casa por linha).
   'Inmetro': (t) => ({
-    modelo: cap(t, /Modelo\/?Tipo:\s*([^\r\n]+?)\s*(?:N[úu]mero|C[óo]digo|$)/im),
+    modelo: cap(t, /Modelo\s*\/?\s*Tipo:\s*([^\r\n\t]+?)\s*(?:N[úu]mero|C[óo]digo|N[º°]|$)/im),
   }),
-  // ISI medidor de espessura: "Número de série ... é 7360" (Senai volumétrico não tem).
+  // ISI (medidor de espessura): série vem na frase "Número de série ... é 7360".
+  // (Senai/volumétrico não tem série — fica vazio, correto.)
   'SENAI/CETEMP': (t) => ({
     serie: cap(t, /N[úu]mero\s+de\s+s[ée]rie[^\d]{0,40}(\d{3,6})/i),
-  }),
-  // Microdurômetro: 2 datas escritas no topo (emissão, depois calibração) → 2ª é a calibração.
-  'Holtermann': (t) => ({
-    dataCalibracao: (() => {
-      const m = t.match(/(\d{1,2}\s+de\s+[A-Za-zçã]+\s+de\s+\d{4})\D+(\d{1,2}\s+de\s+[A-Za-zçã]+\s+de\s+\d{4})/i)
-      return m ? normData(m[2]) : undefined
-    })(),
   }),
 }
 
