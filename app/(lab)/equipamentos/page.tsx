@@ -153,6 +153,8 @@ export default function EquipamentosPage() {
   const [pagina, setPagina] = useState(1)
   const [porPagRasc, setPorPagRasc] = useState(25)
   const [pagRasc, setPagRasc] = useState(1)
+  const [showExcluir, setShowExcluir] = useState(false)   // modal "excluir tudo" (prompt() não funciona no Electron)
+  const [senhaExcluir, setSenhaExcluir] = useState('')
 
   // Carrega filtros salvos (1×, no mount)
   useEffect(() => {
@@ -196,15 +198,18 @@ export default function EquipamentosPage() {
   }, [])
 
   // Exclusão TOTAL (equipamentos + certificados) — protegida por senha fixa.
-  async function excluirTudo() {
-    const tentativa = window.prompt('Senha para excluir TODOS os equipamentos e certificados:')
-    if (tentativa === null) return
-    if (tentativa !== 'EMC2026') { alert('Senha incorreta.'); return }
-    if (!confirm('Tem CERTEZA? Isso apaga TODOS os equipamentos e certificados cadastrados. Não dá pra desfazer.')) return
+  // Usa MODAL próprio: window.prompt() não é suportado no Electron (retorna null).
+  function excluirTudo() {
+    setSenhaExcluir('')
+    setShowExcluir(true)
+  }
+  async function confirmarExcluirTudo() {
+    if (senhaExcluir !== 'EMC2026') { alert('Senha incorreta.'); return }
     try {
       await fetch('/api/equipamentos',  { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ all: true }) })
       await fetch('/api/certificados',  { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ all: true }) })
       setEquips([]); setSel([]); carregarRascunho()
+      setShowExcluir(false)
       alert('Tudo excluído.')
     } catch (e) { alert('Erro: ' + String(e)) }
   }
@@ -417,6 +422,34 @@ export default function EquipamentosPage() {
           </button>
         </div>
       </div>
+
+      {showExcluir && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setShowExcluir(false)}>
+          <div className="card w-full max-w-sm p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2 mb-2 text-red-300">
+              <AlertTriangle size={18}/>
+              <h3 className="text-[15px] font-semibold">Excluir TODOS os equipamentos e certificados</h3>
+            </div>
+            <p className="text-[12px] text-white/60 mb-3">
+              Isso apaga <b>todos</b> os equipamentos e certificados cadastrados. Não dá pra desfazer.
+              Digite a senha para confirmar.
+            </p>
+            <input
+              type="password" autoFocus value={senhaExcluir}
+              onChange={e => setSenhaExcluir(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') confirmarExcluirTudo(); if (e.key === 'Escape') setShowExcluir(false) }}
+              placeholder="Senha" className="input w-full mb-3"
+            />
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setShowExcluir(false)} className="btn-secondary">Cancelar</button>
+              <button type="button" onClick={confirmarExcluirTudo}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] bg-red-500/20 text-red-200 border border-red-500/40 hover:bg-red-500/30 transition-all">
+                <Trash2 size={13}/> Excluir tudo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {impProgresso && (
         <div className="mb-4 card px-4 py-2.5 flex items-center gap-2 text-[12px] text-white/70">
