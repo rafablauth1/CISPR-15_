@@ -1476,6 +1476,39 @@ ipcMain.handle('pdf:publish', async (_, { eutFolderPath: eutPath, pdfFilename, a
   } catch (err) { return { ok: false, error: String(err) } }
 })
 
+/* Reconcilia a CÓPIA do PDF: ao reabrir/ver o relatório, se o PDF original (na
+   pasta do docx) estiver ASSINADO e a cópia estiver ausente/desatualizada, copia
+   pra pasta de cópias. Cobre o caso 2: PDF assinado manualmente (fora do app).
+   Geração simples (PDF não assinado) NÃO copia. */
+function pdfEstaAssinado(filePath) {
+  try {
+    const txt = fs.readFileSync(filePath).toString('latin1')
+    return /\/ByteRange\s*\[/.test(txt) && /\/(Sig|Adobe\.PPKLite)|adbe\.pkcs7/.test(txt)
+  } catch { return false }
+}
+ipcMain.handle('pdf:sync-eut-copy', (_, { eutFolderPath: eutPath, pdfFilename, ano }) => {
+  try {
+    const { pdfCopyFolder } = readSettings()
+    if (!pdfCopyFolder || !eutPath || !pdfFilename) return { ok: true, copied: false }
+    const src = path.join(eutPath, pdfFilename)
+    if (!fs.existsSync(src)) return { ok: true, copied: false }
+    const anoStr = ano ? String(ano).replace(/\D/g, '').slice(0, 4) : ''
+    const destDir = anoStr ? path.join(pdfCopyFolder, anoStr) : pdfCopyFolder
+    const dest = path.join(destDir, pdfFilename)
+    const s = fs.statSync(src)
+    // Cópia já em dia? (mesmo tamanho e não mais antiga) → nada a fazer
+    if (fs.existsSync(dest)) {
+      const d = fs.statSync(dest)
+      if (d.size === s.size && d.mtimeMs >= s.mtimeMs) return { ok: true, copied: false }
+    }
+    // Só copia se estiver assinado (assinatura manual = alteração do original)
+    if (!pdfEstaAssinado(src)) return { ok: true, copied: false }
+    fs.mkdirSync(destDir, { recursive: true })
+    fs.copyFileSync(src, dest)
+    return { ok: true, copied: true, dest }
+  } catch (err) { return { ok: false, error: String(err) } }
+})
+
 ipcMain.handle('relatorio:cancel-pdf', async (_, { eutFolderPath: eutPath, pdfFilename }) => {
   const s = readSettings()
   const targets = []

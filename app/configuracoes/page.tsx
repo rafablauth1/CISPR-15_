@@ -387,8 +387,9 @@ export default function ConfiguracoesPage() {
               )}
             </div>
             <p className="text-[10px] text-white/25 font-mono">
-              Toda vez que um PDF for gerado ou atualizado (inclusive com assinatura), uma cópia é salva aqui automaticamente.
-              Ao excluir um item da agenda, a cópia correspondente também é removida.
+              A cópia é salva aqui em 2 situações: ao <b>assinar e publicar</b> pelo app, ou quando o PDF original
+              (na pasta do docx) é <b>assinado manualmente</b> — detectado ao reabrir/ver o relatório. Apenas gerar o
+              PDF não cria cópia. Ao excluir um item da agenda, a cópia correspondente também é removida.
               Ideal para acesso de consulta sem expor a pasta original da EUT.
             </p>
           </div>

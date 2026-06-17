@@ -78,6 +78,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Publicar PDF assinado para pasta da agenda
   publishPdf:     (eutFolderPath, pdfFilename, ano) => ipcRenderer.invoke('pdf:publish', { eutFolderPath, pdfFilename, ano }),
+  // Reconcilia a cópia: copia p/ pasta de cópias se o PDF original foi assinado manualmente
+  syncEutCopy:    (eutFolderPath, pdfFilename, ano) => ipcRenderer.invoke('pdf:sync-eut-copy', { eutFolderPath, pdfFilename, ano }),
 
   // Auto-update
   checkUpdate:    ()          => ipcRenderer.invoke('update:check'),

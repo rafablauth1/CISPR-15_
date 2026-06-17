@@ -844,8 +844,25 @@ export default function Cispr15ConfigPage() {
     return { photos, docxHtml: docxHtml || null }
   }
 
+  /* Reconcilia a cópia do PDF ao abrir/ver: se o original (pasta do docx) foi
+     assinado manualmente, o processo principal copia pra pasta de cópias. */
+  async function reconciliarCopiaPdf(entry: RelatorioSalvo) {
+    const api = (window as any).electronAPI
+    if (!api?.syncEutCopy || !entry.eutFolderPath) return
+    const san = (v: string) => (v ?? '').replace(/[/\\:*?"<>|\s]/g, '_').replace(/_+/g, '_')
+    const le = (entry.emendas ?? []).slice().sort((a, b) => b.numero - a.numero)[0]
+    const dnum = le ? formatEmendaNumero(entry.numRelatorio, le.numero) : entry.numRelatorio
+    const filename = `${san(dnum || entry.protocolo)}_${entry.cfg.tipo}_${san(entry.cfg.fabricante)}.pdf`
+    const ano = (entry.dataEmissao || '').match(/\d{4}/)?.[0]
+    try {
+      const r = await api.syncEutCopy(entry.eutFolderPath, filename, ano)
+      if (r?.copied) flash4('PDF assinado detectado — cópia atualizada na pasta de cópias')
+    } catch {}
+  }
+
   /* ── carregar relatório salvo ── */
   async function handleCarregarRelatorio(entry: RelatorioSalvo) {
+    void reconciliarCopiaPdf(entry)
     const { photos: relPhotos, docxHtml } = await resolverAssets(entry)
     setCfg(entry.cfg)
     setPhotos(relPhotos.map(p => ({ ...p, url: `data:image/jpeg;base64,${p.base64}` })))
@@ -924,6 +941,7 @@ export default function Cispr15ConfigPage() {
 
   /* ── ver PDF de relatório salvo ── */
   async function handleVerPDFRelatorio(entry: RelatorioSalvo) {
+    void reconciliarCopiaPdf(entry)
     const { photos: relPhotos, docxHtml } = await resolverAssets(entry)
     setCfg(entry.cfg)
     setPhotos(relPhotos.map(p => ({ ...p, url: `data:image/jpeg;base64,${p.base64}` })))
