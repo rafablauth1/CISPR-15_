@@ -150,20 +150,18 @@ function agendaFilePath() {
   return path.join(agendaFolder || dataFolder || getDefaultDataDir(), 'cispr15_agenda.json')
 }
 
-function readAgendaFile() {
-  const fp = agendaFilePath()
-  try {
-    if (fs.existsSync(fp)) return JSON.parse(fs.readFileSync(fp, 'utf-8'))
-  } catch {}
-  return []
+// ASSÍNCRONOS (fs.promises): escrita/leitura síncrona no processo PRINCIPAL congela
+// a janela inteira (inclusive a digitação) durante o I/O — pior em pasta de rede.
+async function readAgendaFile() {
+  try { return JSON.parse(await fs.promises.readFile(agendaFilePath(), 'utf-8')) } catch { return [] }
 }
 
-function writeAgendaFile(data) {
+async function writeAgendaFile(data) {
   const fp = agendaFilePath()
-  fs.mkdirSync(path.dirname(fp), { recursive: true })
+  await fs.promises.mkdir(path.dirname(fp), { recursive: true })
   let lastErr = null
   for (let i = 0; i < 4; i++) {
-    try { fs.writeFileSync(fp, JSON.stringify(data, null, 2), 'utf-8'); return }
+    try { await fs.promises.writeFile(fp, JSON.stringify(data, null, 2), 'utf-8'); return }
     catch (e) { lastErr = e }
   }
   throw lastErr
@@ -200,20 +198,16 @@ function listPdfsDeep(root) {
   return out
 }
 
-function readDataFile(filename) {
-  const fp = dataFilePath(filename)
-  try {
-    if (fs.existsSync(fp)) return JSON.parse(fs.readFileSync(fp, 'utf-8'))
-  } catch {}
-  return []
+async function readDataFile(filename) {
+  try { return JSON.parse(await fs.promises.readFile(dataFilePath(filename), 'utf-8')) } catch { return [] }
 }
 
-function writeDataFile(filename, data) {
+async function writeDataFile(filename, data) {
   const fp = dataFilePath(filename)
-  fs.mkdirSync(path.dirname(fp), { recursive: true })
+  await fs.promises.mkdir(path.dirname(fp), { recursive: true })
   let lastErr = null
   for (let i = 0; i < 4; i++) {
-    try { fs.writeFileSync(fp, JSON.stringify(data, null, 2), 'utf-8'); return }
+    try { await fs.promises.writeFile(fp, JSON.stringify(data, null, 2), 'utf-8'); return }
     catch (e) { lastErr = e }
   }
   throw lastErr
@@ -1165,25 +1159,25 @@ ipcMain.handle('pdf:extract-page1', async (_, { base64 }) => {
 
 /* ─── IPC: Dados de rede (clientes / relatórios) ─────────────────────────── */
 
-ipcMain.handle('data:get-clientes', () => {
+ipcMain.handle('data:get-clientes', async () => {
   const { dataFolder } = readSettings()
-  const data = readDataFile('cispr15_clientes.json')
+  const data = await readDataFile('cispr15_clientes.json')
   return { ok: true, clientes: data ?? [], fromNetwork: !!dataFolder }
 })
 
-ipcMain.handle('data:save-clientes', (_, { clientes }) => {
-  try { writeDataFile('cispr15_clientes.json', clientes); return { ok: true } }
+ipcMain.handle('data:save-clientes', async (_, { clientes }) => {
+  try { await writeDataFile('cispr15_clientes.json', clientes); return { ok: true } }
   catch (err) { return { ok: false, error: String(err) } }
 })
 
-ipcMain.handle('data:get-relatorios', () => {
+ipcMain.handle('data:get-relatorios', async () => {
   const { dataFolder } = readSettings()
-  const data = readDataFile('cispr15_relatorios.json')
+  const data = await readDataFile('cispr15_relatorios.json')
   return { ok: true, relatorios: data ?? [], fromNetwork: !!dataFolder }
 })
 
-ipcMain.handle('data:save-relatorios', (_, { relatorios }) => {
-  try { writeDataFile('cispr15_relatorios.json', relatorios); return { ok: true } }
+ipcMain.handle('data:save-relatorios', async (_, { relatorios }) => {
+  try { await writeDataFile('cispr15_relatorios.json', relatorios); return { ok: true } }
   catch (err) { return { ok: false, error: String(err) } }
 })
 
@@ -1195,28 +1189,28 @@ function assetsFilePath(id) {
   return path.join(dataFolder || getDefaultDataDir(), 'cispr15_assets', `${safe}.json`)
 }
 
-ipcMain.handle('data:save-relatorio-assets', (_, { id, photos, docxHtml }) => {
+ipcMain.handle('data:save-relatorio-assets', async (_, { id, photos, docxHtml }) => {
   try {
     const fp = assetsFilePath(id)
-    fs.mkdirSync(path.dirname(fp), { recursive: true })
-    fs.writeFileSync(fp, JSON.stringify({ photos: photos ?? [], docxHtml: docxHtml ?? null }), 'utf-8')
+    await fs.promises.mkdir(path.dirname(fp), { recursive: true })
+    await fs.promises.writeFile(fp, JSON.stringify({ photos: photos ?? [], docxHtml: docxHtml ?? null }), 'utf-8')
     return { ok: true }
   } catch (err) { return { ok: false, error: String(err) } }
 })
 
-ipcMain.handle('data:get-relatorio-assets', (_, { id }) => {
+ipcMain.handle('data:get-relatorio-assets', async (_, { id }) => {
   try {
-    const fp = assetsFilePath(id)
-    if (!fs.existsSync(fp)) return { ok: true, photos: [], docxHtml: null, found: false }
-    const data = JSON.parse(fs.readFileSync(fp, 'utf-8'))
+    const data = JSON.parse(await fs.promises.readFile(assetsFilePath(id), 'utf-8'))
     return { ok: true, photos: data.photos ?? [], docxHtml: data.docxHtml ?? null, found: true }
-  } catch (err) { return { ok: false, error: String(err), photos: [], docxHtml: null, found: false } }
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return { ok: true, photos: [], docxHtml: null, found: false }
+    return { ok: false, error: String(err), photos: [], docxHtml: null, found: false }
+  }
 })
 
-ipcMain.handle('data:delete-relatorio-assets', (_, { id }) => {
+ipcMain.handle('data:delete-relatorio-assets', async (_, { id }) => {
   try {
-    const fp = assetsFilePath(id)
-    if (fs.existsSync(fp)) fs.rmSync(fp, { force: true })
+    await fs.promises.rm(assetsFilePath(id), { force: true })
     return { ok: true }
   } catch (err) { return { ok: false, error: String(err) } }
 })
@@ -1258,14 +1252,14 @@ ipcMain.handle('relatorio:export-files', async (_, { folderPath, numRelatorio, p
   } catch (err) { return { ok: false, error: String(err) } }
 })
 
-ipcMain.handle('data:get-agenda', () => {
+ipcMain.handle('data:get-agenda', async () => {
   const { agendaFolder, dataFolder } = readSettings()
-  const data = readAgendaFile()
+  const data = await readAgendaFile()
   return { ok: true, agenda: data ?? [], fromNetwork: !!(agendaFolder || dataFolder) }
 })
 
-ipcMain.handle('data:save-agenda', (_, { agenda }) => {
-  try { writeAgendaFile(agenda); return { ok: true } }
+ipcMain.handle('data:save-agenda', async (_, { agenda }) => {
+  try { await writeAgendaFile(agenda); return { ok: true } }
   catch (err) { return { ok: false, error: String(err) } }
 })
 
@@ -1275,27 +1269,27 @@ function loteFilePath() {
   return path.join(getUserDataDir(), 'lote', 'cispr15_lote.json')
 }
 
-ipcMain.handle('lote:get', () => {
+ipcMain.handle('lote:get', async () => {
   try {
-    const fp = loteFilePath()
-    if (fs.existsSync(fp)) return { ok: true, lote: JSON.parse(fs.readFileSync(fp, 'utf-8')) }
-    return { ok: true, lote: null }
-  } catch (err) { return { ok: false, error: String(err), lote: null } }
+    return { ok: true, lote: JSON.parse(await fs.promises.readFile(loteFilePath(), 'utf-8')) }
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return { ok: true, lote: null }
+    return { ok: false, error: String(err), lote: null }
+  }
 })
 
-ipcMain.handle('lote:save', (_, { lote }) => {
+ipcMain.handle('lote:save', async (_, { lote }) => {
   try {
     const fp = loteFilePath()
-    fs.mkdirSync(path.dirname(fp), { recursive: true })
-    fs.writeFileSync(fp, JSON.stringify(lote), 'utf-8')
+    await fs.promises.mkdir(path.dirname(fp), { recursive: true })
+    await fs.promises.writeFile(fp, JSON.stringify(lote), 'utf-8')
     return { ok: true }
   } catch (err) { return { ok: false, error: String(err) } }
 })
 
-ipcMain.handle('lote:clear', () => {
+ipcMain.handle('lote:clear', async () => {
   try {
-    const fp = loteFilePath()
-    if (fs.existsSync(fp)) fs.rmSync(fp, { force: true })
+    await fs.promises.rm(loteFilePath(), { force: true })
     return { ok: true }
   } catch (err) { return { ok: false, error: String(err) } }
 })
