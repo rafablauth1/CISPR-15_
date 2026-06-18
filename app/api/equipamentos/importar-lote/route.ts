@@ -159,13 +159,9 @@ export async function POST(req: NextRequest) {
           }
           atualizados.push(tagA); continue
         }
-        // #4: não cadastrar sem NOME → rascunho aguardando a análise crítica.
-        if (!nomeA) {
-          const motivo = 'Sem nome do equipamento — cadastrar pela análise crítica (FOR 6401)'
-          pulados.push({ tag: tagA, motivo })
-          rascunho.push({ tag: tagA, folder: it.folder, motivo, certPath: it.certPath || undefined, em: agora, cadastravel: true, acreditacao: g.acreditacao, lab: g.laboratorio })
-          continue
-        }
+        // Cadastra mesmo SEM nome (desde que tenha TAG) — o nome fica vazio
+        // ("sem nome" na lista) pra você preencher, ou é corrigido pela análise
+        // crítica depois. Assim os outros labs identificados não ficam de fora.
         foldersOk.add(it.folder)
         const { grupoId, subgrupoId } = inferTipo(`${nomeA} ${it.folder}`)
         const equipA: EquipamentoEMC = {
