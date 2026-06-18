@@ -1016,7 +1016,16 @@ ipcMain.handle('equip:list-mae', async (_, { pastaMae }) => {
     if (!pastaMae || !fs.existsSync(pastaMae)) return { ok: false, error: 'Pasta inválida' }
     const subs = fs.readdirSync(pastaMae, { withFileTypes: true }).filter(d => d.isDirectory())
     if (!subs.length) return { ok: false, error: 'A pasta-mãe não tem subpastas (uma por TAG).' }
-    return { ok: true, folders: subs.map(s => ({ folder: s.name, dir: path.join(pastaMae, s.name) })) }
+    return { ok: true, folders: subs.map(s => {
+      const dir = path.join(pastaMae, s.name)
+      // mtime = atividade mais recente na pasta (dir + arquivos do 1º nível)
+      let mtime = 0
+      try {
+        mtime = fs.statSync(dir).mtimeMs
+        for (const f of fs.readdirSync(dir)) { try { const m = fs.statSync(path.join(dir, f)).mtimeMs; if (m > mtime) mtime = m } catch {} }
+      } catch {}
+      return { folder: s.name, dir, mtime }
+    }) }
   } catch (err) { return { ok: false, error: String(err) } }
 })
 

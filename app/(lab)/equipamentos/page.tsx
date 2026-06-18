@@ -35,7 +35,7 @@ interface ScanResult {
 }
 type LabAPI = {
   scanCertificados?: (p: string) => Promise<ScanResult>
-  listMae?: (p: string) => Promise<{ ok: boolean; error?: string; folders?: { folder: string; dir: string }[] }>
+  listMae?: (p: string) => Promise<{ ok: boolean; error?: string; folders?: { folder: string; dir: string; mtime?: number }[] }>
   scanBatch?: (folders: { folder: string; dir: string }[]) => Promise<ScanResult>
   rescanPendentes?: (itens: { folder: string; certPath?: string }[]) => Promise<ScanResult>
   browseFolder?: (t: string) => Promise<{ canceled?: boolean; folderPath?: string }>
@@ -226,7 +226,21 @@ export default function EquipamentosPage() {
       setImpProgresso('Listando as pastas…')
       const lista = await api.listMae(sel.folderPath)
       if (!lista.ok || !lista.folders) { setImpProgresso(null); alert(lista.error || 'Falha ao ler a pasta-mãe.'); return }
-      const folders = lista.folders
+      let folders = lista.folders
+      // #3.2: pastas paradas há +7 anos (sem alteração) → provável fora de uso.
+      const CUTOFF_7A = Date.now() - 7 * 365 * 24 * 3600 * 1000
+      const antigas = new Set(folders.filter(f => f.mtime && f.mtime < CUTOFF_7A).map(f => f.folder))
+      let acaoAntigas: 'cadastrar' | 'rascunho' | 'ignorar' = 'cadastrar'
+      if (antigas.size) {
+        if (confirm(`${antigas.size} equipamento(s) com mais de 7 anos sem alteração na pasta — provavelmente fora de uso.\n\nDeseja CADASTRAR esses também?`)) {
+          acaoAntigas = 'cadastrar'
+        } else if (confirm(`Enviar esses ${antigas.size} para o RASCUNHO?\n\nOK = rascunho · Cancelar = ignorar (não importar)`)) {
+          acaoAntigas = 'rascunho'
+        } else {
+          acaoAntigas = 'ignorar'
+        }
+      }
+      if (acaoAntigas === 'ignorar') folders = folders.filter(f => !antigas.has(f.folder))
       const total = folders.length
       // Processa em LOTES: lê os PDFs do lote (Electron) e já cadastra (rota),
       // mostrando progresso. Evita travar a UI e o POST gigante.
@@ -237,9 +251,12 @@ export default function EquipamentosPage() {
         setImpProgresso(`Processando ${Math.min(i + CHUNK, total)}/${total}…`)
         const scan = await api.scanBatch(lote)
         if (!scan.ok || !scan.resultados) continue
+        const itens = acaoAntigas === 'rascunho'
+          ? scan.resultados.map(r => antigas.has(r.folder) ? { ...r, forcarRascunho: true } : r)
+          : scan.resultados
         const r = await fetch('/api/equipamentos/importar-lote', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ itens: scan.resultados }),
+          body: JSON.stringify({ itens }),
         })
         if (!r.ok) continue
         const rel = await r.json() as RelatorioImport

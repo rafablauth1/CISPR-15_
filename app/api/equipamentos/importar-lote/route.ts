@@ -28,6 +28,7 @@ interface ItemScan {
   text?: string
   items?: { s: string; x: number; y: number; page?: number }[]
   error?: string
+  forcarRascunho?: boolean   // pasta parada há +7 anos → mandar pro rascunho (não cadastrar)
 }
 
 // Classificação automática (grupo/subgrupo) por palavras-chave do nome/descrição.
@@ -100,6 +101,13 @@ export async function POST(req: NextRequest) {
     const novoId = () => String(seq++)
 
     for (const it of itens) {
+      // #3.2: pasta parada há +7 anos (provável fora de uso) → rascunho, não cadastra.
+      if (it.forcarRascunho) {
+        const motivo = 'Parado há +7 anos sem alteração na pasta (provável fora de uso)'
+        pulados.push({ tag: it.folder, motivo })
+        rascunho.push({ tag: it.folder, folder: it.folder, motivo, certPath: it.certPath || undefined, em: agora, cadastravel: true })
+        continue
+      }
       if (it.error || !it.text) {
         // Sem PDF/texto: provável escaneado ou pasta vazia → não dá pra cadastrar.
         const motivo = it.certPath ? (it.error || 'PDF sem texto (provável escaneado)') : 'Sem PDF na pasta'
