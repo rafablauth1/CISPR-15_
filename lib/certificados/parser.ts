@@ -471,3 +471,81 @@ export function limparCampo(v: string | undefined, max: number): string | undefi
   const s = (v || '').trim()
   return s && s.length <= max ? s : undefined
 }
+
+// ─── FOR 6401 — Análise Crítica de Certificado de Calibração ────────────────
+export interface DadosAnaliseCritica {
+  fornecedor?: string       // laboratório que calibrou
+  certificado?: string      // nº do certificado de calibração
+  tag?: string
+  nome?: string             // nome do instrumento (autoritativo — sem erro)
+  dataCertificado?: string  // data da calibração (dd/mm/aaaa)
+  dataAnalise?: string      // data de realização da análise crítica (dd/mm/aaaa)
+  periodicidadeMeses?: number
+}
+
+export function ehAnaliseCritica(texto: string): boolean {
+  return /FOR\s*6401|an[áa]lise\s+cr[íi]tica\s+de\s+certificad/i.test(texto || '')
+}
+
+/** "2 anos" → 24 · "1 ano(s)" → 12 · "6 meses" → 6 · "18 mês" → 18. */
+function periodicidadeParaMeses(s: string): number | undefined {
+  const m = (s || '').toLowerCase().match(/(\d+(?:[.,]\d+)?)\s*(anos?|m[êe]s|meses)/)
+  if (!m) return undefined
+  const n = parseFloat(m[1].replace(',', '.'))
+  if (!isFinite(n)) return undefined
+  return /ano/.test(m[2]) ? Math.round(n * 12) : Math.round(n)
+}
+
+/** Extrai os dados de cadastro de um FOR 6401 (análise crítica). Layout em tabela:
+ *  "Fornecedor \t Certificado \t TAG \t Nome do Instrumento \t Data do certificado"
+ *  seguido da linha de valores. */
+export function parsearAnaliseCritica(texto: string): DadosAnaliseCritica {
+  const linhas = (texto || '').split(/[\r\n]+/).map(l => l.trim())
+  const r: DadosAnaliseCritica = {}
+  for (let i = 0; i < linhas.length; i++) {
+    if (/Fornecedor\b.*Certificad.*\bTAG\b.*Nome do Instrumento.*Data do certificad/i.test(linhas[i])) {
+      const v = (linhas[i + 1] || '').split('\t').map(s => s.trim())
+      if (v.length >= 5) {
+        r.fornecedor = v[0] || undefined
+        r.certificado = v[1] || undefined
+        r.tag = (v[2] || '').toUpperCase().replace(/\s+/g, '') || undefined
+        r.nome = v[3] || undefined
+        const dc = (v[4] || '').match(/\b\d{2}\/\d{2}\/\d{4}\b/); r.dataCertificado = dc ? dc[0] : undefined
+      }
+      break
+    }
+  }
+  const iAna = linhas.findIndex(l => /Data da an[áa]lise cr[íi]tica/i.test(l))
+  if (iAna >= 0) for (let j = iAna; j < Math.min(iAna + 6, linhas.length); j++) {
+    const m = linhas[j].match(/\b\d{2}\/\d{2}\/\d{4}\b/); if (m) { r.dataAnalise = m[0]; break }
+  }
+  // "Periodicidade" (NÃO "Periodicidade Recomendada") — valor na linha seguinte
+  const iPer = linhas.findIndex(l => /^Periodicidade$/i.test(l))
+  if (iPer >= 0 && linhas[iPer + 1]) r.periodicidadeMeses = periodicidadeParaMeses(linhas[iPer + 1])
+  return r
+}
+
+/** GRANDEZAS de um certificado do LABELO: são os títulos de seção (texto
+ *  centralizado/negrito, FORA das tabelas) que aparecem logo ANTES de cada
+ *  "Parâmetro:" — ex.: "Medição de perda de retorno - Coaxial 50Ω - Conector tipo N".
+ *  Ficam entre a 2ª e a penúltima página. Dedupe, preservando a ordem. */
+export function extrairGrandezasLabelo(texto: string): string[] {
+  const linhas = (texto || '').split(/[\r\n]+/).map(l => l.trim())
+  const out: string[] = []
+  const seen = new Set<string>()
+  const ehCabecalhoOuTabela = (l: string) =>
+    l.includes('\t') ||                                  // linha de tabela (colunas)
+    l.length < 5 ||
+    /^(resultado|configura|frequ[êe]ncia|data de|per[íi]odo|certificad|labelo|laborat[óo]rio|av\.|telefone|e-?mail|rbw|vr\b|mm\b|ust\b|ump\b|veff|observa|nome:|fabricante:|modelo:|tag:|prot[óo]colo|m[ée]todo|padr[ão]|procedim|caracter[íi]stic)/i.test(l)
+  for (let i = 0; i < linhas.length; i++) {
+    if (!/^par[âa]metro\s*:/i.test(linhas[i])) continue
+    for (let j = i - 1; j >= 0 && j >= i - 5; j--) {
+      const l = linhas[j]
+      if (!l || ehCabecalhoOuTabela(l)) continue
+      const key = l.toLowerCase()
+      if (!seen.has(key)) { seen.add(key); out.push(l) }
+      break
+    }
+  }
+  return out
+}

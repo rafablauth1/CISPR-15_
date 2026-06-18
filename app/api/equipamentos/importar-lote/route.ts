@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { lerJSON, escreverJSON } from '@/lib/dados'
 import type { EquipamentoEMC, GrupoId, SubgrupoId } from '@/lib/equipamentos/tipos'
 import type { Certificado } from '@/lib/certificados/tipos'
-import { parsearDadosPadrao, parsearMetadadosCertificado, classificarCertificadoLabelo, resolverTag, limparCampo } from '@/lib/certificados/parser'
+import { parsearDadosPadrao, parsearMetadadosCertificado, classificarCertificadoLabelo, resolverTag, limparCampo, extrairGrandezasLabelo, ehAnaliseCritica, parsearAnaliseCritica } from '@/lib/certificados/parser'
+import type { GrandezaMetrologica } from '@/lib/metrologia/tipos'
 import { extrairMetadadosGenerico, extrairAcreditacao, extrairNomeLaboratorio } from '@/lib/certificados/extrair-generico'
 import { lerLaboratorios, salvarLaboratorios, nomeDoLab, registrarLab } from '@/lib/laboratorios/registro'
 import { parsearCertificadoRBC } from '@/lib/interpolacao'
@@ -125,17 +126,32 @@ export async function POST(req: NextRequest) {
       // Usa extração de TAG mais flexível (rótulos genéricos + padrão solto).
       if (soAmostra) {
         const g = extrairMetadadosGenerico(it.text)
-        const tagA = tag || resolverTag(it.folder, g.tag, it.text) || tagSolta
+        // #3: se o PDF é um FOR 6401 (análise crítica), usa os dados dele — nome
+        // correto, fornecedor (lab), nº do certificado, data e PERIODICIDADE.
+        const ac = ehAnaliseCritica(it.text) ? parsearAnaliseCritica(it.text) : null
+        const tagA = ac?.tag || tag || resolverTag(it.folder, g.tag, it.text) || tagSolta
         if (!tagA) {
           const motivo = 'Sem TAG identificável (nem pelos dados da amostra)'
           pulados.push({ tag: it.folder, motivo })
           rascunho.push({ tag: it.folder, folder: it.folder, motivo, certPath: it.certPath || undefined, em: agora, cadastravel: false })
           continue
         }
-        if (byTag.has(tagA)) { foldersOk.add(it.folder); atualizados.push(tagA); continue }
-        // #4: não cadastrar pela varredura sem NOME. Sem nome confiável, vai pro
-        // rascunho aguardando cadastro pela análise crítica (que traz o nome certo).
-        const nomeA = limparCampo(g.nome || dados.nome, 80) || ''
+        const nomeA = limparCampo(ac?.nome || g.nome || dados.nome, 80) || ''
+        const dcal = (ac?.dataCertificado || g.dataCalibracao || '').match(/(\d{2})\/(\d{2})\/(\d{4})/)
+        const isoCal = dcal ? `${dcal[3]}-${dcal[2]}-${dcal[1]}` : (dados.ultimaCalibracao || '')
+        const intervalo = ac?.periodicidadeMeses || 12
+        // já existe: atualiza periodicidade se esta análise crítica for MAIS RECENTE.
+        if (byTag.has(tagA)) {
+          foldersOk.add(it.folder)
+          const ex = byTag.get(tagA)!
+          if (ac?.periodicidadeMeses && ac.dataAnalise && (!ex.obs?.includes(ac.dataAnalise))) {
+            ex.intervaloCalibracao = intervalo
+            if (ex.ultimaCalibracao) ex.proximaCalibracao = addM(ex.ultimaCalibracao, intervalo)
+            ex.obs = `Periodicidade pela análise crítica de ${ac.dataAnalise} (${intervalo} meses)`
+          }
+          atualizados.push(tagA); continue
+        }
+        // #4: não cadastrar sem NOME → rascunho aguardando a análise crítica.
         if (!nomeA) {
           const motivo = 'Sem nome do equipamento — cadastrar pela análise crítica (FOR 6401)'
           pulados.push({ tag: tagA, motivo })
@@ -144,18 +160,19 @@ export async function POST(req: NextRequest) {
         }
         foldersOk.add(it.folder)
         const { grupoId, subgrupoId } = inferTipo(`${nomeA} ${it.folder}`)
-        // data de calibração extraída (dd/mm/aaaa) → ISO yyyy-mm-dd p/ o cadastro
-        const dcal = (g.dataCalibracao || '').match(/(\d{2})\/(\d{2})\/(\d{4})/)
-        const isoCal = dcal ? `${dcal[3]}-${dcal[2]}-${dcal[1]}` : (dados.ultimaCalibracao || '')
         const equipA: EquipamentoEMC = {
           id: novoId(), tag: tagA,
           nome: nomeA,
           grupoId, subgrupoId, status: 'ativo', grandezas: [],
-          ultimaCalibracao: isoCal, proximaCalibracao: isoCal ? addM(isoCal, 12) : '', intervaloCalibracao: 12,
+          ultimaCalibracao: isoCal, proximaCalibracao: isoCal ? addM(isoCal, intervalo) : '', intervaloCalibracao: intervalo,
           fabricante: limparCampo(g.fabricante || dados.fabricante, 50),
           modelo: limparCampo(g.modelo || dados.modelo, 40),
           serie: limparCampo(g.serie || dados.serie, 30),
-          obs: 'Cadastrado pela 2ª varredura (dados da amostra, sem certificado)',
+          labCalibracao: ac?.fornecedor || g.laboratorio,
+          numeroCertificado: ac?.certificado || undefined,
+          obs: ac
+            ? `Cadastrado pela análise crítica (FOR 6401)${ac.dataAnalise ? ' de ' + ac.dataAnalise : ''}`
+            : 'Cadastrado pela 2ª varredura (dados da amostra, sem certificado)',
         }
         equipamentos.push(equipA); byTag.set(tagA, equipA)
         sucessos.push(tagA)
@@ -247,8 +264,12 @@ export async function POST(req: NextRequest) {
           criadoEm: new Date().toISOString(),
         }
         novosCerts.push(cert)
-        // Registra as grandezas do certificado NO equipamento, em memória.
-        equip.grandezas = mesclarGrandezas(equip.grandezas, grandezasDoCertificado(cert))
+        // Grandezas do LABELO: títulos de seção (autoritativos, antes de "Parâmetro:")
+        // + as derivadas dos pontos da tabela. Registra no equipamento, em memória.
+        const titulosGrand = extrairGrandezasLabelo(it.text).map((nome): GrandezaMetrologica => ({
+          id: novoId(), nome, simbolo: '', unidade: '', faixaMin: 0, faixaMax: 0, resolucao: '', incertezaExpandida: '', fatorCobertura: 2,
+        }))
+        equip.grandezas = mesclarGrandezas(equip.grandezas, [...titulosGrand, ...grandezasDoCertificado(cert)])
       }
 
       foldersOk.add(it.folder)
