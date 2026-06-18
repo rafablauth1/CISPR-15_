@@ -335,6 +335,7 @@ export interface AgendaItem {
   dataDevolucao?: string    // data da devolução (não necessariamente = data de emissão)
   recebimentoEmcOk?: boolean // ida: quem recebeu (EMC) confirmou o recebimento da amostra
   recebimentoLumOk?: boolean // volta: quem recebeu (LUM) confirmou o recebimento da amostra
+  assinadoEm?: string        // data (ISO) em que o relatório foi assinado → status "Concluído"
 }
 
 export const AGENDA_KEY       = 'cispr15_agenda_v1'

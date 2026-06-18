@@ -132,15 +132,24 @@ export async function POST(req: NextRequest) {
           rascunho.push({ tag: it.folder, folder: it.folder, motivo, certPath: it.certPath || undefined, em: agora, cadastravel: false })
           continue
         }
+        if (byTag.has(tagA)) { foldersOk.add(it.folder); atualizados.push(tagA); continue }
+        // #4: não cadastrar pela varredura sem NOME. Sem nome confiável, vai pro
+        // rascunho aguardando cadastro pela análise crítica (que traz o nome certo).
+        const nomeA = limparCampo(g.nome || dados.nome, 80) || ''
+        if (!nomeA) {
+          const motivo = 'Sem nome do equipamento — cadastrar pela análise crítica (FOR 6401)'
+          pulados.push({ tag: tagA, motivo })
+          rascunho.push({ tag: tagA, folder: it.folder, motivo, certPath: it.certPath || undefined, em: agora, cadastravel: true, acreditacao: g.acreditacao, lab: g.laboratorio })
+          continue
+        }
         foldersOk.add(it.folder)
-        if (byTag.has(tagA)) { atualizados.push(tagA); continue }
-        const { grupoId, subgrupoId } = inferTipo(`${g.nome || dados.nome || ''} ${it.folder}`)
+        const { grupoId, subgrupoId } = inferTipo(`${nomeA} ${it.folder}`)
         // data de calibração extraída (dd/mm/aaaa) → ISO yyyy-mm-dd p/ o cadastro
         const dcal = (g.dataCalibracao || '').match(/(\d{2})\/(\d{2})\/(\d{4})/)
         const isoCal = dcal ? `${dcal[3]}-${dcal[2]}-${dcal[1]}` : (dados.ultimaCalibracao || '')
         const equipA: EquipamentoEMC = {
           id: novoId(), tag: tagA,
-          nome: limparCampo(g.nome || dados.nome, 80) || '',   // nome NUNCA = TAG; vazio sinaliza "preencher"
+          nome: nomeA,
           grupoId, subgrupoId, status: 'ativo', grandezas: [],
           ultimaCalibracao: isoCal, proximaCalibracao: isoCal ? addM(isoCal, 12) : '', intervaloCalibracao: 12,
           fabricante: limparCampo(g.fabricante || dados.fabricante, 50),

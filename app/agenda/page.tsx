@@ -1273,7 +1273,7 @@ export default function AgendaPage() {
   const [showGerarLote, setShowGerarLote] = useState(false)
   const [updateInfo,    setUpdateInfo]    = useState<{ version: string; installer: string } | null>(null)
   const [updating,      setUpdating]      = useState(false)
-  const [filter,        setFilter]        = useState<'andamento' | 'concluidos' | 'todos'>('andamento')
+  const [filter,        setFilter]        = useState<'andamento' | 'aguardando' | 'concluidos' | 'todos'>('andamento')
   const [relatorios,    setRelatorios]    = useState<RelatorioSalvo[]>([])
   const [sortKey,       setSortKey]       = useState<'dataEntrada' | 'previsaoSaida' | 'protocolo' | 'orcamento'>('dataEntrada')
   const [sortDir,       setSortDir]       = useState<'asc' | 'desc'>('desc')
@@ -1462,6 +1462,12 @@ export default function AgendaPage() {
     openPdfCopy(item)
   }
 
+  // Marca/desmarca o relatório como assinado → move entre "Aguardando assinatura" e "Concluído".
+  function toggleAssinado(item: AgendaItem) {
+    const assinadoEm = item.assinadoEm ? undefined : today()
+    saveAgenda(agenda.map(a => a.id === item.id ? { ...a, assinadoEm } : a))
+  }
+
   function irParaProtocolo(item: AgendaItem) {
     const cfg: Cispr15Config = {
       tipo: item.tipo,
@@ -1556,8 +1562,10 @@ export default function AgendaPage() {
 
   const filteredItems = useMemo(() => {
     let items = [...agenda]
-    if (filter === 'andamento')   items = items.filter(a => !a.numRelatorio)
-    else if (filter === 'concluidos') items = items.filter(a => !!a.numRelatorio)
+    // emitido (tem nº) mas não assinado = aguardando; emitido + assinado = concluído
+    if (filter === 'andamento')        items = items.filter(a => !a.numRelatorio)
+    else if (filter === 'aguardando')  items = items.filter(a => !!a.numRelatorio && !a.assinadoEm)
+    else if (filter === 'concluidos')  items = items.filter(a => !!a.numRelatorio && !!a.assinadoEm)
     const q = search.trim().toLowerCase()
     if (q) items = items.filter(a =>
       [a.protocolo, a.orcamento, a.cliente, a.produto, a.numRelatorio, a.responsavel]
@@ -1573,7 +1581,8 @@ export default function AgendaPage() {
 
   const counts = useMemo(() => ({
     andamento: agenda.filter(a => !a.numRelatorio).length,
-    concluidos: agenda.filter(a => !!a.numRelatorio).length,
+    aguardando: agenda.filter(a => !!a.numRelatorio && !a.assinadoEm).length,
+    concluidos: agenda.filter(a => !!a.numRelatorio && !!a.assinadoEm).length,
     todos: agenda.length,
   }), [agenda])
 
@@ -1846,9 +1855,10 @@ export default function AgendaPage() {
           <div className="flex items-center gap-2 flex-wrap">
             <div className="flex gap-0.5 p-0.5 rounded-lg bg-white/4 border border-white/8">
               {([
-                ['andamento',  'Em andamento', counts.andamento],
-                ['concluidos', 'Concluídos',   counts.concluidos],
-                ['todos',      'Todos',         counts.todos],
+                ['andamento',  'Em andamento',          counts.andamento],
+                ['aguardando', 'Aguardando assinatura', counts.aguardando],
+                ['concluidos', 'Concluídos',            counts.concluidos],
+                ['todos',      'Todos',                  counts.todos],
               ] as const).map(([f, label, count]) => (
                 <button key={f} type="button" onClick={() => setFilter(f)}
                   className={cn(
@@ -1969,14 +1979,27 @@ export default function AgendaPage() {
                         </span>
                       </div>
 
-                      {/* concluído: numRelatorio link | andamento: badges C/L/B */}
+                      {/* emitido: nº + status de assinatura | andamento: badges C/L/B */}
                       {isConcluido ? (
-                        <div className="shrink-0">
+                        <div className="flex items-center gap-1 shrink-0">
                           <button type="button" onClick={() => abrirPastaDoRelatorio(item)}
                             title="Abrir a pasta do relatório (DOCX, fotos e PDF) — para assinar manualmente"
                             className="flex items-center gap-1 text-[10px] font-mono text-teal hover:text-teal/70 bg-teal/8 border border-teal/20 px-2 py-0.5 rounded transition-all">
                             <FolderOpen size={8} /> {item.numRelatorio}
                           </button>
+                          {item.assinadoEm ? (
+                            <button type="button" onClick={() => toggleAssinado(item)}
+                              title={`Assinado em ${fmtDate(item.assinadoEm)} — clique para desfazer`}
+                              className="flex items-center gap-1 text-[10px] text-green-400 bg-green/8 border border-green/20 px-2 py-0.5 rounded">
+                              <CheckCircle2 size={9} /> Assinado {fmtDate(item.assinadoEm)}
+                            </button>
+                          ) : (
+                            <button type="button" onClick={() => toggleAssinado(item)}
+                              title="Marcar como assinado → move para Concluído"
+                              className="flex items-center gap-1 text-[10px] text-amber-300/90 bg-amber-400/8 border border-amber-400/25 px-2 py-0.5 rounded hover:bg-amber-400/15 transition-all">
+                              <Clock size={9} /> Aguardando assinatura
+                            </button>
+                          )}
                         </div>
                       ) : (
                         <div className="flex gap-0.5 shrink-0">
