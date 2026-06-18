@@ -53,6 +53,9 @@ const ICONES: Record<string, React.ElementType> = {
 type SortKey = 'tag' | 'nome' | 'grupo' | 'sub' | 'prox' | 'status'
 const FILTROS_KEY = 'equip_filtros_v1'
 
+// Status sem periodicidade de calibração → não mostra "próxima calibração".
+const SEM_PROX_CAL = new Set(['fora', 'sem-calibracao', 'calibrar-antes-uso'])
+
 function StatusPill({ status }: { status: string }) {
   if (status === 'ativo')    return <span className="badge-success">Ativo</span>
   if (status === 'calibrar') return <span className="badge-warning">Calibrar</span>
@@ -713,7 +716,7 @@ export default function EquipamentosPage() {
                       </span>
                     </td>
                     <td><span className="text-[10px] text-white/40 font-mono">{e.subgrupoId}</span></td>
-                    <td className="font-mono text-[11px]">{fmt(e.proximaCalibracao)}</td>
+                    <td className="font-mono text-[11px]">{SEM_PROX_CAL.has(e.status) ? <span className="text-white/20">—</span> : fmt(e.proximaCalibracao)}</td>
                     <td><StatusPill status={e.status}/></td>
                     <td>
                       {!p.tem ? (

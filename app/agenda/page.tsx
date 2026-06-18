@@ -6,7 +6,7 @@ import { registrarTempo } from '@/lib/tempos'
 import {
   ArrowLeft, ArrowRight, Plus, Search, X, CheckCircle2, XCircle, Clock, Edit2,
   Trash2, ChevronDown, ChevronUp, FileText, Loader2, Download,
-  Lightbulb, Lamp, Settings, Layers, RotateCcw, Link2, FileSearch,
+  Lightbulb, Lamp, Settings, Layers, RotateCcw, FolderOpen,
   AlertTriangle, Wifi, BarChart2, Tag, TrendingUp, Printer, ScanText, Lock,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -1427,11 +1427,6 @@ export default function AgendaPage() {
     }))
   }
 
-  function openPDF(pdfPath: string) {
-    const api = (window as any).electronAPI
-    if (api) api.openPath(pdfPath)
-  }
-
   async function openPdfCopy(item: AgendaItem) {
     const api = (window as any).electronAPI
     if (!api) return
@@ -1451,6 +1446,20 @@ export default function AgendaPage() {
     } else {
       alert('PDF não encontrado na pasta de cópias. Configure a pasta em Configurações.')
     }
+  }
+
+  // Abre a PASTA do relatório (onde estão DOCX, fotos e o PDF) — para assinar manual.
+  // Cruza o item da agenda com o relatório salvo pelo nº/protocolo. Sem pasta, cai na cópia.
+  function abrirPastaDoRelatorio(item: AgendaItem) {
+    const api = (window as any).electronAPI
+    if (!api) return
+    const norm = (s?: string) => (s || '').trim().toLowerCase()
+    const rel = relatorios.find(r =>
+      (item.numRelatorio && norm(r.numRelatorio) === norm(item.numRelatorio)) ||
+      (item.protocolo && norm(r.protocolo) === norm(item.protocolo)),
+    )
+    if (rel?.eutFolderPath) { api.openPath(rel.eutFolderPath); return }
+    openPdfCopy(item)
   }
 
   function irParaProtocolo(item: AgendaItem) {
@@ -1963,17 +1972,11 @@ export default function AgendaPage() {
                       {/* concluído: numRelatorio link | andamento: badges C/L/B */}
                       {isConcluido ? (
                         <div className="shrink-0">
-                          {item.pdfPath ? (
-                            <button type="button" onClick={() => openPDF(item.pdfPath!)}
-                              title="Abrir PDF do relatório"
-                              className="flex items-center gap-1 text-[10px] font-mono text-teal hover:text-teal/70 bg-teal/8 border border-teal/20 px-2 py-0.5 rounded transition-all">
-                              <Link2 size={8} /> {item.numRelatorio}
-                            </button>
-                          ) : (
-                            <span className="flex items-center gap-1 text-[10px] font-mono text-green-400/75 bg-green/8 border border-green/15 px-2 py-0.5 rounded">
-                              <FileText size={8} /> {item.numRelatorio}
-                            </span>
-                          )}
+                          <button type="button" onClick={() => abrirPastaDoRelatorio(item)}
+                            title="Abrir a pasta do relatório (DOCX, fotos e PDF) — para assinar manualmente"
+                            className="flex items-center gap-1 text-[10px] font-mono text-teal hover:text-teal/70 bg-teal/8 border border-teal/20 px-2 py-0.5 rounded transition-all">
+                            <FolderOpen size={8} /> {item.numRelatorio}
+                          </button>
                         </div>
                       ) : (
                         <div className="flex gap-0.5 shrink-0">
@@ -1995,10 +1998,10 @@ export default function AgendaPage() {
                       {/* ações hover */}
                       <div className="flex gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                         {isConcluido && (
-                          <button type="button" onClick={() => openPdfCopy(item)}
-                            title="Abrir PDF do relatório"
+                          <button type="button" onClick={() => abrirPastaDoRelatorio(item)}
+                            title="Abrir a pasta do relatório (DOCX, fotos e PDF) — para assinar manualmente"
                             className="w-6 h-6 rounded border border-white/8 text-white/28 hover:text-teal hover:border-teal/30 flex items-center justify-center transition-all">
-                            <FileSearch size={10} />
+                            <FolderOpen size={10} />
                           </button>
                         )}
                         {isConcluido && (

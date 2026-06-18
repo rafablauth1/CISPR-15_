@@ -9,6 +9,7 @@ import { parsearCertificadoRBC } from '@/lib/interpolacao'
 import { corrigirGrandezasPorLayout } from '@/lib/certificados/layout'
 import { grandezasDoCertificado, mesclarGrandezas } from '@/lib/certificados/registrar-grandezas'
 import { addM } from '@/lib/utils'
+import { siglaOficial } from '@/lib/taxonomia/tipos'
 
 const ARQ_EQUIP    = 'equipamentos.json'
 const ARQ_CERT     = 'certificados.json'
@@ -19,8 +20,6 @@ interface RascunhoItem {
   lab?: string; acreditacao?: string; equipamento?: string; cadastravel?: boolean
 }
 
-// Padrão de TAG: 2–4 dígitos + 3 letras (ex.: "1234EMC", "10TEL", "9999LUM").
-const RE_TAG = /\b(\d{2,4})\s*([A-Za-z]{3})\b/
 
 interface ItemScan {
   folder: string
@@ -108,10 +107,15 @@ export async function POST(req: NextRequest) {
         continue
       }
       const dados = parsearDadosPadrao(it.text)
-      // Radar: o PDF tem um padrão de TAG (ex.: 1234EMC)? Então é cadastrável.
-      const temPadraoTag = RE_TAG.test(it.text)
-      // TAG do padrão solto no texto (último recurso, usado na 2ª varredura).
-      const tagSolta = (() => { const m = it.text.match(RE_TAG); return m ? (m[1] + m[2]).toUpperCase() : '' })()
+      // TAG solta no texto (último recurso). Só conta se a trinca for SIGLA OFICIAL
+      // de laboratório (senão é lixo tipo "623ISO"). Radar de cadastrável = achou uma.
+      const tagSolta = (() => {
+        for (const m of it.text.matchAll(/\b(\d{2,4})\s*([A-Za-z]{3})\b/g)) {
+          if (siglaOficial(m[2])) return (m[1] + m[2]).toUpperCase()
+        }
+        return ''
+      })()
+      const temPadraoTag = !!tagSolta
 
       // TAG: vem do certificado (tem a sigla); pasta é só reserva. Exige sufixo de letras.
       const tag = resolverTag(it.folder, dados.tag, it.text)

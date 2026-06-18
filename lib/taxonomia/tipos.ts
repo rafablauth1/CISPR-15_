@@ -38,13 +38,30 @@ export function siglaDaTag(tag: string): string {
   return m ? m[1] : ''
 }
 
+// Siglas OFICIAIS de laboratório (as 3 letras finais válidas de uma TAG). Qualquer
+// outra trinca de letras NÃO é sigla de lab → não é TAG (ex.: ISO, SOB, RAZ…).
+export const SIGLAS_LAB_OFICIAIS = [
+  'ADV','AMX','ATX','CMP','COR','DOM','DPC','EMC','FIC','FLA','IPX','ITE','LAV',
+  'LIF','LML','LUM','LVM','MIE','MED','MOB','MOT','OMH','ORD','QUI','QUA','REF',
+  'VNT','TEL','TNQ','UDM','VBR',
+]
+const SET_SIGLAS = new Set(SIGLAS_LAB_OFICIAIS)
+/** A trinca de letras é uma sigla de laboratório válida? */
+export function siglaOficial(s?: string): boolean {
+  return !!s && SET_SIGLAS.has(s.toUpperCase())
+}
+
 export const TAXONOMIA_DEFAULT: Taxonomia = {
   areas: [
     { id: 'emc', nome: 'EMC — Compatibilidade Eletromagnética', cor: 'teal' },
   ],
-  siglas: [
-    { sigla: 'EMC', significado: 'Compatibilidade Eletromagnética', areaId: 'emc' },
-  ],
+  // Todas as siglas oficiais já cadastradas; EMC vinculada à área, as demais
+  // ficam sem área (o usuário vincula a cada laboratório depois).
+  siglas: SIGLAS_LAB_OFICIAIS.map(s => (
+    s === 'EMC'
+      ? { sigla: 'EMC', significado: 'Compatibilidade Eletromagnética', areaId: 'emc' }
+      : { sigla: s, significado: '', areaId: '' }
+  )),
   tipos: [
     { id: 'gerador-sinal-rf',     nome: 'Gerador de sinal RF',       icone: 'Zap',               areaIds: ['emc'] },
     { id: 'analisador-espectro',  nome: 'Analisador de espectro',    icone: 'Activity',          areaIds: ['emc'] },

@@ -9,6 +9,7 @@
 // para também cobrir laboratórios novos que sigam convenções parecidas.
 
 import { aplicarExtratorLab, normData } from './extratores-lab'
+import { siglaOficial } from '@/lib/taxonomia/tipos'
 
 // Acreditação (Cgcre) → nome do laboratório. CAL 0024 = LABELO.
 // Estes são os já conhecidos; o registro auto-descoberto cobre o resto.
@@ -158,12 +159,10 @@ function campoMultiColuna(texto: string, rotulos: string[], max = 80): string | 
   return undefined
 }
 
-// Padrão da TAG LABELO: número (2–8 díg.) + 3 letras (ex.: 1987LUM, 640DOM, 3212UDM).
+// TAG = número (2–8 díg.) + 3 letras. As 3 letras DEVEM ser uma sigla oficial de
+// laboratório (siglaOficial) — qualquer outra trinca não é TAG (ISO, SOB, RAZ…).
 const RE_TAG_VAL = /\b(\d{2,8})\s*([A-Za-z]{3})\b/
-// No fallback global, só aceita 3 letras MAIÚSCULAS (são códigos de área) e que
-// não sejam siglas comuns de norma/texto (senão pega lixo tipo 6588ISO, 2022SOB).
-const RE_TAG_UP = /\b(\d{2,8})\s*([A-Z]{3})\b/g
-const NAO_TAG = new Set(['ISO','NBR','IEC','ABN','RBC','SOB','RAZ','GUM','ART','NIT','SIM','PRO','REV','OSP','CAL','DOC','MRA','NMI','RAM','LTD','LDA','EPP','ZIP','MIN','MAX'])
+const RE_TAG_UP = /\b(\d{2,8})\s*([A-Za-z]{3})\b/g
 
 /** Extrai a TAG do cliente (cada lab usa um rótulo diferente — ver ASSINATURAS). */
 export function extrairTag(texto: string): string | undefined {
@@ -181,11 +180,11 @@ export function extrairTag(texto: string): string | undefined {
     'ID\\s*Code', '\\bID\\b',
     'Identifica[çc][ãa]o', 'Patrim[ôo]nio', 'C[óo]digo',
   ], 30)
-  if (v) { const m = v.match(RE_TAG_VAL); if (m) return (m[1] + m[2]).toUpperCase() }
-  // 2) fallback: padrão MAIÚSCULO na folha de rosto, ignorando siglas comuns
+  if (v) { const m = v.match(RE_TAG_VAL); if (m && siglaOficial(m[2])) return (m[1] + m[2]).toUpperCase() }
+  // 2) fallback: padrão na folha de rosto, aceitando só sigla oficial de lab
   const rosto = (texto || '').slice(0, 4500)
   for (const m of rosto.matchAll(RE_TAG_UP)) {
-    if (!NAO_TAG.has(m[2])) return (m[1] + m[2]).toUpperCase()
+    if (siglaOficial(m[2])) return (m[1] + m[2]).toUpperCase()
   }
   return undefined
 }
