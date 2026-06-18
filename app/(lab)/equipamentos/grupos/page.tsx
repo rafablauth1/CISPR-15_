@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { Plus, Pencil, Trash2, X, Save, GripVertical, Zap, Gauge, Waves, Radio, SlidersHorizontal, Thermometer } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { Plus, Pencil, Trash2, X, Save, GripVertical, Zap, Gauge, Waves, Radio, SlidersHorizontal, Thermometer, Layers } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { GRUPO_CORES } from '@/lib/grupos-icons'
 
@@ -137,12 +137,38 @@ export default function GruposEditorPage() {
   const [modal,     setModal]     = useState<'grupo-novo' | 'grupo-edit' | 'sub-novo' | 'sub-edit' | null>(null)
   const [grupoAlvo, setGrupoAlvo] = useState<Grupo | null>(null)
   const [subAlvo,   setSubAlvo]   = useState<Subgrupo | null>(null)
+  const [equips,    setEquips]    = useState<{ id: string; nome: string; grupoId: string; subgrupoId: string }[]>([])
 
   async function carregar() {
     setLoading(true)
-    const data = await fetch('/api/grupos').then(r => r.json()).catch(() => [])
-    setGrupos(Array.isArray(data) ? data : [])
+    const [g, e] = await Promise.all([
+      fetch('/api/grupos').then(r => r.json()).catch(() => []),
+      fetch('/api/equipamentos').then(r => r.json()).catch(() => []),
+    ])
+    setGrupos(Array.isArray(g) ? g : [])
+    setEquips(Array.isArray(e) ? e : [])
     setLoading(false)
+  }
+
+  // Tipos = nomes distintos de equipamentos cadastrados (com qtd e grupo/subgrupo atual).
+  const tipos = useMemo(() => {
+    const m = new Map<string, { nome: string; qtd: number; grupoId: string; subgrupoId: string }>()
+    for (const e of equips) {
+      const nome = (e.nome || '').trim(); if (!nome) continue
+      const t = m.get(nome)
+      if (t) t.qtd++
+      else m.set(nome, { nome, qtd: 1, grupoId: e.grupoId, subgrupoId: e.subgrupoId })
+    }
+    return [...m.values()].sort((a, b) => a.nome.localeCompare(b.nome))
+  }, [equips])
+
+  // Reatribui (em lote, por nome) todos os equipamentos daquele tipo a um grupo/subgrupo.
+  async function atribuirTipo(nome: string, grupoId: string, subgrupoId: string) {
+    await fetch('/api/equipamentos', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nome, grupoId, subgrupoId }),
+    })
+    carregar()
   }
 
   useEffect(() => { carregar() }, [])
@@ -214,6 +240,42 @@ export default function GruposEditorPage() {
           <Plus size={13}/> Novo grupo
         </button>
       </div>
+
+      {/* Tipos de equipamento — atribuir cada NOME a um grupo/subgrupo (em lote) */}
+      {!loading && tipos.length > 0 && (
+        <div className="card p-5 mb-3">
+          <div className="flex items-center gap-2 mb-1">
+            <Layers size={15} className="text-teal" />
+            <h2 className="font-display font-bold text-[14px] text-white">Tipos de equipamento</h2>
+            <span className="text-[10px] font-mono text-white/30">{tipos.length} nomes distintos</span>
+          </div>
+          <p className="text-[11px] text-white/35 mb-3">Atribua cada nome a um grupo e subgrupo — vale para todos os equipamentos com esse nome.</p>
+          <div className="max-h-[420px] overflow-y-auto pr-1 space-y-1">
+            {tipos.map(t => {
+              const g = grupos.find(x => x.id === t.grupoId)
+              return (
+                <div key={t.nome} className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-white/[0.03]">
+                  <span className="text-[12px] text-white/80 flex-1 min-w-0 truncate" title={t.nome}>{t.nome}</span>
+                  <span className="text-[10px] font-mono text-white/30 w-10 text-right shrink-0">{t.qtd}×</span>
+                  <select value={t.grupoId}
+                    onChange={e => { const ng = grupos.find(x => x.id === e.target.value); atribuirTipo(t.nome, e.target.value, ng?.subgrupos[0]?.id ?? '') }}
+                    className="input text-[11px] py-1 w-44 shrink-0">
+                    <option value="">— grupo —</option>
+                    {grupos.map(x => <option key={x.id} value={x.id}>{x.nome}</option>)}
+                  </select>
+                  <select value={t.subgrupoId}
+                    onChange={e => atribuirTipo(t.nome, t.grupoId, e.target.value)}
+                    disabled={!g}
+                    className="input text-[11px] py-1 w-48 shrink-0 disabled:opacity-40">
+                    <option value="">— subgrupo —</option>
+                    {(g?.subgrupos ?? []).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                  </select>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="text-white/25 text-sm py-10 text-center">Carregando...</div>

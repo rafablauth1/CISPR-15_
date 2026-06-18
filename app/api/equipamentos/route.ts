@@ -28,6 +28,34 @@ export async function POST(req: NextRequest) {
   }
 }
 
+// Reatribuição em lote de grupo/subgrupo por NOME (tipo) ou por ids.
+// Ex.: { nome: "Barômetro", grupoId: "grandezas-ambientais", subgrupoId: "barometro" }
+export async function PATCH(req: NextRequest) {
+  try {
+    const body = (await req.json()) as { nome?: string; ids?: string[]; grupoId?: string; subgrupoId?: string }
+    if (!body.nome && !(Array.isArray(body.ids) && body.ids.length)) {
+      return NextResponse.json({ error: 'Informe nome ou ids.' }, { status: 400 })
+    }
+    const ids = new Set(body.ids ?? [])
+    const lista = lerJSON<EquipamentoEMC[]>(ARQUIVO, DEFAULTS)
+    let n = 0
+    const nova = lista.map(e => {
+      const match = (body.nome && e.nome === body.nome) || ids.has(e.id)
+      if (!match) return e
+      n++
+      return {
+        ...e,
+        grupoId:    (body.grupoId    ?? e.grupoId)    as EquipamentoEMC['grupoId'],
+        subgrupoId: (body.subgrupoId ?? e.subgrupoId) as EquipamentoEMC['subgrupoId'],
+      }
+    })
+    escreverJSON(ARQUIVO, nova)
+    return NextResponse.json({ ok: true, atualizados: n })
+  } catch (e: unknown) {
+    return NextResponse.json({ error: String(e) }, { status: 500 })
+  }
+}
+
 // Exclusão em lote: { all: true } apaga todos; { ids:[...] } remove os listados.
 export async function DELETE(req: NextRequest) {
   try {
