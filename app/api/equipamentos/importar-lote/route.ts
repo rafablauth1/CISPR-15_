@@ -96,6 +96,12 @@ export async function POST(req: NextRequest) {
     const labs = lerLaboratorios()        // registro CAL → laboratório (auto-descoberta)
     let labsMudou = false
     const agora = new Date().toISOString()
+    // Modelo de extração do lab (rótulos por campo) p/ o CAL do certificado — Parte B.
+    const normC = (c?: string) => (c ? `CAL ${(c.match(/\d{3,4}/) || [''])[0]}` : '')
+    const overrideDoLab = (texto: string) => {
+      const k = normC(extrairAcreditacao(texto))
+      return (k ? labs.find(l => normC(l.cal) === k)?.campos : undefined) || {}
+    }
 
     let seq = Date.now()
     const novoId = () => String(seq++)
@@ -133,7 +139,7 @@ export async function POST(req: NextRequest) {
       // (ex.: análise crítica / cert. de terceiros), sem certificado e sem grandeza.
       // Usa extração de TAG mais flexível (rótulos genéricos + padrão solto).
       if (soAmostra) {
-        const g = extrairMetadadosGenerico(it.text)
+        const g = extrairMetadadosGenerico(it.text, overrideDoLab(it.text))
         // #3: se o PDF é um FOR 6401 (análise crítica), usa os dados dele — nome
         // correto, fornecedor (lab), nº do certificado, data e PERIODICIDADE.
         const ac = ehAnaliseCritica(it.text) ? parsearAnaliseCritica(it.text) : null
@@ -194,7 +200,7 @@ export async function POST(req: NextRequest) {
       const classif = classificarCertificadoLabelo(it.text)
       if (!classif.ok) {
         // Identifica o laboratório emissor pelo CAL (registro) + nome do texto.
-        const g = extrairMetadadosGenerico(it.text)
+        const g = extrairMetadadosGenerico(it.text, overrideDoLab(it.text))
         const nomeGuess = nomeDoLab(labs, g.acreditacao) || extrairNomeLaboratorio(it.text)
         if (g.acreditacao && registrarLab(labs, g.acreditacao, nomeGuess)) labsMudou = true
         const labTxt = nomeGuess || (g.acreditacao ? `Lab ${g.acreditacao}` : '')

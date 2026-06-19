@@ -1,9 +1,21 @@
 import { lerJSON, escreverJSON } from '@/lib/dados'
 
+// Modelo de extração do lab: qual RÓTULO esse laboratório usa para cada campo
+// (ex.: Chrompack → nome em "Marca"). O OCR usa isso primeiro p/ esse lab.
+export interface CamposModeloLab {
+  nome?: string
+  fabricante?: string
+  modelo?: string
+  serie?: string
+  tag?: string
+  dataCalibracao?: string
+}
+
 export interface LaboratorioCal {
   cal: string        // nº de acreditação Cgcre (ex.: "CAL 0024")
   nome: string       // nome do laboratório
   modelo?: string    // observação do modelo de PDF (layout) — para o OCR
+  campos?: CamposModeloLab   // rótulos por campo (modelo de extração do lab)
 }
 
 export const ARQ_LABS = 'laboratorios.json'

@@ -1,10 +1,10 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
-import { Plus, Trash2, Save, Check, Loader2, BadgeCheck, Upload } from 'lucide-react'
+import { useState, useEffect, useRef, Fragment } from 'react'
+import { Plus, Trash2, Save, Check, Loader2, BadgeCheck, Upload, SlidersHorizontal } from 'lucide-react'
 import type { LaboratorioCal } from '@/lib/laboratorios/registro'
 import { extrairAcreditacao, identificarLaboratorio, extrairNomeLaboratorio } from '@/lib/certificados/extrair-generico'
-import { fileToBase64 } from '@/lib/utils'
+import { fileToBase64, cn } from '@/lib/utils'
 
 const normCal = (c: string) => `CAL ${(c.match(/\d{3,4}/) || [''])[0]}`
 
@@ -15,6 +15,28 @@ export default function LaboratoriosPage() {
   const [salvo, setSalvo] = useState(false)
   const [importando, setImportando] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const [modeloIdx, setModeloIdx] = useState<number | null>(null)   // lab com o "modelo de extração" aberto
+  const [amostraTxt, setAmostraTxt] = useState('')
+  const [lendoAmostra, setLendoAmostra] = useState(false)
+  const amostraRef = useRef<HTMLInputElement>(null)
+
+  const CAMPOS_MODELO = [
+    ['nome', 'Nome'], ['fabricante', 'Fabricante'], ['modelo', 'Modelo'],
+    ['serie', 'Série'], ['tag', 'TAG'], ['dataCalibracao', 'Data de calibração'],
+  ] as const
+
+  const setCampo = (i: number, campo: string, val: string) => {
+    setLabs(ls => ls.map((l, idx) => idx === i ? { ...l, campos: { ...(l.campos || {}), [campo]: val } } : l)); setSalvo(false)
+  }
+
+  // Importar amostra do lab: mostra as linhas extraídas (pra você ver os rótulos).
+  async function importarAmostra(file: File) {
+    const api = (window as unknown as { electronAPI?: { extractPdfText?: (b: string) => Promise<{ text?: string }> } }).electronAPI
+    if (!api?.extractPdfText) { alert('Disponível apenas no aplicativo.'); return }
+    setLendoAmostra(true)
+    try { const r = await api.extractPdfText(await fileToBase64(file)); setAmostraTxt(r?.text || '(sem texto extraído)') }
+    finally { setLendoAmostra(false) }
+  }
 
   useEffect(() => {
     fetch('/api/laboratorios').then(r => r.json()).then(d => setLabs(Array.isArray(d) ? d : [])).catch(() => {}).finally(() => setCarregando(false))
@@ -113,14 +135,60 @@ export default function LaboratoriosPage() {
           </thead>
           <tbody>
             {labs.length === 0 && <tr><td colSpan={4} className="p-8 text-center text-white/25 text-sm">Nenhum laboratório. Adicione um ou importe certificados.</td></tr>}
-            {labs.map((l, i) => (
-              <tr key={i} className="tbl-row">
+            {labs.map((l, i) => {
+              const nCampos = Object.values(l.campos || {}).filter(Boolean).length
+              return (
+              <Fragment key={i}>
+              <tr className="tbl-row">
                 <td><input className="input font-mono text-[12px] py-1 w-24 uppercase" placeholder="CAL 0024" value={l.cal} onChange={e => set(i, 'cal', e.target.value)} /></td>
                 <td><input className="input text-[12px] py-1 w-full" placeholder="ex.: Trescal, Metroquality…" value={l.nome} onChange={e => set(i, 'nome', e.target.value)} /></td>
                 <td><input className="input text-[12px] py-1 w-full" placeholder="layout da tabela, particularidades do OCR…" value={l.modelo ?? ''} onChange={e => set(i, 'modelo', e.target.value)} /></td>
-                <td><button type="button" onClick={() => del(i)} className="text-white/25 hover:text-red-400 p-1"><Trash2 size={13}/></button></td>
+                <td className="whitespace-nowrap">
+                  <button type="button" onClick={() => { setModeloIdx(modeloIdx === i ? null : i); setAmostraTxt('') }}
+                    title="Modelo de extração: dizer qual rótulo este lab usa para cada campo"
+                    className={cn('text-[11px] px-1.5 py-1 rounded inline-flex items-center gap-1',
+                      modeloIdx === i ? 'text-teal bg-teal/10' : 'text-white/40 hover:text-teal')}>
+                    <SlidersHorizontal size={12}/> Modelo{nCampos ? ` (${nCampos})` : ''}
+                  </button>
+                  <button type="button" onClick={() => del(i)} className="text-white/25 hover:text-red-400 p-1 ml-1"><Trash2 size={13}/></button>
+                </td>
               </tr>
-            ))}
+              {modeloIdx === i && (
+                <tr>
+                  <td colSpan={4} className="bg-white/[0.02] px-4 py-3">
+                    <p className="text-[11px] text-white/45 mb-2">
+                      Diga qual <b>rótulo</b> este lab usa para cada campo (ex.: para a Chrompack, o Nome vem em <i>“Marca”</i>). O OCR passa a usar isso primeiro p/ este laboratório.
+                    </p>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mb-3">
+                      {CAMPOS_MODELO.map(([k, label]) => (
+                        <div key={k} className="flex flex-col gap-1">
+                          <span className="text-[10px] font-mono uppercase tracking-wider text-white/35">{label}</span>
+                          <input className="input text-[12px] py-1"
+                            placeholder="rótulo no certificado…"
+                            value={(l.campos?.[k] as string) ?? ''}
+                            onChange={e => setCampo(i, k, e.target.value)} />
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input ref={amostraRef} type="file" accept="application/pdf" className="hidden"
+                        onChange={e => { const f = e.target.files?.[0]; if (f) importarAmostra(f); e.target.value = '' }} />
+                      <button type="button" onClick={() => amostraRef.current?.click()} disabled={lendoAmostra}
+                        className="btn-secondary text-[11px] py-1">
+                        {lendoAmostra ? <Loader2 size={12} className="animate-spin"/> : <Upload size={12}/>}
+                        {lendoAmostra ? 'Lendo…' : 'Importar amostra (ver rótulos)'}
+                      </button>
+                      <span className="text-[10px] text-white/30">Mostra o texto extraído do PDF pra você achar os rótulos.</span>
+                    </div>
+                    {amostraTxt && (
+                      <pre className="mt-2 max-h-52 overflow-auto text-[10px] leading-snug text-white/55 bg-black/30 rounded p-2 whitespace-pre-wrap">{amostraTxt}</pre>
+                    )}
+                  </td>
+                </tr>
+              )}
+              </Fragment>
+              )
+            })}
           </tbody>
         </table>
       </div>

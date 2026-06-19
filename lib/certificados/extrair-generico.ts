@@ -11,6 +11,12 @@
 import { aplicarExtratorLab, normData } from './extratores-lab'
 import { siglaOficial } from '@/lib/taxonomia/tipos'
 
+// Modelo de extração por lab: rótulo que o lab usa para cada campo (tem prioridade).
+export interface OverrideCampos {
+  nome?: string; fabricante?: string; modelo?: string; serie?: string; tag?: string; dataCalibracao?: string
+}
+const escRe = (s?: string) => (s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
 // Acreditação (Cgcre) → nome do laboratório. CAL 0024 = LABELO.
 // Estes são os já conhecidos; o registro auto-descoberto cobre o resto.
 export const LABS_POR_CAL: Record<string, string> = {
@@ -165,9 +171,10 @@ const RE_TAG_VAL = /\b(\d{2,8})\s*([A-Za-z]{3})\b/
 const RE_TAG_UP = /\b(\d{2,8})\s*([A-Za-z]{3})\b/g
 
 /** Extrai a TAG do cliente (cada lab usa um rótulo diferente — ver ASSINATURAS). */
-export function extrairTag(texto: string): string | undefined {
+export function extrairTag(texto: string, rotuloLab?: string): string | undefined {
   // 1) valor logo após um rótulo de identificação (alta confiança)
   const v = campo(texto, [
+    ...(rotuloLab ? [escRe(rotuloLab)] : []),
     'TAG',
     'C[óo]d(?:igo)?\\.?\\s*de\\s*Identifica[çc][ãa]o\\s+do\\s+propriet[áa]rio',
     'C[óo]d(?:igo)?\\.?\\s*de\\s*Identifica[çc][ãa]o',
@@ -193,8 +200,10 @@ export function extrairTag(texto: string): string | undefined {
  *  e pega a data logo após; se não achar, usa uma data cuja vizinhança fale de
  *  calibração e NÃO de emissão/validade/recebimento. Normaliza p/ dd/mm/aaaa
  *  (aceita dd/mm/aaaa, "05 de outubro de 2022" e "3 Fev 2025"). */
-export function extrairDataCalibracao(texto: string): string | undefined {
+export function extrairDataCalibracao(texto: string, rotuloLab?: string): string | undefined {
   const t = (texto || '').slice(0, 6000)
+  // rótulo específico do lab (modelo de extração) tem prioridade
+  if (rotuloLab) { const d = normData(campo(t, [escRe(rotuloLab)], 24)); if (d) return d }
   const reData = /\d{1,2}\s*[/.\-]\s*\d{1,2}\s*[/.\-]\s*\d{4}|\d{1,2}\s+(?:de\s+)?[A-Za-zçãéêíóôõ]{3,12}\.?\s+(?:de\s+)?\d{4}/gi
   // 1) rótulo de calibração → data nos ~80 chars seguintes (sem cruzar emissão/validade)
   const reLabel = /(?:data|per[íi]odo)\s*d[aeo]?\s*calibra[çc][ãa]o|calibration\s*date|date\s*of\s*calibration/gi
@@ -229,8 +238,9 @@ function nomeValido(n?: string): string | undefined {
   return s
 }
 
-/** Extrai metadados da 1ª página de um certificado de qualquer laboratório. */
-export function extrairMetadadosGenerico(texto: string): MetaGenerica {
+/** Extrai metadados da 1ª página de um certificado de qualquer laboratório.
+ *  `ov` = modelo de extração do lab (rótulos específicos) — têm prioridade. */
+export function extrairMetadadosGenerico(texto: string, ov: OverrideCampos = {}): MetaGenerica {
   const t = (texto || '').slice(0, 4500)   // foco na folha de rosto
   // Nº do certificado/relatório — letra(s) opcionais + dígitos + sep + ano,
   // ou formatos próprios (DIMCI 1068/2025, WO-00936667, L002787/2026).
@@ -246,17 +256,21 @@ export function extrairMetadadosGenerico(texto: string): MetaGenerica {
   const ROT_MOD  = ['Modelo(?:\\s*N[º°o.]*)?', 'Model(?:\\s*\\/?\\s*Type)?', 'Tipo', 'Type']
   // aceita "Nº de Série" E "Número de Série" (N[º°o.]* não casa "Número")
   const ROT_SER  = ['N[úu]mero\\s*de\\s*S[ée]rie', 'N[º°o.]*\\s*de\\s*S[ée]rie', 'N[º°o.]*\\s*S[ée]rie', 'S[ée]rie\\s*N[º°o.]*', 'S[ée]rie', 'Serial(?:\\s*N\\w*)?', 'Serial\\s*Number', 'S\\/?N']
+  // rótulo do MODELO DO LAB tem prioridade (vai na frente da lista de sinônimos)
+  const pre = (label: string | undefined, lista: string[]) => label ? [escRe(label), ...lista] : lista
   // genérico (linha) com fallback MULTI-COLUNA (pdfTextLayout separa colunas por TAB)
+  const rNome = pre(ov.nome, ROT_NOME), rFab = pre(ov.fabricante, ROT_FAB)
+  const rMod = pre(ov.modelo, ROT_MOD), rSer = pre(ov.serie, ROT_SER)
   const meta: MetaGenerica = {
     numero:     numM ? limpa(numM[1]).replace(/\s+/g, '') : undefined,
-    nome:       nomeValido(campo(t, ROT_NOME) ?? campoMultiColuna(t, ROT_NOME)),
-    fabricante: campo(t, ROT_FAB, 50)     ?? campoMultiColuna(t, ROT_FAB, 50),
-    modelo:     campo(t, ROT_MOD, 40)     ?? campoMultiColuna(t, ROT_MOD, 40),
-    serie:      campo(t, ROT_SER, 30)     ?? campoMultiColuna(t, ROT_SER, 30),
-    tag:        extrairTag(t),
+    nome:       nomeValido(campo(t, rNome) ?? campoMultiColuna(t, rNome)),
+    fabricante: campo(t, rFab, 50) ?? campoMultiColuna(t, rFab, 50),
+    modelo:     campo(t, rMod, 40) ?? campoMultiColuna(t, rMod, 40),
+    serie:      campo(t, rSer, 30) ?? campoMultiColuna(t, rSer, 30),
+    tag:        extrairTag(t, ov.tag),
     acreditacao: acred,
     laboratorio: identificarLaboratorio(texto, acred),
-    dataCalibracao: extrairDataCalibracao(texto),
+    dataCalibracao: extrairDataCalibracao(texto, ov.dataCalibracao),
   }
   // overlay: extrator específico do lab preenche o que o genérico errou/não achou
   return { ...meta, ...aplicarExtratorLab(meta.laboratorio, texto) }
