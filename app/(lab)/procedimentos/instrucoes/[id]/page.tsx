@@ -5,14 +5,26 @@ import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import {
   Save, Plus, Trash2, ChevronUp, ChevronDown,
-  Eye, EyeOff, Image as ImageIcon, Check,
+  Eye, EyeOff, Image as ImageIcon, Check, Download,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type {
-  DocumentoIT, Bloco, TipoBloco,
-  BlocoH1, BlocoH2, BlocoH3, BlocoP, BlocoDestaque,
-  BlocoUL, BlocoOL, BlocoImg, BlocoTabela, BlocoDefinicoes,
+import type { CSSProperties } from 'react'
+import {
+  FONTES_DISPONIVEIS,
+  type DocumentoIT, type Bloco, type TipoBloco,
+  type BlocoH1, type BlocoH2, type BlocoH3, type BlocoP, type BlocoDestaque,
+  type BlocoUL, type BlocoOL, type BlocoImg, type BlocoTabela, type BlocoDefinicoes,
 } from '@/lib/instrucoes/tipos'
+import { DocumentoITView } from '@/components/DocumentoITView'
+import { documentoITtoHTML } from '@/lib/instrucoes/html'
+
+// Estilo de fonte/tamanho do bloco aplicado na pré-visualização do editor.
+function estiloBloco(b: Bloco, base?: CSSProperties): CSSProperties {
+  const s: CSSProperties = { ...base }
+  if (b.fonte) s.fontFamily = b.fonte
+  if (b.tamanho) s.fontSize = `${b.tamanho}pt`
+  return s
+}
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -51,33 +63,33 @@ const TIPOS_BLOCO: { tipo: TipoBloco; label: string; icon: string }[] = [
 function RenderBloco({ bloco }: { bloco: Bloco }) {
   switch (bloco.tipo) {
     case 'h1': return (
-      <p className="font-bold text-[14px] text-white/95 mt-1">
+      <p className="font-bold text-[14px] text-white/95 mt-1" style={estiloBloco(bloco)}>
         {bloco.numero && <span className="mr-2">{bloco.numero}</span>}{bloco.texto || <span className="text-white/20 italic">Seção sem título</span>}
       </p>
     )
     case 'h2': return (
-      <p className="font-bold text-[13px] text-white/90">
+      <p className="font-bold text-[13px] text-white/90" style={estiloBloco(bloco)}>
         {bloco.numero && <span className="mr-2">{bloco.numero}</span>}{bloco.texto || <span className="text-white/20 italic">Subseção sem título</span>}
       </p>
     )
     case 'h3': return (
-      <p className="font-semibold text-[12px] text-white/80 ml-4">
+      <p className="font-semibold text-[12px] text-white/80 ml-4" style={estiloBloco(bloco)}>
         {bloco.numero && <span className="mr-2">{bloco.numero}</span>}{bloco.texto || <span className="text-white/20 italic">Sub-subseção sem título</span>}
       </p>
     )
     case 'p': return (
-      <p className="text-[12px] text-white/70 leading-relaxed" style={{ textAlign: 'justify' }}>
+      <p className="text-[12px] text-white/70 leading-relaxed" style={estiloBloco(bloco, { textAlign: 'justify' })}>
         {bloco.texto || <span className="text-white/20 italic">Parágrafo vazio</span>}
       </p>
     )
     case 'destaque': return (
-      <p className="text-[12px] text-white/70 leading-relaxed ml-4" style={{ textAlign: 'justify' }}>
+      <p className="text-[12px] text-white/70 leading-relaxed ml-4" style={estiloBloco(bloco, { textAlign: 'justify' })}>
         {bloco.termo && <strong className="text-white/90">{bloco.termo} – </strong>}
         {bloco.texto || <span className="text-white/20 italic">Texto vazio</span>}
       </p>
     )
     case 'ul': return (
-      <ul className="ml-6 space-y-1">
+      <ul className="ml-6 space-y-1" style={estiloBloco(bloco)}>
         {bloco.itens.map((item, i) => (
           <li key={i} className="text-[12px] text-white/70 flex gap-2">
             <span className="flex-shrink-0 text-white/40">•</span>
@@ -87,7 +99,7 @@ function RenderBloco({ bloco }: { bloco: Bloco }) {
       </ul>
     )
     case 'ol': return (
-      <ol className="ml-6 space-y-1">
+      <ol className="ml-6 space-y-1" style={estiloBloco(bloco)}>
         {bloco.itens.map((item, i) => (
           <li key={i} className="text-[12px] text-white/70 flex gap-2">
             <span className="flex-shrink-0 text-white/40 font-mono">{i + 1})</span>
@@ -111,7 +123,7 @@ function RenderBloco({ bloco }: { bloco: Bloco }) {
     )
     case 'tabela': return (
       <div className="overflow-x-auto">
-        <table className="w-full text-[11px] border-collapse">
+        <table className="w-full text-[11px] border-collapse" style={estiloBloco(bloco)}>
           {bloco.cabecalho.length > 0 && bloco.cabecalho.some(Boolean) && (
             <thead>
               <tr>
@@ -138,7 +150,7 @@ function RenderBloco({ bloco }: { bloco: Bloco }) {
       </div>
     )
     case 'definicoes': return (
-      <div className="space-y-1 ml-2">
+      <div className="space-y-1 ml-2" style={estiloBloco(bloco)}>
         {bloco.itens.map((item, i) => (
           <p key={i} className="text-[11px] text-white/65 font-mono">
             <span className="text-white/80 font-semibold">{item.sigla}</span>
@@ -357,6 +369,37 @@ function EditDefinicoes({ bloco, onChange }: { bloco: BlocoDefinicoes; onChange:
   )
 }
 
+// ─── Controle de fonte/tamanho do bloco ──────────────────────────────────────
+
+function FonteControl({ bloco, onChange }: { bloco: Bloco; onChange: (b: Bloco) => void }) {
+  return (
+    <div className="flex items-center gap-2 pb-1.5 mb-1 border-b border-white/5">
+      <span className="text-[9px] font-mono uppercase tracking-wider text-white/25">Fonte</span>
+      <select
+        className="input text-[10px] py-0.5 h-6 w-auto cursor-pointer"
+        value={bloco.fonte ?? ''}
+        onChange={e => onChange({ ...bloco, fonte: e.target.value || undefined })}
+        title="Família da fonte deste bloco">
+        <option value="">Padrão</option>
+        {FONTES_DISPONIVEIS.map(f => <option key={f} value={f}>{f}</option>)}
+      </select>
+      <input
+        type="number" min={6} max={48} step={0.5}
+        className="input text-[10px] py-0.5 h-6 w-16 font-mono"
+        placeholder="pt"
+        value={bloco.tamanho ?? ''}
+        onChange={e => onChange({ ...bloco, tamanho: e.target.value ? Number(e.target.value) : undefined })}
+        title="Tamanho da fonte em pt" />
+      {(bloco.fonte || bloco.tamanho) && (
+        <button type="button" onClick={() => onChange({ ...bloco, fonte: undefined, tamanho: undefined })}
+          className="text-[10px] text-white/30 hover:text-white/60 transition-colors">
+          limpar
+        </button>
+      )}
+    </div>
+  )
+}
+
 // ─── BlocoCard ───────────────────────────────────────────────────────────────
 
 interface BlocoCardProps {
@@ -423,6 +466,7 @@ function BlocoCard({ bloco, isFirst, isLast, onUpdate, onDelete, onMoveUp, onMov
             <p className="text-[9px] font-mono uppercase tracking-widest text-white/25 mb-2">
               {tipoInfo?.label}
             </p>
+            <FonteControl bloco={bloco} onChange={onUpdate} />
             {renderEdit()}
           </div>
         ) : (
@@ -473,126 +517,10 @@ function AddBlockMenu({ onAdd }: { onAdd: (tipo: TipoBloco) => void }) {
   )
 }
 
-// ─── Document Preview ────────────────────────────────────────────────────────
-
-function DocumentPreview({ doc }: { doc: DocumentoIT }) {
-  return (
-    <div className="bg-white text-gray-900 rounded-xl shadow-2xl p-0 overflow-hidden"
-      style={{ fontFamily: 'Arial, sans-serif', fontSize: '11pt' }}>
-      {/* Header */}
-      <div className="border-b-2 border-gray-900 px-8 py-3 flex items-start justify-between">
-        <div className="text-[9pt] font-bold leading-tight">
-          <div>LABELO</div>
-          <div className="text-[7pt] text-gray-500">PUCRS</div>
-        </div>
-        <div className="text-center">
-          <div className="font-bold text-[11pt] uppercase">
-            {doc.tipoDocumento === 'PC' ? 'PROCEDIMENTO DE CALIBRAÇÃO' : 'INSTRUÇÃO DE TRABALHO'}
-          </div>
-          <div className="font-bold text-[11pt]">
-            {[doc.codigo, doc.titulo].filter(Boolean).join(' – ')}
-          </div>
-        </div>
-        <div className="text-[8pt] text-gray-500 text-right">
-          Revisão {doc.revisao} - {doc.dataRevisao}
-        </div>
-      </div>
-
-      {/* Body */}
-      <div className="px-8 py-6 space-y-3">
-        {doc.blocos.map(bloco => {
-          switch (bloco.tipo) {
-            case 'h1': return (
-              <p key={bloco.id} className="font-bold text-[11pt] mt-4">
-                {bloco.numero && <span className="mr-2">{bloco.numero}</span>}{bloco.texto}
-              </p>
-            )
-            case 'h2': return (
-              <p key={bloco.id} className="font-bold text-[10pt] mt-3">
-                {bloco.numero && <span className="mr-2">{bloco.numero}</span>}{bloco.texto}
-              </p>
-            )
-            case 'h3': return (
-              <p key={bloco.id} className="font-bold text-[10pt] ml-8">
-                {bloco.numero && <span className="mr-2">{bloco.numero}</span>}{bloco.texto}
-              </p>
-            )
-            case 'p': return (
-              <p key={bloco.id} className="text-[10pt] leading-relaxed" style={{ textAlign: 'justify', textIndent: '2em' }}>
-                {bloco.texto}
-              </p>
-            )
-            case 'destaque': return (
-              <p key={bloco.id} className="text-[10pt] leading-relaxed ml-8" style={{ textAlign: 'justify' }}>
-                <strong>{bloco.termo} – </strong>{bloco.texto}
-              </p>
-            )
-            case 'ul': return (
-              <ul key={bloco.id} className="ml-16 space-y-1">
-                {bloco.itens.map((item, i) => (
-                  <li key={i} className="text-[10pt] flex gap-2">
-                    <span>•</span><span style={{ textAlign: 'justify' }}>{item}</span>
-                  </li>
-                ))}
-              </ul>
-            )
-            case 'ol': return (
-              <ol key={bloco.id} className="ml-8 space-y-1">
-                {bloco.itens.map((item, i) => (
-                  <li key={i} className="text-[10pt] flex gap-3">
-                    <span className="flex-shrink-0">{i + 1})</span>
-                    <span style={{ textAlign: 'justify' }}>{item}</span>
-                  </li>
-                ))}
-              </ol>
-            )
-            case 'img': return (
-              <div key={bloco.id} className="flex flex-col items-center gap-2 my-4">
-                {bloco.src && <img src={bloco.src} alt={bloco.legenda} className="max-w-full max-h-56 object-contain" />}
-                {bloco.legenda && <p className="text-[9pt] text-center italic text-gray-500">{bloco.legenda}</p>}
-              </div>
-            )
-            case 'tabela': return (
-              <table key={bloco.id} className="w-full text-[9pt] border-collapse my-2">
-                {bloco.cabecalho.some(Boolean) && (
-                  <thead>
-                    <tr>{bloco.cabecalho.map((h, i) => <th key={i} className="border border-gray-400 px-2 py-1 text-left bg-gray-100">{h}</th>)}</tr>
-                  </thead>
-                )}
-                <tbody>
-                  {bloco.linhas.map((linha, r) => (
-                    <tr key={r}>{linha.map((c, i) => <td key={i} className="border border-gray-300 px-2 py-1">{c}</td>)}</tr>
-                  ))}
-                </tbody>
-              </table>
-            )
-            case 'definicoes': return (
-              <div key={bloco.id} className="space-y-0.5 my-2">
-                {bloco.itens.map((item, i) => (
-                  <p key={i} className="text-[10pt] font-mono">
-                    <strong>{item.sigla}</strong>{item.sigla && item.definicao ? ' – ' : ''}{item.definicao}
-                  </p>
-                ))}
-              </div>
-            )
-            default: return null
-          }
-        })}
-      </div>
-
-      {/* Footer */}
-      <div className="border-t border-gray-300 px-8 py-2 flex justify-between text-[8pt] text-gray-500">
-        <span>
-          {doc.revisadoPor && `Revisado por: ${doc.revisadoPor}`}
-          {doc.revisadoPor && doc.aprovadoPor && ' – '}
-          {doc.aprovadoPor && `Aprovado por: ${doc.aprovadoPor}`}
-        </span>
-      </div>
-    </div>
-  )
-}
-
 // ─── Main Page ───────────────────────────────────────────────────────────────
+
+interface SubgrupoTax { id: string; nome: string; numero?: string }
+interface GrupoTax { id: string; nome: string; subgrupos?: SubgrupoTax[] }
 
 const META_VAZIO: Omit<DocumentoIT, 'id' | 'blocos' | 'criadoEm' | 'atualizadoEm'> = {
   tipoDocumento: 'IT', codigo: '', titulo: '', revisao: '00', dataRevisao: '', revisadoPor: '', aprovadoPor: '',
@@ -608,12 +536,15 @@ export default function EditorInstrucaoPage() {
   const [saved, setSaved] = useState(false)
   const [preview, setPreview] = useState(false)
   const [erro, setErro] = useState('')
+  const [baixando, setBaixando] = useState(false)
+  const [grupos, setGrupos] = useState<GrupoTax[]>([])
 
   useEffect(() => {
     fetch(`/api/instrucoes/${id}`)
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d) setDoc(d) })
       .catch(() => {})
+    fetch('/api/grupos').then(r => r.json()).then(g => setGrupos(Array.isArray(g) ? g : [])).catch(() => {})
   }, [id])
 
   const updateMeta = useCallback((patch: Partial<DocumentoIT>) => {
@@ -686,6 +617,29 @@ export default function EditorInstrucaoPage() {
     }
   }
 
+  async function baixarPDF() {
+    if (!doc) return
+    setBaixando(true); setErro('')
+    try {
+      const html = documentoITtoHTML(doc)
+      const base = [doc.tipoDocumento, doc.codigo, doc.titulo].filter(Boolean).join(' ') || 'instrucao'
+      const filename = base.replace(/[\\/:"*?<>|]+/g, '_').replace(/\s+/g, '_') + '.pdf'
+      const api = (window as any).electronAPI
+      // Preferir diálogo "Salvar como" (build novo); cair no followup se indisponível.
+      const gerar = api?.salvarPdfHtml ?? api?.saveFollowupPdf
+      if (!gerar) {
+        setErro('Geração de PDF disponível apenas no aplicativo (desktop).')
+        return
+      }
+      const r = await gerar(html, filename, false)
+      if (r && r.ok === false && !r.canceled) setErro(r.error || 'Falha ao gerar PDF.')
+    } catch (e: unknown) {
+      setErro(String(e))
+    } finally {
+      setBaixando(false)
+    }
+  }
+
   if (!doc) return (
     <div className="flex items-center justify-center h-64 text-white/25 text-sm">
       Carregando documento…
@@ -706,6 +660,12 @@ export default function EditorInstrucaoPage() {
           {preview ? 'Editar' : 'Visualizar'}
         </button>
 
+        <button type="button" onClick={baixarPDF} disabled={baixando}
+          className="btn-secondary text-[11px] gap-1.5" title="Gerar PDF da instrução de trabalho">
+          {baixando ? <span className="animate-spin text-[12px] inline-block">⟳</span> : <Download size={12} />}
+          {baixando ? 'Gerando…' : 'Baixar PDF'}
+        </button>
+
         {saved && !saving && (
           <span className="flex items-center gap-1 text-[11px] text-green-400">
             <Check size={11} /> Salvo
@@ -722,7 +682,7 @@ export default function EditorInstrucaoPage() {
 
       {preview ? (
         /* ── Preview Mode ── */
-        <DocumentPreview doc={doc} />
+        <DocumentoITView doc={doc} />
       ) : (
         <>
           {/* ── Metadados ── */}
@@ -777,6 +737,27 @@ export default function EditorInstrucaoPage() {
                 <label className="form-label">Aprovado por</label>
                 <input className="input" value={doc.aprovadoPor} placeholder="Nome do aprovador"
                   onChange={e => updateMeta({ aprovadoPor: e.target.value })} />
+              </div>
+
+              <div>
+                <label className="form-label">Grupo de equipamento</label>
+                <select className="input cursor-pointer" value={doc.grupoId ?? ''}
+                  onChange={e => updateMeta({ grupoId: e.target.value || undefined, subgrupoId: undefined })}>
+                  <option value="">— nenhum —</option>
+                  {grupos.map(g => <option key={g.id} value={g.id}>{g.nome}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="form-label">Subgrupo <span className="text-white/25 normal-case">(p/ consulta na checagem)</span></label>
+                <select className="input cursor-pointer" value={doc.subgrupoId ?? ''}
+                  onChange={e => updateMeta({ subgrupoId: e.target.value || undefined })}
+                  disabled={!doc.grupoId}>
+                  <option value="">— nenhum —</option>
+                  {grupos.find(g => g.id === doc.grupoId)?.subgrupos?.map(s => (
+                    <option key={s.id} value={s.id}>{s.numero ? `${s.numero} · ` : ''}{s.nome}</option>
+                  ))}
+                </select>
               </div>
             </div>
           </div>

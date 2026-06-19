@@ -63,6 +63,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Follow-up PDF direto
   saveFollowupPdf: (html, filename, landscape) => ipcRenderer.invoke('pdf:followup', { html, filename, landscape }),
+  // PDF de HTML arbitrário com diálogo "Salvar como" (Instruções de Trabalho)
+  salvarPdfHtml:   (html, filename, landscape) => ipcRenderer.invoke('pdf:save-html', { html, filename, landscape }),
 
   // Shell / arquivos
   openPath:        (path)  => ipcRenderer.invoke('shell:open-path',       { path }),

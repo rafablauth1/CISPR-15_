@@ -1530,6 +1530,37 @@ ipcMain.handle('relatorio:cancel-pdf', async (_, { eutFolderPath: eutPath, pdfFi
   return { ok: true, deleted }
 })
 
+// Gera PDF a partir de HTML arbitrário e abre o diálogo "Salvar como".
+// Usado para baixar Instruções de Trabalho / PCs (módulo Lab).
+ipcMain.handle('pdf:save-html', async (_, { html, filename, landscape }) => {
+  const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]
+  const { filePath, canceled } = await dialog.showSaveDialog(win, {
+    title: 'Salvar PDF',
+    defaultPath: (filename || 'documento.pdf').replace(/[\\/:"*?<>|]/g, '_'),
+    filters: [{ name: 'PDF', extensions: ['pdf'] }],
+  })
+  if (canceled || !filePath) return { ok: false, canceled: true }
+  const tmpPath = path.join(app.getPath('temp'), `it_print_${Date.now()}.html`)
+  let pwin = null
+  try {
+    fs.writeFileSync(tmpPath, html, 'utf-8')
+    pwin = new BrowserWindow({ show: false, width: 1280, height: 900, webPreferences: { javascript: false } })
+    await pwin.loadFile(tmpPath)
+    const data = await pwin.webContents.printToPDF({
+      printBackground: true, pageSize: 'A4', landscape: !!landscape,
+      margins: { marginType: 'minimum' }, displayHeaderFooter: false,
+    })
+    fs.writeFileSync(filePath, data)
+    shell.openPath(filePath)
+    return { ok: true, filePath }
+  } catch (err) {
+    return { ok: false, error: String(err) }
+  } finally {
+    try { if (pwin) pwin.destroy() } catch {}
+    try { fs.unlinkSync(tmpPath) } catch {}
+  }
+})
+
 ipcMain.handle('pdf:followup', async (_, { html, filename, landscape }) => {
   const tmpPath = path.join(app.getPath('temp'), `fu_print_${Date.now()}.html`)
   let win = null

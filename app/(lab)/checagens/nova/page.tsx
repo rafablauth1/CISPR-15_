@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, Trash2, Loader2, Upload, ScanText, Save, FileSearch, Grid3x3, X, AlertTriangle } from 'lucide-react'
+import { Plus, Trash2, Loader2, Upload, ScanText, Save, FileSearch, Grid3x3, X, AlertTriangle, BookOpen } from 'lucide-react'
+import { DocumentoITView } from '@/components/DocumentoITView'
 import { cn } from '@/lib/utils'
 import { addM } from '@/lib/utils'
 import { extrairTextoArquivo } from '@/lib/useOCR'
@@ -544,6 +545,8 @@ export default function NovaChecagemPage() {
   // Importação de pontos do certificado (clicar nos pontos → vira ponto de checagem)
   const [showCertImport, setShowCertImport] = useState(false)
   const [certSel,        setCertSel]        = useState<Set<number>>(new Set())
+  // Consulta de IT (visualização read-only) — aberta a partir do subgrupo do equipamento
+  const [itConsulta,     setItConsulta]     = useState<DocumentoIT | null>(null)
   const [loading,        setLoading]       = useState(false)
   const [salvando,       setSalvando]      = useState(false)
   const [editId,         setEditId]        = useState<string | null>(null)
@@ -972,6 +975,12 @@ export default function NovaChecagemPage() {
     return docsIT.filter(d => d.codigo && cods.includes(normCodigo(d.codigo)))
   })()
 
+  // IT/PC para CONSULTA pelo SUBGRUPO do equipamento (independe do código de procedimento)
+  const docsPorSubgrupo = (() => {
+    if (!equip?.subgrupoId) return []
+    return docsIT.filter(d => d.subgrupoId && d.subgrupoId === equip.subgrupoId)
+  })()
+
   // Aplica as grandezas de uma IT/PC à tabela de pontos (reusa o parser de IT)
   function aplicarIT(doc: DocumentoIT) {
     const texto = flattenDoc(doc)
@@ -1042,6 +1051,27 @@ export default function NovaChecagemPage() {
             )}
           </div>
         )}
+
+        {/* Consultar IT pelo SUBGRUPO do equipamento (apenas visualização) */}
+        {equip && docsPorSubgrupo.length > 0 && (
+          <div className="mb-4 rounded-xl border border-teal/20 p-3" style={{ background: 'rgba(45,212,191,0.05)' }}>
+            <p className="text-[10px] font-mono uppercase tracking-wider text-teal/80 mb-2 flex items-center gap-1.5">
+              <BookOpen size={11}/> Instruções de trabalho do subgrupo
+            </p>
+            <div className="flex flex-col gap-1.5">
+              {docsPorSubgrupo.map(d => (
+                <div key={d.id} className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] text-white/70 font-mono">{d.codigo || '—'}</span>
+                  <span className="text-[11px] text-white/45 flex-1 min-w-0 truncate">{d.titulo}</span>
+                  <button type="button" onClick={()=>setItConsulta(d)} className="btn-secondary text-[11px] py-1">
+                    <BookOpen size={11}/> Consultar IT
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-4 mb-4">
           <div>
             <label className="text-[10px] font-mono tracking-[2px] uppercase text-white/40 block mb-1">Instrumento de medição</label>
@@ -1482,6 +1512,26 @@ export default function NovaChecagemPage() {
               <button type="button" onClick={importarPontosDoCert} className="btn-primary text-sm" disabled={certSel.size === 0}>
                 Importar {certSel.size} ponto(s)
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: consultar IT (somente leitura) ── */}
+      {itConsulta && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+             style={{ background: 'rgba(0,0,0,0.6)' }}
+             onClick={() => setItConsulta(null)}>
+          <div className="w-full max-w-3xl max-h-[88vh] flex flex-col"
+               onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-end mb-2">
+              <button type="button" onClick={() => setItConsulta(null)}
+                className="btn-secondary text-[11px] gap-1.5">
+                <X size={13}/> Fechar
+              </button>
+            </div>
+            <div className="overflow-auto rounded-xl">
+              <DocumentoITView doc={itConsulta} />
             </div>
           </div>
         </div>

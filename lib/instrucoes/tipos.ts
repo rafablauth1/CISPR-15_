@@ -6,16 +6,26 @@ export type TipoBloco =
   | 'ul' | 'ol'
   | 'img' | 'tabela' | 'definicoes'
 
-export interface BlocoH1        { id: string; tipo: 'h1';        numero: string; texto: string }
-export interface BlocoH2        { id: string; tipo: 'h2';        numero: string; texto: string }
-export interface BlocoH3        { id: string; tipo: 'h3';        numero: string; texto: string }
-export interface BlocoP         { id: string; tipo: 'p';         texto: string }
-export interface BlocoDestaque  { id: string; tipo: 'destaque';  termo: string; texto: string }
-export interface BlocoUL        { id: string; tipo: 'ul';        itens: string[] }
-export interface BlocoOL        { id: string; tipo: 'ol';        itens: string[] }
-export interface BlocoImg       { id: string; tipo: 'img';       src: string; legenda: string }
-export interface BlocoTabela    { id: string; tipo: 'tabela';    cabecalho: string[]; linhas: string[][] }
-export interface BlocoDefinicoes { id: string; tipo: 'definicoes'; itens: { sigla: string; definicao: string }[] }
+// Estilo de fonte opcional por bloco (família e tamanho em pt). Quando ausente,
+// usa o padrão do documento (Arial, tamanhos por tipo de bloco).
+export interface EstiloBloco { fonte?: string; tamanho?: number }
+
+export interface BlocoH1        extends EstiloBloco { id: string; tipo: 'h1';        numero: string; texto: string }
+export interface BlocoH2        extends EstiloBloco { id: string; tipo: 'h2';        numero: string; texto: string }
+export interface BlocoH3        extends EstiloBloco { id: string; tipo: 'h3';        numero: string; texto: string }
+export interface BlocoP         extends EstiloBloco { id: string; tipo: 'p';         texto: string }
+export interface BlocoDestaque  extends EstiloBloco { id: string; tipo: 'destaque';  termo: string; texto: string }
+export interface BlocoUL        extends EstiloBloco { id: string; tipo: 'ul';        itens: string[] }
+export interface BlocoOL        extends EstiloBloco { id: string; tipo: 'ol';        itens: string[] }
+export interface BlocoImg       extends EstiloBloco { id: string; tipo: 'img';       src: string; legenda: string }
+export interface BlocoTabela    extends EstiloBloco { id: string; tipo: 'tabela';    cabecalho: string[]; linhas: string[][] }
+export interface BlocoDefinicoes extends EstiloBloco { id: string; tipo: 'definicoes'; itens: { sigla: string; definicao: string }[] }
+
+// Fontes disponíveis para escolha por bloco (web-safe / instaladas no Windows).
+export const FONTES_DISPONIVEIS = [
+  'Arial', 'Calibri', 'Times New Roman', 'Georgia',
+  'Verdana', 'Tahoma', 'Courier New', 'Cambria',
+]
 
 export type Bloco =
   | BlocoH1 | BlocoH2 | BlocoH3
@@ -28,6 +38,8 @@ export interface DocumentoIT {
   tipoDocumento: TipoDocumento
   codigo: string      // ex: "PC R04", "IT-001"
   titulo: string      // ex: "Atenuador"
+  grupoId?: string    // grupo de equipamento ao qual a IT se aplica (taxonomia /api/grupos)
+  subgrupoId?: string // subgrupo — usado p/ "consultar IT" na checagem pelo subgrupo do equipamento
   revisao: string     // ex: "00"
   dataRevisao: string // YYYY-MM-DD
   revisadoPor: string
