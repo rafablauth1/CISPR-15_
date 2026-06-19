@@ -13,12 +13,18 @@ const DEFAULTS: AppSettings = {
   pdfAutoSaveToEut: true,
 }
 
-export function getSettingsFilePath(): string {
-  const userDataDir =
+// Pasta de userData — MESMA que o Electron usa (app.getPath('userData') =
+// %APPDATA%/CISPR 15 LABELO). É gravável; o cwd do servidor Next empacotado NÃO é.
+export function getUserDataDir(): string {
+  return (
     process.env.CISPR_USER_DATA ||
     (process.env.APPDATA ? path.join(process.env.APPDATA, 'CISPR 15 LABELO') : null) ||
     path.join(process.env.HOME || '.', '.cispr15-labelo')
-  return path.join(userDataDir, 'settings.json')
+  )
+}
+
+export function getSettingsFilePath(): string {
+  return path.join(getUserDataDir(), 'settings.json')
 }
 
 export function readSettings(): AppSettings {

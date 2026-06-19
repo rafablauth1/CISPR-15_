@@ -1,10 +1,13 @@
 import fs from 'fs'
 import path from 'path'
-import { readSettings } from '@/lib/settings-server'
+import { readSettings, getUserDataDir } from '@/lib/settings-server'
 
 function getDadosDir(): string {
   const { dataFolder } = readSettings()
-  return dataFolder || path.join(process.cwd(), 'dados')
+  // Sem pasta de rede configurada, grava em userData/dados (MESMO lugar gravável do
+  // Electron). NUNCA usar process.cwd(): no app empacotado é a pasta de instalação
+  // (somente leitura) → escrita falha e "não salva" grupos/labs/equipamentos.
+  return dataFolder || path.join(getUserDataDir(), 'dados')
 }
 
 export function lerJSON<T>(arquivo: string, padrao: T): T {

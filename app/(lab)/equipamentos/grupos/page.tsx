@@ -138,6 +138,8 @@ export default function GruposEditorPage() {
   const [grupoAlvo, setGrupoAlvo] = useState<Grupo | null>(null)
   const [subAlvo,   setSubAlvo]   = useState<Subgrupo | null>(null)
   const [equips,    setEquips]    = useState<{ id: string; nome: string; grupoId: string; subgrupoId: string }[]>([])
+  const [ordenarPor, setOrdenarPor] = useState<'qtd' | 'nome'>('qtd')
+  const [buscaTipo,  setBuscaTipo]  = useState('')
 
   async function carregar() {
     setLoading(true)
@@ -159,16 +161,22 @@ export default function GruposEditorPage() {
       if (t) t.qtd++
       else m.set(nome, { nome, qtd: 1, grupoId: e.grupoId, subgrupoId: e.subgrupoId })
     }
-    return [...m.values()].sort((a, b) => a.nome.localeCompare(b.nome))
-  }, [equips])
+    const q = buscaTipo.trim().toLowerCase()
+    return [...m.values()]
+      .filter(t => !q || t.nome.toLowerCase().includes(q))
+      .sort((a, b) => ordenarPor === 'qtd' ? (b.qtd - a.qtd || a.nome.localeCompare(b.nome)) : a.nome.localeCompare(b.nome))
+  }, [equips, ordenarPor, buscaTipo])
 
   // Reatribui (em lote, por nome) todos os equipamentos daquele tipo a um grupo/subgrupo.
+  // Atualiza em MEMÓRIA (sem recarregar) p/ não resetar o scroll da página.
   async function atribuirTipo(nome: string, grupoId: string, subgrupoId: string) {
-    await fetch('/api/equipamentos', {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nome, grupoId, subgrupoId }),
-    })
-    carregar()
+    setEquips(es => es.map(e => e.nome === nome ? { ...e, grupoId, subgrupoId } : e))
+    try {
+      await fetch('/api/equipamentos', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nome, grupoId, subgrupoId }),
+      })
+    } catch { carregar() }   // se falhar, recarrega pra refletir o estado real
   }
 
   useEffect(() => { carregar() }, [])
@@ -242,15 +250,28 @@ export default function GruposEditorPage() {
       </div>
 
       {/* Tipos de equipamento — atribuir cada NOME a um grupo/subgrupo (em lote) */}
-      {!loading && tipos.length > 0 && (
+      {!loading && equips.length > 0 && (
         <div className="card p-5 mb-3">
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             <Layers size={15} className="text-teal" />
             <h2 className="font-display font-bold text-[14px] text-white">Tipos de equipamento</h2>
-            <span className="text-[10px] font-mono text-white/30">{tipos.length} nomes distintos</span>
+            <span className="text-[10px] font-mono text-white/30">{tipos.length} nomes</span>
+            <div className="flex-1" />
+            <input value={buscaTipo} onChange={e => setBuscaTipo(e.target.value)}
+              placeholder="buscar nome…" className="input text-[11px] py-1 w-40" />
+            <div className="flex gap-0.5 p-0.5 rounded-lg bg-white/4 border border-white/8">
+              {(['qtd', 'nome'] as const).map(o => (
+                <button key={o} type="button" onClick={() => setOrdenarPor(o)}
+                  className={cn('px-2 py-0.5 rounded text-[10px] font-semibold transition-all',
+                    ordenarPor === o ? 'bg-white/10 text-white' : 'text-white/35 hover:text-white/60')}>
+                  {o === 'qtd' ? 'Mais unidades' : 'Nome'}
+                </button>
+              ))}
+            </div>
           </div>
           <p className="text-[11px] text-white/35 mb-3">Atribua cada nome a um grupo e subgrupo — vale para todos os equipamentos com esse nome.</p>
           <div className="max-h-[420px] overflow-y-auto pr-1 space-y-1">
+            {tipos.length === 0 && <p className="text-[11px] text-white/25 italic py-2">Nenhum tipo encontrado.</p>}
             {tipos.map(t => {
               const g = grupos.find(x => x.id === t.grupoId)
               return (

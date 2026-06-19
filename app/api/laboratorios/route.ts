@@ -8,8 +8,19 @@ export async function GET() {
 export async function PUT(req: NextRequest) {
   try {
     const body = (await req.json()) as LaboratorioCal[]
-    const limpo = (Array.isArray(body) ? body : [])
-      .map(l => ({ cal: (l.cal || '').toUpperCase().replace(/\s+/g, ' ').trim(), nome: (l.nome || '').trim(), modelo: l.modelo?.trim() || undefined }))
+    const limparCampos = (c?: LaboratorioCal['campos']): LaboratorioCal['campos'] | undefined => {
+      if (!c) return undefined
+      const out: Record<string, string> = {}
+      for (const [k, v] of Object.entries(c)) { const s = (v || '').trim(); if (s) out[k] = s }
+      return Object.keys(out).length ? out : undefined
+    }
+    const limpo: LaboratorioCal[] = (Array.isArray(body) ? body : [])
+      .map(l => ({
+        cal: (l.cal || '').toUpperCase().replace(/\s+/g, ' ').trim(),
+        nome: (l.nome || '').trim(),
+        modelo: l.modelo?.trim() || undefined,
+        campos: limparCampos(l.campos),   // preserva o MODELO DE EXTRAÇÃO por lab
+      }))
       .filter(l => l.cal)
     salvarLaboratorios(limpo)
     return NextResponse.json(limpo)
