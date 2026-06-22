@@ -65,6 +65,7 @@ export default function CheckPage() {
   const formFileRef = useRef<HTMLInputElement>(null)
   const detailFileRef = useRef<HTMLInputElement>(null)
   const toastT = useRef<ReturnType<typeof setTimeout>>()
+  const busyRef = useRef(false) // true enquanto edita/arrasta → pausa o refresh ao vivo
 
   const { tarefas, categorias } = board
 
@@ -75,6 +76,23 @@ export default function CheckPage() {
       .then((b: BoardCheck) => setBoard(b?.tarefas ? b : boardPadrao()))
       .catch(() => setBoard(boardPadrao()))
       .finally(() => setCarregando(false))
+  }, [])
+
+  // ── refresh ao vivo ──
+  // Recarrega o board a cada 4s para refletir progresso escrito por fora
+  // (ex.: eu implementando demandas do DEMANDAS.md via /api/check/progress).
+  // Pausa enquanto o usuário edita/arrasta para não atropelar a interação.
+  useEffect(() => {
+    const iv = setInterval(async () => {
+      if (busyRef.current) return
+      try {
+        const r = await fetch('/api/check', { cache: 'no-store' })
+        if (!r.ok) return
+        const b: BoardCheck = await r.json()
+        setBoard((prev) => (JSON.stringify(prev) === JSON.stringify(b) ? prev : b))
+      } catch { /* offline momentâneo */ }
+    }, 4000)
+    return () => clearInterval(iv)
   }, [])
 
   const flash = useCallback((m: string) => {
@@ -240,6 +258,10 @@ export default function CheckPage() {
 
   const detalhe = detailId ? tarefas.find((t) => t.id === detailId) : null
   const prioBadge = (p: PrioTarefa) => p === 'alta' ? 'badge-danger' : p === 'media' ? 'badge-warning' : 'badge'
+  const temErro = (t: Tarefa) => t.log?.[0]?.what?.startsWith('⚠️')
+
+  // pausa o refresh ao vivo enquanto há modal aberto ou arraste em curso
+  busyRef.current = !!form || !!detailId || !!novaArea || drag.id != null
 
   return (
     <div className="pb-20">
@@ -247,8 +269,13 @@ export default function CheckPage() {
       <header className="card-accent p-5 mb-5">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
-            <h1 className="text-lg font-bold text-white">Check · Gerenciador de Demandas</h1>
-            <p className="text-[11px] text-white/35 font-mono mt-0.5">fila interna do projeto · exporta DEMANDAS.md</p>
+            <h1 className="text-lg font-bold text-white flex items-center gap-2">
+              Check · Gerenciador de Demandas
+              <span className="inline-flex items-center gap-1 text-[10px] font-mono font-normal text-teal/80">
+                <span className="w-1.5 h-1.5 rounded-full bg-teal pulse-dot" /> ao vivo
+              </span>
+            </h1>
+            <p className="text-[11px] text-white/35 font-mono mt-0.5">fila interna do projeto · exporta DEMANDAS.md · atualiza sozinho</p>
           </div>
           <div className="flex gap-2 flex-wrap">
             <span className="badge bg-white/5 border border-white/10 text-white/70"><b className="text-gold mr-1">{todo}</b> a fazer</span>
@@ -326,7 +353,10 @@ export default function CheckPage() {
                     className={cn('card p-3 mb-2.5 cursor-pointer hover:-translate-y-0.5 transition-transform',
                       drag.id === t.id && 'opacity-50')}
                     style={{ borderLeft: `3px solid ${categorias[t.cat] || '#64748B'}` }}>
-                    <h3 className="text-[13px] font-semibold text-white/90 leading-snug">{t.title}</h3>
+                    <h3 className="text-[13px] font-semibold text-white/90 leading-snug flex items-start gap-1.5">
+                      {temErro(t) && <span title="Último registro com erro" className="text-red-400 flex-shrink-0">⚠️</span>}
+                      <span>{t.title}</span>
+                    </h3>
                     {t.desc && <p className="text-[12px] text-white/45 mt-1.5 line-clamp-2">{t.desc}</p>}
                     <div className="flex items-center gap-1.5 flex-wrap mt-2.5">
                       <span className="badge text-white" style={{ background: categorias[t.cat] || '#64748B' }}>{t.cat}</span>
@@ -451,13 +481,16 @@ export default function CheckPage() {
 
             <p className="text-[12px] font-semibold text-white/80 mb-2 mt-6">📝 Progresso &amp; anotações</p>
             <ul className="space-y-0 max-h-[230px] overflow-auto mb-3">
-              {detalhe.log.length ? detalhe.log.map((l, i) => (
-                <li key={i} className="relative pl-5 pb-3.5 border-l border-white/10 last:border-transparent">
-                  <span className="absolute -left-[5px] top-1 w-2.5 h-2.5 rounded-full bg-teal border-2 border-navy" />
-                  <div className="text-[11px] text-white/35 font-mono">{l.when}</div>
-                  <div className="text-[13px] text-white/80 mt-0.5 whitespace-pre-wrap">{l.what}</div>
-                </li>
-              )) : <li className="text-white/30 text-[12px]">Sem anotações ainda.</li>}
+              {detalhe.log.length ? detalhe.log.map((l, i) => {
+                const erro = l.what.startsWith('⚠️')
+                return (
+                  <li key={i} className="relative pl-5 pb-3.5 border-l border-white/10 last:border-transparent">
+                    <span className={cn('absolute -left-[5px] top-1 w-2.5 h-2.5 rounded-full border-2 border-navy', erro ? 'bg-red-400' : 'bg-teal')} />
+                    <div className="text-[11px] text-white/35 font-mono">{l.when}</div>
+                    <div className={cn('text-[13px] mt-0.5 whitespace-pre-wrap', erro ? 'text-red-300' : 'text-white/80')}>{l.what}</div>
+                  </li>
+                )
+              }) : <li className="text-white/30 text-[12px]">Sem anotações ainda.</li>}
             </ul>
             <div className="flex gap-2 items-end">
               <textarea className="input min-h-[44px] resize-y flex-1" value={nota} onChange={(e) => setNota(e.target.value)}
