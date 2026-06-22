@@ -26,3 +26,7 @@ null
 # saídas locais de análise de certificados (não versionar)
 tmp_cert_extract/
 tmp_test/
+
+# quadro Check (interno/temporário): fila de demandas gerada pelo /check.html
+DEMANDAS.md
+check-demandas.md

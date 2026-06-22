@@ -559,6 +559,8 @@ function buildMenu(port) {
         { label: 'Checagens', click: () => openPage(BrowserWindow.getFocusedWindow(), '/checagens') },
         { type: 'separator' },
         { label: 'Grupos de Equipamentos', click: () => openPage(BrowserWindow.getFocusedWindow(), '/equipamentos/grupos') },
+        { type: 'separator' },
+        { label: 'Check — Demandas (interno)', click: () => openPage(BrowserWindow.getFocusedWindow(), '/check.html') },
       ],
     },
     {
