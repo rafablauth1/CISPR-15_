@@ -19,7 +19,6 @@ const NAV: NavGroup[] = [
     items: [
       { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
       { href: '/agenda',    icon: Calendar,         label: 'Agenda' },
-      { href: '/check',     icon: KanbanSquare,     label: 'Demandas' },
     ],
   },
   {
@@ -41,6 +40,12 @@ const NAV: NavGroup[] = [
       { href: '/equipamentos/grupos', icon: Network,        label: 'Grupos' },
       { href: '/taxonomia',           icon: Tags,           label: 'Áreas & Siglas' },
       { href: '/grandezas',           icon: Ruler,          label: 'Grandezas' },
+    ],
+  },
+  {
+    label: 'INTERNO',
+    items: [
+      { href: '/check', icon: KanbanSquare, label: 'Demandas' },
     ],
   },
 ]
