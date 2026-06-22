@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, FileText, Cpu, BookOpen, Calendar,
-  ClipboardCheck, Network, Ruler, Settings, Award, FlaskConical, Layers, Target, Tags, BadgeCheck,
+  ClipboardCheck, Network, Ruler, Settings, Award, FlaskConical, Layers, Target, Tags, BadgeCheck, KanbanSquare,
 } from 'lucide-react'
 import { LOTE_KEY } from '@/app/cispr15/types'
 
@@ -19,6 +19,7 @@ const NAV: NavGroup[] = [
     items: [
       { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
       { href: '/agenda',    icon: Calendar,         label: 'Agenda' },
+      { href: '/check',     icon: KanbanSquare,     label: 'Demandas' },
     ],
   },
   {

@@ -560,7 +560,7 @@ function buildMenu(port) {
         { type: 'separator' },
         { label: 'Grupos de Equipamentos', click: () => openPage(BrowserWindow.getFocusedWindow(), '/equipamentos/grupos') },
         { type: 'separator' },
-        { label: 'Check — Demandas (interno)', click: () => openPage(BrowserWindow.getFocusedWindow(), '/check.html') },
+        { label: 'Check — Demandas (interno)', click: () => openPage(BrowserWindow.getFocusedWindow(), '/check') },
       ],
     },
     {
