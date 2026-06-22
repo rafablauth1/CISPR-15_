@@ -28,18 +28,23 @@ const NAV: NavGroup[] = [
     ],
   },
   {
-    label: 'QUALIDADE',
+    label: 'ENSAIOS',
     items: [
       { href: '/checagens',           icon: ClipboardCheck, label: 'Checagens' },
       { href: '/equipamentos',        icon: Cpu,            label: 'Equipamentos' },
+      { href: '/equipamentos/grupos', icon: Network,        label: 'Grupos' },
       { href: '/normas',              icon: BookOpen,       label: 'Normas' },
       { href: '/procedimentos',       icon: FlaskConical,   label: 'Procedimentos' },
+    ],
+  },
+  {
+    label: 'METROLOGIA',
+    items: [
       { href: '/certificados',        icon: Award,          label: 'Certificados' },
       { href: '/laboratorios',        icon: BadgeCheck,     label: 'Laboratórios' },
       { href: '/planos-calibracao',   icon: Target,         label: 'Planos de Calibração' },
-      { href: '/equipamentos/grupos', icon: Network,        label: 'Grupos' },
-      { href: '/taxonomia',           icon: Tags,           label: 'Áreas & Siglas' },
       { href: '/grandezas',           icon: Ruler,          label: 'Grandezas' },
+      { href: '/taxonomia',           icon: Tags,           label: 'Áreas & Siglas' },
     ],
   },
   {

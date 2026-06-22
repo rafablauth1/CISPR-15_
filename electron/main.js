@@ -389,6 +389,7 @@ async function createWindow() {
     backgroundColor: '#0B0E14',
     icon: nativeImage.createFromPath(ICON_PATH),
     show: false,
+    autoHideMenuBar: true,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -398,7 +399,10 @@ async function createWindow() {
 
   /* Barra de título nativa em dark mode para combinar com o tema escuro do app. */
   nativeTheme.themeSource = 'dark'
-  win.setMenuBarVisibility(true)
+  // Menu nativo escondido (Alt revela): a faixa clara do Windows destoava do
+  // tema dark e poluía o topo. Navegação completa fica na sidebar.
+  win.setMenuBarVisibility(false)
+  win.autoHideMenuBar = true
 
 
   const HIDE_CHROME_CSS = `header.sticky { display: none !important; }`
