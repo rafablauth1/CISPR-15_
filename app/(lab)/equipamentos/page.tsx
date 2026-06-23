@@ -274,16 +274,48 @@ export default function EquipamentosPage() {
 
   const temFiltro = fAreas.length + fSiglas.length + fGrupos.length + fSubs.length + fPend.length > 0 || !!busca.trim()
   const limpar = () => { setFAreas([]); setFSiglas([]); setFGrupos([]); setFSubs([]); setFPend([]); setBusca('') }
-  const pendPorTipo = (id: string) => equips.filter(e => codigosPendencia(e).includes(id)).length
 
   // Área de um equipamento = área da sigla da sua TAG (via taxonomia)
   const areaDoEquip = (e: EquipamentoEMC) =>
     tax.siglas.find(x => x.sigla === siglaDaTag(e.tag))?.areaId ?? ''
-  // Áreas presentes (com pelo menos 1 equipamento)
+
+  // ── Filtros ENCADEADOS (faceted) ──────────────────────────────────────────
+  // Cada dimensão é um predicado independente. Os contadores de cada dropdown
+  // são calculados sobre o conjunto filtrado por TODAS as OUTRAS dimensões — só
+  // não por si mesmo (senão suas opções colapsariam nas já marcadas). Assim,
+  // marcar uma sigla recalcula os contadores de grupos/subgrupos/pendências
+  // consequentes do filtro.
+  const _q = busca.trim().toLowerCase()
+  const passa = {
+    area:  (e: EquipamentoEMC) => fAreas.length === 0  || fAreas.includes(areaDoEquip(e)),
+    sigla: (e: EquipamentoEMC) => fSiglas.length === 0 || fSiglas.includes(siglaDaTag(e.tag)),
+    grupo: (e: EquipamentoEMC) => fGrupos.length === 0 || fGrupos.includes(e.grupoId),
+    sub:   (e: EquipamentoEMC) => fSubs.length === 0   || fSubs.includes(e.subgrupoId),
+    pend:  (e: EquipamentoEMC) => fPend.length === 0   || fPend.some(t => {
+      const cods = codigosPendencia(e)
+      if (t === 'vencido') return cods.includes('vencido') && mesesVencido(e) >= VENC_DEGRAUS[vencIdx].meses
+      return cods.includes(t)
+    }),
+    busca: (e: EquipamentoEMC) => !_q || e.tag.toLowerCase().includes(_q) || e.nome.toLowerCase().includes(_q),
+  }
+  type Dim = keyof typeof passa
+  const DIMS = Object.keys(passa) as Dim[]
+  // Equipamentos que passam por todas as dimensões, exceto a indicada.
+  const filtrarExceto = (exceto: Dim) => equips.filter(e => DIMS.every(d => d === exceto || passa[d](e)))
+  const baseArea  = filtrarExceto('area')
+  const baseSigla = filtrarExceto('sigla')
+  const baseGrupo = filtrarExceto('grupo')
+  const baseSub   = filtrarExceto('sub')
+  const basePend  = filtrarExceto('pend')
+
+  const pendPorTipo = (id: string) => basePend.filter(e => codigosPendencia(e).includes(id)).length
+
+  // Áreas presentes (com pelo menos 1 equipamento no conjunto encadeado)
   const areasPresentes = (() => {
     const cont = new Map<string, number>()
-    for (const e of equips) { const a = areaDoEquip(e); if (a) cont.set(a, (cont.get(a) ?? 0) + 1) }
-    return tax.areas.filter(a => cont.has(a.id)).map(a => ({ id: a.id, nome: a.nome, n: cont.get(a.id)!, cor: GRUPO_CORES[a.cor] ?? '#94A3B8' }))
+    for (const e of baseArea) { const a = areaDoEquip(e); if (a) cont.set(a, (cont.get(a) ?? 0) + 1) }
+    return tax.areas.filter(a => cont.has(a.id) || fAreas.includes(a.id))
+      .map(a => ({ id: a.id, nome: a.nome, n: cont.get(a.id) ?? 0, cor: GRUPO_CORES[a.cor] ?? '#94A3B8' }))
   })()
 
   function clicarSort(k: SortKey) {
@@ -291,10 +323,11 @@ export default function EquipamentosPage() {
     else { setSortKey(k); setSortDir('asc') }
   }
 
-  // Siglas presentes nas TAGs + significado/área da taxonomia
+  // Siglas presentes nas TAGs + significado/área da taxonomia (conjunto encadeado)
   const siglasPresentes = (() => {
     const cont = new Map<string, number>()
-    for (const e of equips) { const s = siglaDaTag(e.tag); if (s) cont.set(s, (cont.get(s) ?? 0) + 1) }
+    for (const e of baseSigla) { const s = siglaDaTag(e.tag); if (s) cont.set(s, (cont.get(s) ?? 0) + 1) }
+    for (const s of fSiglas) if (!cont.has(s)) cont.set(s, 0)   // mantém visíveis as já marcadas
     return [...cont.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([sigla, n]) => {
       const def = tax.siglas.find(x => x.sigla === sigla)
       const area = def ? tax.areas.find(a => a.id === def.areaId) : undefined
@@ -305,19 +338,7 @@ export default function EquipamentosPage() {
   // Aplica filtros (AND entre dimensões, OR dentro de cada uma) + ordenação
   const grupoNome = (id: string) => grupos.find(g => g.id === id)?.nome ?? id
   const equipsFiltrados = (() => {
-    const q = busca.trim().toLowerCase()
-    let lista = equips.filter(e =>
-      (fAreas.length  === 0 || fAreas.includes(areaDoEquip(e))) &&
-      (fSiglas.length === 0 || fSiglas.includes(siglaDaTag(e.tag))) &&
-      (fGrupos.length === 0 || fGrupos.includes(e.grupoId)) &&
-      (fSubs.length   === 0 || fSubs.includes(e.subgrupoId)) &&
-      (fPend.length === 0 || fPend.some(t => {
-        const cods = codigosPendencia(e)
-        if (t === 'vencido') return cods.includes('vencido') && mesesVencido(e) >= VENC_DEGRAUS[vencIdx].meses
-        return cods.includes(t)
-      })) &&
-      (!q || e.tag.toLowerCase().includes(q) || e.nome.toLowerCase().includes(q)),
-    )
+    let lista = equips.filter(e => DIMS.every(d => passa[d](e)))
     const dir = sortDir === 'asc' ? 1 : -1
     const val = (e: EquipamentoEMC): string =>
       sortKey === 'tag'   ? e.tag :
@@ -638,9 +659,9 @@ export default function EquipamentosPage() {
           <FilterDropdown label="Siglas" selected={fSiglas} onChange={setFSiglas}
             options={siglasPresentes.map(s => ({ id: s.sigla, label: s.significado ? `${s.sigla} · ${s.significado}` : s.sigla, count: s.n, color: s.cor }))} />
           <FilterDropdown label="Grupos" selected={fGrupos} onChange={setFGrupos}
-            options={grupos.map(g => ({ id: g.id, label: g.nome, count: equips.filter(e => e.grupoId === g.id).length, color: GRUPO_CORES[g.cor] ?? '#94A3B8' }))} />
+            options={grupos.map(g => ({ id: g.id, label: g.nome, count: baseGrupo.filter(e => e.grupoId === g.id).length, color: GRUPO_CORES[g.cor] ?? '#94A3B8' })).filter(o => o.count > 0 || fGrupos.includes(o.id))} />
           <FilterDropdown label="Subgrupos" selected={fSubs} onChange={setFSubs}
-            options={grupos.flatMap(g => g.subgrupos.map(s => ({ id: s.id, label: s.nome, count: equips.filter(e => e.subgrupoId === s.id).length, color: GRUPO_CORES[g.cor] ?? '#94A3B8' }))).filter(o => o.count > 0 || fSubs.includes(o.id))} />
+            options={grupos.flatMap(g => g.subgrupos.map(s => ({ id: s.id, label: s.nome, count: baseSub.filter(e => e.subgrupoId === s.id).length, color: GRUPO_CORES[g.cor] ?? '#94A3B8' }))).filter(o => o.count > 0 || fSubs.includes(o.id))} />
           <FilterDropdown label="Pendências" selected={fPend} onChange={setFPend} icon={<AlertTriangle size={12}/>}
             options={PEND_OPCOES.map(o => ({ id: o.id, label: o.label, count: pendPorTipo(o.id) })).filter(o => o.count > 0 || fPend.includes(o.id))} />
           {temFiltro && (
