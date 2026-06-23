@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter, useParams } from 'next/navigation'
-import Link from 'next/link'
 import {
   Save, Plus, Trash2, ChevronUp, ChevronDown,
   Eye, EyeOff, Image as ImageIcon, Check, Download,
@@ -538,23 +537,39 @@ export default function EditorInstrucaoPage() {
   const [erro, setErro] = useState('')
   const [baixando, setBaixando] = useState(false)
   const [grupos, setGrupos] = useState<GrupoTax[]>([])
+  // Há alterações não salvas? Bloqueia sair sem salvar.
+  const [alterado, setAlterado] = useState(false)
 
   useEffect(() => {
     fetch(`/api/instrucoes/${id}`)
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d) setDoc(d) })
+      .then(d => { if (d) { setDoc(d); setAlterado(false) } })
       .catch(() => {})
     fetch('/api/grupos').then(r => r.json()).then(g => setGrupos(Array.isArray(g) ? g : [])).catch(() => {})
   }, [id])
 
+  // Avisa ao fechar/recarregar a janela (e ao fechar o app) se houver pendência.
+  useEffect(() => {
+    if (!alterado) return
+    function aviso(e: BeforeUnloadEvent) { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', aviso)
+    return () => window.removeEventListener('beforeunload', aviso)
+  }, [alterado])
+
+  // Navega só se não houver pendência (ou se o usuário confirmar descartar).
+  function sairSeguro(href: string) {
+    if (alterado && !confirm('Deseja retornar sem salvar os dados?')) return
+    router.push(href)
+  }
+
   const updateMeta = useCallback((patch: Partial<DocumentoIT>) => {
     setDoc(prev => prev ? { ...prev, ...patch } : prev)
-    setSaved(false)
+    setSaved(false); setAlterado(true)
   }, [])
 
   const updateBlocos = useCallback((blocos: Bloco[]) => {
     setDoc(prev => prev ? { ...prev, blocos } : prev)
-    setSaved(false)
+    setSaved(false); setAlterado(true)
   }, [])
 
   function addBloco(tipo: TipoBloco, afterIdx?: number) {
@@ -566,7 +581,7 @@ export default function EditorInstrucaoPage() {
       blocos.splice(idx, 0, novo)
       return { ...prev, blocos }
     })
-    setSaved(false)
+    setSaved(false); setAlterado(true)
   }
 
   function updateBloco(i: number, bloco: Bloco) {
@@ -576,7 +591,7 @@ export default function EditorInstrucaoPage() {
       blocos[i] = bloco
       return { ...prev, blocos }
     })
-    setSaved(false)
+    setSaved(false); setAlterado(true)
   }
 
   function deleteBloco(i: number) {
@@ -584,7 +599,7 @@ export default function EditorInstrucaoPage() {
       if (!prev) return prev
       return { ...prev, blocos: prev.blocos.filter((_, idx) => idx !== i) }
     })
-    setSaved(false)
+    setSaved(false); setAlterado(true)
   }
 
   function moveBloco(i: number, dir: -1 | 1) {
@@ -596,7 +611,7 @@ export default function EditorInstrucaoPage() {
       ;[blocos[i], blocos[j]] = [blocos[j], blocos[i]]
       return { ...prev, blocos }
     })
-    setSaved(false)
+    setSaved(false); setAlterado(true)
   }
 
   async function salvar() {
@@ -609,7 +624,7 @@ export default function EditorInstrucaoPage() {
         body: JSON.stringify(doc),
       })
       if (!res.ok) throw new Error(await res.text())
-      setSaved(true)
+      setSaved(true); setAlterado(false)
     } catch (e: unknown) {
       setErro(String(e))
     } finally {
@@ -650,7 +665,8 @@ export default function EditorInstrucaoPage() {
     <div className="max-w-4xl space-y-4 pb-16">
       {/* Toolbar */}
       <div className="flex items-center gap-3 flex-wrap">
-        <Link href="/procedimentos/instrucoes" className="btn-secondary text-[11px]">← Lista</Link>
+        <button type="button" onClick={() => sairSeguro('/procedimentos/instrucoes')}
+          className="btn-secondary text-[11px]">← Lista</button>
 
         <div className="flex-1 min-w-0" />
 
