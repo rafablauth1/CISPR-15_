@@ -4,6 +4,9 @@
 export type StatusTarefa = 'todo' | 'doing' | 'done'
 export type PrioTarefa = 'alta' | 'media' | 'baixa'
 export type TipoTarefa = 'feature' | 'bug' | 'improvement'
+// Validação pelo usuário: 'a-testar' = implementado, aguardando o Rafael testar;
+// depois ele marca 'aprovado' ou 'reprovado'. Ausente = sem ciclo de teste.
+export type StatusTeste = 'a-testar' | 'aprovado' | 'reprovado'
 
 export interface AnexoTarefa {
   fid: string
@@ -26,6 +29,7 @@ export interface Tarefa {
   type: TipoTarefa
   prio: PrioTarefa
   status: StatusTarefa
+  teste?: StatusTeste   // marcador de validação pelo usuário (opcional)
   created: string
   log: LogTarefa[]
   files: AnexoTarefa[]
@@ -45,6 +49,12 @@ export const STATUS: Record<StatusTarefa, { l: string; c: string }> = {
 
 export const PRIO: Record<PrioTarefa, string> = { alta: 'Alta', media: 'Média', baixa: 'Baixa' }
 export const TIPO: Record<TipoTarefa, string> = { feature: 'Func.', bug: 'Bug', improvement: 'Melhoria' }
+
+export const TESTE: Record<StatusTeste, { l: string; c: string; emoji: string }> = {
+  'a-testar':  { l: 'A testar',  c: '#E8B94B', emoji: '🧪' },
+  'aprovado':  { l: 'Aprovado',  c: '#22C55E', emoji: '✅' },
+  'reprovado': { l: 'Reprovado', c: '#F87171', emoji: '❌' },
+}
 
 export const CORES_AREA = [
   '#4F8EF7', '#22D3C8', '#E8B94B', '#A78BFA', '#F87171',

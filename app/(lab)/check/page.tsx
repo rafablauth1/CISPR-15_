@@ -6,8 +6,8 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
-  STATUS, PRIO, TIPO, CORES_AREA, boardPadrao,
-  type BoardCheck, type Tarefa, type StatusTarefa, type PrioTarefa, type TipoTarefa, type AnexoTarefa,
+  STATUS, PRIO, TIPO, TESTE, CORES_AREA, boardPadrao,
+  type BoardCheck, type Tarefa, type StatusTarefa, type StatusTeste, type PrioTarefa, type TipoTarefa, type AnexoTarefa,
 } from '@/lib/check/tipos'
 
 const COLS: { st: StatusTarefa; label: string }[] = [
@@ -162,6 +162,15 @@ export default function CheckPage() {
         ? { ...t, status: st, log: [{ when: now(), what: `Status → ${STATUS[st].l}.` }, ...t.log] }
         : t))
   }
+  // Marca o ciclo de validação. Clicar no marcador já ativo o limpa (volta a sem teste).
+  function marcarTeste(id: string, tt: StatusTeste) {
+    setTarefas((ts) => ts.map((t) => {
+      if (t.id !== id) return t
+      const novo = t.teste === tt ? undefined : tt
+      const what = novo ? `${TESTE[novo].emoji} Teste → ${TESTE[novo].l}.` : 'Marcador de teste removido.'
+      return { ...t, teste: novo, log: [{ when: now(), what }, ...t.log] }
+    }), 'Validação atualizada ✓')
+  }
   function excluir(id: string) {
     if (!confirm('Excluir esta demanda? Não dá pra desfazer.')) return
     setTarefas((ts) => ts.filter((t) => t.id !== id), 'Demanda excluída')
@@ -224,7 +233,8 @@ export default function CheckPage() {
       md += `## ${c}\n`
       its.forEach((t) => {
         const mark = t.status === 'done' ? 'x' : ' '
-        md += `- [${mark}] **${t.title}** _(${PRIO[t.prio]} · ${TIPO[t.type]} · ${STATUS[t.status].l})_\n`
+        const tst = t.teste ? ` · ${TESTE[t.teste].emoji} ${TESTE[t.teste].l}` : ''
+        md += `- [${mark}] **${t.title}** _(${PRIO[t.prio]} · ${TIPO[t.type]} · ${STATUS[t.status].l}${tst})_\n`
         if (t.desc) md += `  - ${t.desc.replace(/\n/g, ' ')}\n`
       })
       md += '\n'
@@ -359,6 +369,13 @@ export default function CheckPage() {
                     </h3>
                     {t.desc && <p className="text-[12px] text-white/45 mt-1.5 line-clamp-2">{t.desc}</p>}
                     <div className="flex items-center gap-1.5 flex-wrap mt-2.5">
+                      {t.teste && (
+                        <span className={cn('badge font-semibold', t.teste === 'a-testar' && 'pulse-dot')}
+                          title={t.teste === 'a-testar' ? 'Implementado — testar e aprovar/reprovar' : `Teste: ${TESTE[t.teste].l}`}
+                          style={{ background: `${TESTE[t.teste].c}22`, color: TESTE[t.teste].c, border: `1px solid ${TESTE[t.teste].c}66` }}>
+                          {TESTE[t.teste].emoji} {TESTE[t.teste].l}
+                        </span>
+                      )}
                       <span className="badge text-white" style={{ background: categorias[t.cat] || '#64748B' }}>{t.cat}</span>
                       <span className="badge bg-white/5 border border-white/10 text-white/55">{TIPO[t.type]}</span>
                       <span className={prioBadge(t.prio)}>{PRIO[t.prio]}</span>
@@ -465,6 +482,24 @@ export default function CheckPage() {
                       on ? 'text-white border-transparent' : 'text-white/50 border-white/10 hover:text-white')}
                     style={on ? { background: STATUS[st].c } : undefined}>
                     {label}
+                  </button>
+                )
+              })}
+            </div>
+
+            <p className="mb-2 text-[12px] font-semibold text-white/80">Teste / Validação</p>
+            {detalhe.teste === 'a-testar' && (
+              <p className="text-[11px] text-gold/90 mb-2">🧪 Implementado — teste e marque <b>Aprovado</b> ou <b>Reprovado</b>.</p>
+            )}
+            <div className="flex gap-2 mb-5">
+              {(['a-testar', 'aprovado', 'reprovado'] as StatusTeste[]).map((tt) => {
+                const on = detalhe.teste === tt
+                return (
+                  <button key={tt} onClick={() => marcarTeste(detalhe.id, tt)}
+                    className={cn('flex-1 rounded-lg py-2 text-[12px] font-semibold border transition-colors',
+                      on ? 'text-white border-transparent' : 'text-white/50 border-white/10 hover:text-white')}
+                    style={on ? { background: TESTE[tt].c } : undefined}>
+                    {TESTE[tt].emoji} {TESTE[tt].l}
                   </button>
                 )
               })}
