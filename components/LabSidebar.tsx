@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, FileText, Cpu, BookOpen, Calendar,
-  ClipboardCheck, Network, Ruler, Settings, Award, FlaskConical, Layers, Target, Tags, BadgeCheck, KanbanSquare,
+  ClipboardCheck, Network, Ruler, Settings, Award, FlaskConical, Layers, Target, Tags, BadgeCheck, KanbanSquare, BookText,
 } from 'lucide-react'
 import { LOTE_KEY } from '@/app/cispr15/types'
 
@@ -45,6 +45,7 @@ const NAV: NavGroup[] = [
       { href: '/planos-calibracao',   icon: Target,         label: 'Planos de Calibração' },
       { href: '/grandezas',           icon: Ruler,          label: 'Grandezas' },
       { href: '/taxonomia',           icon: Tags,           label: 'Áreas & Siglas' },
+      { href: '/glossario',           icon: BookText,       label: 'Glossário' },
     ],
   },
   {
