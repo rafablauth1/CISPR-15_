@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { ArrowLeft, Save, ScanText, Loader2, Image as ImageIcon, X } from 'lucide-react'
 import type { GrupoId, SubgrupoId, StatusEquipamento } from '@/lib/equipamentos/tipos'
 import { STATUS_EQUIP } from '@/lib/equipamentos/tipos'
+import { exigeCalibrarAntesDoUso, anosVencido, ANOS_ANALISE_CRITICA } from '@/lib/equipamentos/calibracao'
 import { parsearDadosPadrao } from '@/lib/certificados/parser'
 import { fileToBase64 } from '@/lib/utils'
 
@@ -155,6 +156,23 @@ export default function NovoEquipamentoPage() {
     ? (grupos.find(g => g.id === form.grupoId)?.subgrupos ?? [])
     : []
 
+  // Vencimento e regra de "calibrar antes do uso" (vencido há +4 anos).
+  const proximaCalibracao = form.ultimaCalibracao
+    ? addMonths(form.ultimaCalibracao, form.intervaloCalibracao)
+    : ''
+  const exigeCAU = exigeCalibrarAntesDoUso(proximaCalibracao)
+
+  // Vencido além da periodicidade da análise crítica → marca "calibrar antes do
+  // uso" automaticamente (só sobre 'ativo'/'calibrar'; respeita marcação manual de
+  // "fora de uso" / "não requer calibração"). Não depende de form.status p/ não
+  // brigar com o usuário caso ele troque de volta.
+  useEffect(() => {
+    if (!exigeCAU) return
+    setForm(prev => (prev.status === 'ativo' || prev.status === 'calibrar')
+      ? { ...prev, status: 'calibrar-antes-uso' }
+      : prev)
+  }, [exigeCAU, proximaCalibracao])
+
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm(prev => ({ ...prev, [key]: value }))
   }
@@ -171,10 +189,6 @@ export default function NovoEquipamentoPage() {
     if (!form.nome.trim())       { setErro('Nome é obrigatório.'); return }
     if (!form.grupoId)           { setErro('Selecione o grupo.'); return }
     if (!form.subgrupoId)        { setErro('Selecione o subgrupo.'); return }
-
-    const proximaCalibracao = form.ultimaCalibracao
-      ? addMonths(form.ultimaCalibracao, form.intervaloCalibracao)
-      : ''
 
     const payload = {
       tag:                form.tag.trim().toUpperCase(),
@@ -458,10 +472,17 @@ export default function NovoEquipamentoPage() {
           {form.ultimaCalibracao && (
             <p className="mt-3 text-[11px] text-white/35 font-mono">
               Próxima calibração calculada:{' '}
-              <span style={{ color: 'var(--accent,#E8B94B)' }}>
-                {addMonths(form.ultimaCalibracao, form.intervaloCalibracao)}
-              </span>
+              <span style={{ color: 'var(--accent,#E8B94B)' }}>{proximaCalibracao}</span>
             </p>
+          )}
+          {exigeCAU && (
+            <div className="mt-3 px-3 py-2 rounded-lg text-[11px] flex items-start gap-2"
+                 style={{ background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', color: '#F87171' }}>
+              <span className="font-semibold flex-shrink-0">Calibrar antes do uso:</span>
+              <span>calibração vencida há ~{Math.floor(anosVencido(proximaCalibracao))} anos (acima da
+                periodicidade de análise crítica de {ANOS_ANALISE_CRITICA} anos). Status marcado
+                automaticamente — calibre antes do próximo uso.</span>
+            </div>
           )}
         </div>
 
