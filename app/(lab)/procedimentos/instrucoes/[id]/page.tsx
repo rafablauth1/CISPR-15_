@@ -1,12 +1,13 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import {
   Save, Plus, Trash2, ChevronUp, ChevronDown,
-  Eye, EyeOff, Image as ImageIcon, Check, Download,
+  Eye, EyeOff, Image as ImageIcon, Check, Download, BookPlus,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { chaveSigla, type ItemGlossario } from '@/lib/glossario'
 import type { CSSProperties } from 'react'
 import {
   FONTES_DISPONIVEIS,
@@ -335,35 +336,77 @@ function EditTabela({ bloco, onChange }: { bloco: BlocoTabela; onChange: (b: Blo
   )
 }
 
-function EditDefinicoes({ bloco, onChange }: { bloco: BlocoDefinicoes; onChange: (b: Bloco) => void }) {
-  function setItem(i: number, field: 'sigla' | 'definicao', v: string) {
-    const itens = bloco.itens.map((item, idx) => idx === i ? { ...item, [field]: v } : item)
+function EditDefinicoes({ bloco, onChange, glossario, onUpsertGlossario }: {
+  bloco: BlocoDefinicoes; onChange: (b: Bloco) => void
+  glossario: ItemGlossario[]; onUpsertGlossario: (sigla: string, definicao: string) => void
+}) {
+  // Mapa sigla→definição do glossário, para puxar automaticamente.
+  const mapa = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const g of glossario) m.set(chaveSigla(g.sigla), g.definicao)
+    return m
+  }, [glossario])
+  const listId = useRef('gloss-' + Math.random().toString(36).slice(2)).current
+
+  function setSigla(i: number, v: string) {
+    const def = mapa.get(chaveSigla(v))
+    const itens = bloco.itens.map((item, idx) => {
+      if (idx !== i) return item
+      // Sigla já no glossário e definição em branco → puxa automaticamente.
+      const definicao = def && !item.definicao.trim() ? def : item.definicao
+      return { ...item, sigla: v, definicao }
+    })
     onChange({ ...bloco, itens })
+  }
+  function setDef(i: number, v: string) {
+    onChange({ ...bloco, itens: bloco.itens.map((item, idx) => idx === i ? { ...item, definicao: v } : item) })
   }
   function add() { onChange({ ...bloco, itens: [...bloco.itens, { sigla: '', definicao: '' }] }) }
   function remove(i: number) {
     if (bloco.itens.length <= 1) return
     onChange({ ...bloco, itens: bloco.itens.filter((_, idx) => idx !== i) })
   }
+
   return (
     <div className="space-y-1.5">
-      {bloco.itens.map((item, i) => (
-        <div key={i} className="flex gap-2 items-center">
-          <input className="input text-[11px] w-28 flex-shrink-0 font-mono font-semibold"
-            placeholder="SIGLA" value={item.sigla} onChange={e => setItem(i, 'sigla', e.target.value)} />
-          <span className="text-white/30 flex-shrink-0">–</span>
-          <input className="input text-[11px] flex-1"
-            placeholder="Definição completa" value={item.definicao} onChange={e => setItem(i, 'definicao', e.target.value)} />
-          <button type="button" onClick={() => remove(i)}
-            className="text-white/20 hover:text-red-400 transition-colors flex-shrink-0">
-            <Trash2 size={11} />
-          </button>
-        </div>
-      ))}
+      <datalist id={listId}>
+        {glossario.map(g => <option key={g.sigla} value={g.sigla}>{g.definicao}</option>)}
+      </datalist>
+      {bloco.itens.map((item, i) => {
+        const noGlossario = mapa.get(chaveSigla(item.sigla))
+        // Pode gravar/atualizar no glossário se tem sigla+definição e ainda não
+        // está idêntico ao registrado.
+        const podeSalvar = !!chaveSigla(item.sigla) && !!item.definicao.trim() && noGlossario !== item.definicao.trim()
+        return (
+          <div key={i} className="flex gap-2 items-center">
+            <input className="input text-[11px] w-28 flex-shrink-0 font-mono font-semibold uppercase"
+              placeholder="SIGLA" list={listId} value={item.sigla} onChange={e => setSigla(i, e.target.value)} />
+            <span className="text-white/30 flex-shrink-0">–</span>
+            <input className="input text-[11px] flex-1"
+              placeholder="Definição completa" value={item.definicao} onChange={e => setDef(i, e.target.value)} />
+            {podeSalvar ? (
+              <button type="button" title="Salvar/atualizar no glossário"
+                onClick={() => onUpsertGlossario(item.sigla, item.definicao)}
+                className="text-white/30 hover:text-teal transition-colors flex-shrink-0">
+                <BookPlus size={12} />
+              </button>
+            ) : noGlossario !== undefined ? (
+              <span title="Definição puxada do glossário" className="text-teal/70 flex-shrink-0"><Check size={12} /></span>
+            ) : (
+              <span className="w-3 flex-shrink-0" />
+            )}
+            <button type="button" onClick={() => remove(i)}
+              className="text-white/20 hover:text-red-400 transition-colors flex-shrink-0">
+              <Trash2 size={11} />
+            </button>
+          </div>
+        )
+      })}
       <button type="button" onClick={add}
         className="flex items-center gap-1.5 text-[11px] text-white/35 hover:text-white/60 transition-colors">
         <Plus size={11} /> Adicionar sigla
       </button>
+      <p className="text-[10px] text-white/25">Digite uma sigla já usada e a definição é puxada do glossário. Use <BookPlus size={9} className="inline" /> para cadastrar uma nova.</p>
     </div>
   )
 }
@@ -408,9 +451,11 @@ interface BlocoCardProps {
   onDelete: () => void
   onMoveUp: () => void
   onMoveDown: () => void
+  glossario: ItemGlossario[]
+  onUpsertGlossario: (sigla: string, definicao: string) => void
 }
 
-function BlocoCard({ bloco, isFirst, isLast, onUpdate, onDelete, onMoveUp, onMoveDown }: BlocoCardProps) {
+function BlocoCard({ bloco, isFirst, isLast, onUpdate, onDelete, onMoveUp, onMoveDown, glossario, onUpsertGlossario }: BlocoCardProps) {
   const [editing, setEditing] = useState(false)
   const tipoInfo = TIPOS_BLOCO.find(t => t.tipo === bloco.tipo)
 
@@ -422,7 +467,7 @@ function BlocoCard({ bloco, isFirst, isLast, onUpdate, onDelete, onMoveUp, onMov
       case 'ul': case 'ol': return <EditLista bloco={bloco} onChange={onUpdate} />
       case 'img': return <EditImg bloco={bloco} onChange={onUpdate} />
       case 'tabela': return <EditTabela bloco={bloco} onChange={onUpdate} />
-      case 'definicoes': return <EditDefinicoes bloco={bloco} onChange={onUpdate} />
+      case 'definicoes': return <EditDefinicoes bloco={bloco} onChange={onUpdate} glossario={glossario} onUpsertGlossario={onUpsertGlossario} />
     }
   }
 
@@ -537,6 +582,7 @@ export default function EditorInstrucaoPage() {
   const [erro, setErro] = useState('')
   const [baixando, setBaixando] = useState(false)
   const [grupos, setGrupos] = useState<GrupoTax[]>([])
+  const [glossario, setGlossario] = useState<ItemGlossario[]>([])
   // Há alterações não salvas? Bloqueia sair sem salvar.
   const [alterado, setAlterado] = useState(false)
 
@@ -546,7 +592,23 @@ export default function EditorInstrucaoPage() {
       .then(d => { if (d) { setDoc(d); setAlterado(false) } })
       .catch(() => {})
     fetch('/api/grupos').then(r => r.json()).then(g => setGrupos(Array.isArray(g) ? g : [])).catch(() => {})
+    fetch('/api/glossario').then(r => r.json()).then(g => setGlossario(Array.isArray(g) ? g : [])).catch(() => {})
   }, [id])
+
+  // Grava/atualiza uma sigla no glossário compartilhado (otimista + persiste).
+  const upsertGlossario = useCallback((sigla: string, definicao: string) => {
+    const s = chaveSigla(sigla); const d = definicao.trim()
+    if (!s || !d) return
+    setGlossario(prev => {
+      const i = prev.findIndex(x => chaveSigla(x.sigla) === s)
+      if (i < 0) return [...prev, { sigla: s, definicao: d }]
+      const c = [...prev]; c[i] = { sigla: s, definicao: d }; return c
+    })
+    fetch('/api/glossario', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sigla: s, definicao: d }),
+    }).catch(() => {})
+  }, [])
 
   // Avisa ao fechar/recarregar a janela (e ao fechar o app) se houver pendência.
   useEffect(() => {
@@ -804,6 +866,8 @@ export default function EditorInstrucaoPage() {
                   onDelete={() => deleteBloco(i)}
                   onMoveUp={() => moveBloco(i, -1)}
                   onMoveDown={() => moveBloco(i, 1)}
+                  glossario={glossario}
+                  onUpsertGlossario={upsertGlossario}
                 />
               ))}
             </div>
