@@ -73,6 +73,7 @@ export function Grade2DCertificado({
   const [arquivoURL,  setArquivoURL]  = useState<string | null>(null)
   const [arquivoNome, setArquivoNome] = useState('')
   const [verArquivo,  setVerArquivo]  = useState(false)
+  const [avisoOCR,    setAvisoOCR]    = useState('')   // extração fraca → orienta o usuário
   const arquivoURLRef = useRef<string | null>(null)
   const ehPdf = /\.pdf$/i.test(arquivoNome)
 
@@ -114,6 +115,11 @@ export function Grade2DCertificado({
       }
       if (!texto) texto = await extrairTextoArquivo(file)   // imagem ou fallback
       setTextoOCR(texto)
+      // Extração fraca (PDF escaneado / imagem ruim): pouco texto aproveitável.
+      const aproveitavel = texto.replace(/\s/g, '').length
+      setAvisoOCR(aproveitavel < 40
+        ? 'Pouco texto reconhecido — o PDF pode ser escaneado (imagem). Abra "Ver PDF" e digite os pontos manualmente, ou carregue uma imagem nítida do certificado.'
+        : '')
       // Dados do certificado (página 1: equipamento + certificado) — nº, lab, data, TAG.
       if (onMeta) {
         try {
@@ -245,6 +251,16 @@ export function Grade2DCertificado({
           )}
         </div>
       </div>
+
+      {/* Aviso de extração fraca (PDF escaneado / imagem ruim) */}
+      {avisoOCR && (
+        <div className="flex items-start gap-2 px-3 py-2 rounded-lg text-[11px]"
+             style={{ background: 'rgba(232,185,75,0.08)', border: '1px solid rgba(232,185,75,0.25)', color: '#E8B94B' }}>
+          <span className="flex-shrink-0">⚠</span>
+          <span className="flex-1">{avisoOCR}</span>
+          {arquivoURL && <button type="button" onClick={() => setVerArquivo(true)} className="underline whitespace-nowrap flex-shrink-0">Ver PDF</button>}
+        </div>
+      )}
 
       {/* Nomes dos eixos */}
       <div className="grid grid-cols-4 gap-3">
