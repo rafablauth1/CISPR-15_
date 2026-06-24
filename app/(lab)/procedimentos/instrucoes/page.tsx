@@ -2,12 +2,14 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Plus, FileText, Trash2 } from 'lucide-react'
-import { fmt } from '@/lib/utils'
+import { Plus, FileText, Trash2, Download, Loader2 } from 'lucide-react'
 import type { DocumentoIT } from '@/lib/instrucoes/tipos'
+import { documentoITtoHTML } from '@/lib/instrucoes/html'
 
 export default function InstrucoesPage() {
   const [docs, setDocs] = useState<DocumentoIT[]>([])
+  const [baixandoId, setBaixandoId] = useState<string | null>(null)
+  const [erro, setErro] = useState('')
 
   useEffect(() => {
     fetch('/api/instrucoes').then(r => r.json()).then(d => setDocs(Array.isArray(d) ? d : [])).catch(() => {})
@@ -17,6 +19,25 @@ export default function InstrucoesPage() {
     if (!confirm('Excluir este documento?')) return
     await fetch(`/api/instrucoes/${id}`, { method: 'DELETE' })
     setDocs(prev => prev.filter(d => d.id !== id))
+  }
+
+  // Gera o PDF da IT direto da lista (mesmo caminho do editor) — só no app desktop.
+  async function baixarPDF(doc: DocumentoIT) {
+    setErro(''); setBaixandoId(doc.id)
+    try {
+      const html = documentoITtoHTML(doc)
+      const base = [doc.tipoDocumento, doc.codigo, doc.titulo].filter(Boolean).join(' ') || 'instrucao'
+      const filename = base.replace(/[\\/:"*?<>|]+/g, '_').replace(/\s+/g, '_') + '.pdf'
+      const api = (window as unknown as { electronAPI?: { salvarPdfHtml?: Function; saveFollowupPdf?: Function } }).electronAPI
+      const gerar = api?.salvarPdfHtml ?? api?.saveFollowupPdf
+      if (!gerar) { setErro('Geração de PDF disponível apenas no aplicativo (desktop).'); return }
+      const r = await gerar(html, filename, false)
+      if (r && r.ok === false && !r.canceled) setErro(r.error || 'Falha ao gerar PDF.')
+    } catch (e: unknown) {
+      setErro(String(e))
+    } finally {
+      setBaixandoId(null)
+    }
   }
 
   return (
@@ -31,6 +52,13 @@ export default function InstrucoesPage() {
           <Plus size={13} /> Novo documento
         </Link>
       </div>
+
+      {erro && (
+        <div className="mb-4 px-4 py-2.5 rounded-xl text-[12px]"
+             style={{ background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)', color: '#F87171' }}>
+          {erro}
+        </div>
+      )}
 
       {docs.length === 0 ? (
         <div className="card p-12 text-center space-y-3">
@@ -59,6 +87,12 @@ export default function InstrucoesPage() {
                 </p>
               </div>
               <span className="text-[10px] text-white/25">{doc.blocos.length} bloco{doc.blocos.length !== 1 ? 's' : ''}</span>
+              <button onClick={() => baixarPDF(doc)} disabled={baixandoId === doc.id}
+                title="Baixar PDF"
+                className="btn-secondary text-[10px] gap-1 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-100">
+                {baixandoId === doc.id ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+                PDF
+              </button>
               <Link href={`/procedimentos/instrucoes/${doc.id}`}
                 className="btn-secondary text-[10px] opacity-0 group-hover:opacity-100 transition-opacity">
                 Editar
