@@ -106,6 +106,16 @@ export default function CheckagemDetalhePage() {
             </div>
           ))}
         </div>
+        {checagem.condicoesAmbientais && (checagem.condicoesAmbientais.temperatura || checagem.condicoesAmbientais.umidade || checagem.condicoesAmbientais.pressao) && (
+          <div className="mt-4 pt-4 border-t border-white/6">
+            <p className="text-[9px] font-mono tracking-[2px] uppercase text-white/30 mb-2">Condições ambientais</p>
+            <div className="flex gap-6 text-sm">
+              <div><span className="text-white/40">Temperatura: </span><span className="text-white/75">{checagem.condicoesAmbientais.temperatura ? `${checagem.condicoesAmbientais.temperatura} °C` : '—'}</span></div>
+              <div><span className="text-white/40">Umidade: </span><span className="text-white/75">{checagem.condicoesAmbientais.umidade ? `${checagem.condicoesAmbientais.umidade} % UR` : '—'}</span></div>
+              <div><span className="text-white/40">Pressão: </span><span className="text-white/75">{checagem.condicoesAmbientais.pressao ? `${checagem.condicoesAmbientais.pressao} hPa` : '—'}</span></div>
+            </div>
+          </div>
+        )}
         {checagem.obs && (
           <div className="mt-4 pt-4 border-t border-white/6">
             <p className="text-[9px] font-mono tracking-[2px] uppercase text-white/30 mb-1">Observações</p>

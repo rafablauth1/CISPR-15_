@@ -73,8 +73,16 @@ export interface Checagem {
   // Importação
   fonte: FonteImportacao
   normaReferencia?: string
+  // Condições ambientais no momento da checagem
+  condicoesAmbientais?: CondicoesAmbientais
   // Itens de medição
   itens: ItemChecagem[]
   obs?: string
   criadoEm: string
+}
+
+export interface CondicoesAmbientais {
+  temperatura?: string   // °C
+  umidade?: string       // % UR
+  pressao?: string       // hPa
 }

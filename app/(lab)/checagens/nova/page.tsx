@@ -535,6 +535,10 @@ export default function NovaChecagemPage() {
   const [periodicidade,  setPeriodicidade] = useState(3)   // em meses
   const [normaRef,       setNormaRef]      = useState('')
   const [obs,            setObs]           = useState('')
+  // Condições ambientais no momento da checagem
+  const [tempAmb,        setTempAmb]       = useState('')
+  const [umidadeAmb,     setUmidadeAmb]    = useState('')
+  const [pressaoAmb,     setPressaoAmb]    = useState('')
   const [itens,          setItens]         = useState<ItemChecagem[]>(Array.from({length:10},(_,i)=>emptyItem(i+1)))
   const [excelItens,     setExcelItens]    = useState<ItemChecagem[]>([])
   const [ocrTexto,       setOcrTexto]      = useState('')
@@ -584,6 +588,9 @@ export default function NovaChecagemPage() {
       if (typeof c.periodicidade === 'number') setPeriodicidade(c.periodicidade)
       setNormaRef(c.normaReferencia || '')
       setObs(c.obs || '')
+      setTempAmb(c.condicoesAmbientais?.temperatura || '')
+      setUmidadeAmb(c.condicoesAmbientais?.umidade || '')
+      setPressaoAmb(c.condicoesAmbientais?.pressao || '')
       if (Array.isArray(c.itens) && c.itens.length) setItens(c.itens)
       setTab('manual')   // edição acontece na tabela manual
     }).catch(()=>{})
@@ -860,6 +867,9 @@ export default function NovaChecagemPage() {
           data, responsavel, tipoComparacao:tipoComp, papelReferencia:papelRef,
           resultadoGeral:geral, periodicidade, proximaChecagem, fonte:tab,
           normaReferencia:normaRef||undefined, status, itens:itensAvaliados, obs:obs||undefined,
+          condicoesAmbientais: (tempAmb || umidadeAmb || pressaoAmb)
+            ? { temperatura: tempAmb || undefined, umidade: umidadeAmb || undefined, pressao: pressaoAmb || undefined }
+            : undefined,
         }),
       })
       const saved = await res.json()
@@ -1137,6 +1147,25 @@ export default function NovaChecagemPage() {
           <div>
             <label className="text-[10px] font-mono tracking-[2px] uppercase text-white/40 block mb-1">Norma de referência</label>
             <input className="input" value={normaRef} onChange={e=>setNormaRef(e.target.value)} placeholder="ex: CISPR 15"/>
+          </div>
+        </div>
+
+        {/* ── Condições ambientais ── */}
+        <div className="border border-white/8 rounded-xl p-4">
+          <p className="text-[10px] font-mono tracking-[2px] uppercase text-white/40 mb-3">Condições ambientais</p>
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className="text-[10px] font-mono tracking-[2px] uppercase text-white/40 block mb-1">Temperatura (°C)</label>
+              <input className="input" type="number" step="0.1" value={tempAmb} onChange={e=>setTempAmb(e.target.value)} placeholder="ex: 23,0"/>
+            </div>
+            <div>
+              <label className="text-[10px] font-mono tracking-[2px] uppercase text-white/40 block mb-1">Umidade (% UR)</label>
+              <input className="input" type="number" step="0.1" value={umidadeAmb} onChange={e=>setUmidadeAmb(e.target.value)} placeholder="ex: 50"/>
+            </div>
+            <div>
+              <label className="text-[10px] font-mono tracking-[2px] uppercase text-white/40 block mb-1">Pressão (hPa)</label>
+              <input className="input" type="number" step="0.1" value={pressaoAmb} onChange={e=>setPressaoAmb(e.target.value)} placeholder="ex: 1013"/>
+            </div>
           </div>
         </div>
 
