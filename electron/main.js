@@ -394,7 +394,33 @@ async function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
+      spellcheck: true,
     },
+  })
+
+  /* Corretor ortográfico (pt-BR, com en-US de apoio) + sugestões no menu de
+     contexto — funciona nos campos de texto do app (estilo Word). */
+  try { win.webContents.session.setSpellCheckerLanguages(['pt-BR', 'en-US']) } catch {}
+  win.webContents.on('context-menu', (_e, params) => {
+    const tpl = []
+    if (params.misspelledWord) {
+      for (const s of params.dictionarySuggestions) {
+        tpl.push({ label: s, click: () => win.webContents.replaceMisspelling(s) })
+      }
+      tpl.push({ type: 'separator' })
+      tpl.push({
+        label: 'Adicionar ao dicionário',
+        click: () => win.webContents.session.addWordToSpellCheckerDictionary(params.misspelledWord),
+      })
+      tpl.push({ type: 'separator' })
+    }
+    if (params.isEditable || params.selectionText) {
+      tpl.push({ role: 'cut',       label: 'Recortar',        enabled: params.editFlags.canCut })
+      tpl.push({ role: 'copy',      label: 'Copiar',          enabled: params.editFlags.canCopy })
+      tpl.push({ role: 'paste',     label: 'Colar',           enabled: params.editFlags.canPaste })
+      tpl.push({ role: 'selectAll', label: 'Selecionar tudo' })
+    }
+    if (tpl.length) Menu.buildFromTemplate(tpl).popup({ window: win })
   })
 
   /* Barra de título nativa em dark mode para combinar com o tema escuro do app. */
