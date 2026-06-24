@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { Upload, Loader2, Trash2, Plus, ScanText, TableIcon } from 'lucide-react'
+import { Upload, Loader2, Trash2, Plus, ScanText, TableIcon, Eye, X } from 'lucide-react'
 import { cn, fileToBase64 } from '@/lib/utils'
 import { extrairTextoArquivo } from '@/lib/useOCR'
 import { corrigirGrandezasPorLayout } from '@/lib/certificados/layout'
@@ -69,6 +69,15 @@ export function Grade2DCertificado({
   const [testParametro, setTestParametro] = useState('')
   const [dragOver,    setDragOver]    = useState(false)
   const [bloqueado,   setBloqueado]   = useState(false)
+  // Arquivo carregado p/ visualização (o PDF/imagem que o usuário subiu no OCR).
+  const [arquivoURL,  setArquivoURL]  = useState<string | null>(null)
+  const [arquivoNome, setArquivoNome] = useState('')
+  const [verArquivo,  setVerArquivo]  = useState(false)
+  const arquivoURLRef = useRef<string | null>(null)
+  const ehPdf = /\.pdf$/i.test(arquivoNome)
+
+  // Revoga o object URL ao desmontar (evita vazamento de memória).
+  useEffect(() => () => { if (arquivoURLRef.current) URL.revokeObjectURL(arquivoURLRef.current) }, [])
 
   const onDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -86,6 +95,11 @@ export function Grade2DCertificado({
 
   async function handleFile(file: File) {
     setLoading(true)
+    // Guarda o arquivo carregado p/ poder visualizar depois (revoga o anterior).
+    if (arquivoURLRef.current) URL.revokeObjectURL(arquivoURLRef.current)
+    const url = URL.createObjectURL(file)
+    arquivoURLRef.current = url
+    setArquivoURL(url); setArquivoNome(file.name)
     try {
       const api = (window as unknown as { electronAPI?: { extractPdfLayout?: (b: string) => Promise<{ ok: boolean; items: { s: string; x: number; y: number; page?: number }[]; text?: string }> } }).electronAPI
       const isPdf = /\.pdf$/i.test(file.name)
@@ -218,6 +232,12 @@ export function Grade2DCertificado({
             {loading ? <Loader2 size={12} className="animate-spin"/> : <ScanText size={12}/>}
             {loading ? 'Lendo…' : 'OCR / arrastar arquivo'}
           </button>
+          {arquivoURL && (
+            <button type="button" onClick={() => setVerArquivo(true)} className="btn-secondary text-xs py-1"
+              title={`Visualizar ${arquivoNome}`}>
+              <Eye size={12}/> Ver {ehPdf ? 'PDF' : 'arquivo'}
+            </button>
+          )}
           {!bloqueado && (
             <button type="button" onClick={addPonto} className="btn-ghost text-xs py-1">
               <Plus size={12}/> Ponto
@@ -516,6 +536,28 @@ export function Grade2DCertificado({
             <button type="button" onClick={aplicarOCR} className="btn-primary text-xs">
               <TableIcon size={12}/> Extrair tabela
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Visualizador do arquivo carregado (PDF ou imagem do certificado) */}
+      {verArquivo && arquivoURL && (
+        <div className="fixed inset-0 z-[9000] flex flex-col" style={{ background: 'rgba(0,0,0,0.82)' }}
+             onClick={() => setVerArquivo(false)}>
+          <div className="flex items-center justify-between px-4 py-2.5 flex-shrink-0"
+               style={{ background: 'rgba(12,16,26,0.96)' }} onClick={e => e.stopPropagation()}>
+            <span className="text-[12px] text-white/80 font-mono truncate flex items-center gap-2">
+              <Eye size={13}/> {arquivoNome}
+            </span>
+            <div className="flex items-center gap-2">
+              <a href={arquivoURL} target="_blank" rel="noreferrer" className="btn-secondary text-[11px] py-1">Abrir em nova janela</a>
+              <button type="button" onClick={() => setVerArquivo(false)} className="btn-ghost p-1.5"><X size={16}/></button>
+            </div>
+          </div>
+          <div className="flex-1 p-3 min-h-0" onClick={e => e.stopPropagation()}>
+            {ehPdf
+              ? <iframe src={arquivoURL} className="w-full h-full rounded-lg bg-white border-0" title="Certificado"/>
+              : <img src={arquivoURL} alt="Certificado" className="max-w-full max-h-full mx-auto object-contain rounded-lg"/>}
           </div>
         </div>
       )}
