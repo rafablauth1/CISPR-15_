@@ -4,7 +4,23 @@ export type TipoBloco =
   | 'h1' | 'h2' | 'h3'
   | 'p' | 'destaque'
   | 'ul' | 'ol'
-  | 'img' | 'tabela' | 'definicoes'
+  | 'img' | 'tabela' | 'definicoes' | 'diagrama'
+
+// Formas de um diagrama (editor "Paint" do Maker de IT). Representado em SVG —
+// renderiza igual no editor, na visualização e no PDF.
+export type FormaTipo = 'retangulo' | 'elipse' | 'linha' | 'texto'
+export interface Forma {
+  id: string
+  tipo: FormaTipo
+  x: number
+  y: number
+  w?: number     // retângulo / elipse
+  h?: number
+  x2?: number    // linha (fio): ponto final
+  y2?: number
+  texto?: string // texto / rótulo dentro de retângulo/elipse
+  cor?: string
+}
 
 // Estilo de fonte opcional por bloco (família e tamanho em pt). Quando ausente,
 // usa o padrão do documento (Arial, tamanhos por tipo de bloco).
@@ -20,6 +36,7 @@ export interface BlocoOL        extends EstiloBloco { id: string; tipo: 'ol';   
 export interface BlocoImg       extends EstiloBloco { id: string; tipo: 'img';       src: string; legenda: string }
 export interface BlocoTabela    extends EstiloBloco { id: string; tipo: 'tabela';    cabecalho: string[]; linhas: string[][] }
 export interface BlocoDefinicoes extends EstiloBloco { id: string; tipo: 'definicoes'; itens: { sigla: string; definicao: string }[] }
+export interface BlocoDiagrama  extends EstiloBloco { id: string; tipo: 'diagrama';  formas: Forma[]; w: number; h: number; legenda?: string }
 
 // Fontes disponíveis para escolha por bloco (web-safe / instaladas no Windows).
 export const FONTES_DISPONIVEIS = [
@@ -31,7 +48,7 @@ export type Bloco =
   | BlocoH1 | BlocoH2 | BlocoH3
   | BlocoP  | BlocoDestaque
   | BlocoUL | BlocoOL
-  | BlocoImg | BlocoTabela | BlocoDefinicoes
+  | BlocoImg | BlocoTabela | BlocoDefinicoes | BlocoDiagrama
 
 export interface DocumentoIT {
   id: string

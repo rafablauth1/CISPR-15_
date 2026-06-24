@@ -13,10 +13,12 @@ import {
   FONTES_DISPONIVEIS,
   type DocumentoIT, type Bloco, type TipoBloco,
   type BlocoH1, type BlocoH2, type BlocoH3, type BlocoP, type BlocoDestaque,
-  type BlocoUL, type BlocoOL, type BlocoImg, type BlocoTabela, type BlocoDefinicoes,
+  type BlocoUL, type BlocoOL, type BlocoImg, type BlocoTabela, type BlocoDefinicoes, type BlocoDiagrama,
 } from '@/lib/instrucoes/tipos'
 import { DocumentoITView } from '@/components/DocumentoITView'
 import { documentoITtoHTML } from '@/lib/instrucoes/html'
+import { DiagramaEditor } from '@/components/DiagramaEditor'
+import { diagramaParaSVG, DIAGRAMA_W, DIAGRAMA_H } from '@/lib/instrucoes/diagrama'
 
 // Estilo de fonte/tamanho do bloco aplicado na pré-visualização do editor.
 function estiloBloco(b: Bloco, base?: CSSProperties): CSSProperties {
@@ -42,6 +44,7 @@ function blocoVazio(tipo: TipoBloco): Bloco {
     case 'img': return { id: uid(), tipo: 'img', src: '', legenda: '' }
     case 'tabela': return { id: uid(), tipo: 'tabela', cabecalho: ['Coluna 1', 'Coluna 2'], linhas: [['', '']] }
     case 'definicoes': return { id: uid(), tipo: 'definicoes', itens: [{ sigla: '', definicao: '' }] }
+    case 'diagrama': return { id: uid(), tipo: 'diagrama', formas: [], w: DIAGRAMA_W, h: DIAGRAMA_H, legenda: '' }
   }
 }
 
@@ -56,6 +59,7 @@ const TIPOS_BLOCO: { tipo: TipoBloco; label: string; icon: string }[] = [
   { tipo: 'img',       label: 'Imagem',                 icon: '🖼' },
   { tipo: 'tabela',    label: 'Tabela',                 icon: '⊞' },
   { tipo: 'definicoes',label: 'Definições / Siglas',    icon: '📖' },
+  { tipo: 'diagrama',  label: 'Diagrama / esquema',     icon: '✎' },
 ]
 
 // ─── Block Render (view mode) ────────────────────────────────────────────────
@@ -158,6 +162,14 @@ function RenderBloco({ bloco }: { bloco: Bloco }) {
             <span className="font-sans text-white/55">{item.definicao}</span>
           </p>
         ))}
+      </div>
+    )
+    case 'diagrama': return (
+      <div className="flex flex-col items-center gap-2 my-2">
+        {bloco.formas.length === 0
+          ? <div className="w-full h-24 rounded-lg border border-dashed border-white/15 flex items-center justify-center text-white/20 text-sm">Diagrama vazio</div>
+          : <div className="max-w-full overflow-auto rounded-lg" dangerouslySetInnerHTML={{ __html: diagramaParaSVG(bloco) }} />}
+        {bloco.legenda && <p className="text-[11px] text-white/45 text-center italic">{bloco.legenda}</p>}
       </div>
     )
   }
@@ -411,6 +423,18 @@ function EditDefinicoes({ bloco, onChange, glossario, onUpsertGlossario }: {
   )
 }
 
+function EditDiagrama({ bloco, onChange }: { bloco: BlocoDiagrama; onChange: (b: Bloco) => void }) {
+  return (
+    <div className="space-y-2">
+      <DiagramaEditor
+        formas={bloco.formas} w={bloco.w || DIAGRAMA_W} h={bloco.h || DIAGRAMA_H}
+        onChange={formas => onChange({ ...bloco, formas })} />
+      <input className="input text-[11px] py-1" placeholder="Legenda do diagrama (ex: Figura 1 – Esquema de ligação)"
+        value={bloco.legenda ?? ''} onChange={e => onChange({ ...bloco, legenda: e.target.value })} />
+    </div>
+  )
+}
+
 // ─── Controle de fonte/tamanho do bloco ──────────────────────────────────────
 
 function FonteControl({ bloco, onChange }: { bloco: Bloco; onChange: (b: Bloco) => void }) {
@@ -468,6 +492,7 @@ function BlocoCard({ bloco, isFirst, isLast, onUpdate, onDelete, onMoveUp, onMov
       case 'img': return <EditImg bloco={bloco} onChange={onUpdate} />
       case 'tabela': return <EditTabela bloco={bloco} onChange={onUpdate} />
       case 'definicoes': return <EditDefinicoes bloco={bloco} onChange={onUpdate} glossario={glossario} onUpsertGlossario={onUpsertGlossario} />
+      case 'diagrama': return <EditDiagrama bloco={bloco} onChange={onUpdate} />
     }
   }
 

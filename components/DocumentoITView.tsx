@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react'
 import type { Bloco, DocumentoIT } from '@/lib/instrucoes/tipos'
+import { diagramaParaSVG } from '@/lib/instrucoes/diagrama'
 
 // Estilo de fonte por bloco (família + tamanho em pt). Mescla com o estilo base
 // recebido, sem sobrescrever quando o bloco não define fonte/tamanho próprios.
@@ -111,6 +112,12 @@ export function DocumentoITView({ doc }: { doc: DocumentoIT }) {
                     <strong>{item.sigla}</strong>{item.sigla && item.definicao ? ' – ' : ''}{item.definicao}
                   </p>
                 ))}
+              </div>
+            )
+            case 'diagrama': return (
+              <div key={bloco.id} className="flex flex-col items-center gap-2 my-4">
+                <div className="max-w-full" dangerouslySetInnerHTML={{ __html: diagramaParaSVG(bloco) }} />
+                {bloco.legenda && <p className="text-[9pt] text-center italic text-gray-500">{bloco.legenda}</p>}
               </div>
             )
             default: return null

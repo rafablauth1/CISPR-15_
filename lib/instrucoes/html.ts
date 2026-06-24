@@ -1,4 +1,5 @@
 import type { Bloco, DocumentoIT } from '@/lib/instrucoes/tipos'
+import { diagramaParaSVG } from '@/lib/instrucoes/diagrama'
 
 function esc(s: string): string {
   return (s || '')
@@ -26,6 +27,7 @@ function blocoHTML(b: Bloco): string {
     case 'img': return `<figure class="img">${b.src ? `<img src="${b.src}" alt="${esc(b.legenda)}"/>` : ''}${b.legenda ? `<figcaption>${esc(b.legenda)}</figcaption>` : ''}</figure>`
     case 'tabela': return `<table class="tbl"${estilo(b)}>${b.cabecalho.some(Boolean) ? `<thead><tr>${b.cabecalho.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead>` : ''}<tbody>${b.linhas.map(l => `<tr>${l.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`
     case 'definicoes': return `<div class="defs"${estilo(b)}>${b.itens.map(it => `<p><strong>${esc(it.sigla)}</strong>${it.sigla && it.definicao ? ' – ' : ''}${esc(it.definicao)}</p>`).join('')}</div>`
+    case 'diagrama': return `<figure class="img">${diagramaParaSVG(b)}${b.legenda ? `<figcaption>${esc(b.legenda)}</figcaption>` : ''}</figure>`
     default: return ''
   }
 }
