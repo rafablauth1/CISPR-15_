@@ -102,15 +102,20 @@ export function linhaCaboSVG(x1: number, y1: number, x2: number, y2: number, cab
   return linha + rotuloLinha(x1, y1, x2, y2, e.rotulo, e.cor)
 }
 
-/** Pontos de conexão de um componente: terminais padrão + portas extras (clique direito). */
-export function pontosConexao(f: Forma): { x: number; y: number }[] {
+/** Terminais PADRÃO de um componente (posições absolutas), sem os ocultos. */
+export function pontosBase(f: Forma): { x: number; y: number }[] {
   const w = f.w ?? COMP_W, h = f.h ?? COMP_H
-  const base = f.simbolo === 'acoplador-bi'
-    // Acoplador bidirecional: 1 porta em cada ponta (entrada/saída da linha
-    // principal) + 2 acopladas no meio, do mesmo lado (embaixo).
+  return f.simbolo === 'acoplador-bi'
+    // Acoplador bidirecional: 1 porta em cada ponta + 2 acopladas no meio (mesmo lado).
     ? [{ x: f.x, y: f.y + h / 2 }, { x: f.x + w, y: f.y + h / 2 },
        { x: f.x + w * 0.35, y: f.y + h }, { x: f.x + w * 0.65, y: f.y + h }]
     : [{ x: f.x, y: f.y + h / 2 }, { x: f.x + w, y: f.y + h / 2 }]
+}
+
+/** Pontos de conexão: terminais padrão (menos os ocultos) + portas extras. */
+export function pontosConexao(f: Forma): { x: number; y: number }[] {
+  const off = f.portasOff ?? []
+  const base = pontosBase(f).filter((_, i) => !off.includes(i))
   const extra = (f.portas ?? []).map(p => ({ x: f.x + p.x, y: f.y + p.y }))
   return [...base, ...extra]
 }

@@ -4,7 +4,7 @@ import { useRef, useState } from 'react'
 import { MousePointer2, Square, Circle, Minus, Type as TypeIcon, Trash2, Cable, Undo2, Redo2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Forma } from '@/lib/instrucoes/tipos'
-import { COR_PADRAO, GRUPOS_COMP, CABOS, COMP_W, COMP_H, componenteSVG, conexaoSVG, linhaCaboSVG } from '@/lib/instrucoes/diagrama'
+import { COR_PADRAO, GRUPOS_COMP, CABOS, COMP_W, COMP_H, componenteSVG, conexaoSVG, linhaCaboSVG, pontosBase } from '@/lib/instrucoes/diagrama'
 
 type Tool = 'select' | 'conectar' | 'retangulo' | 'elipse' | 'linha' | 'texto'
 const CORES = ['#1f2937', '#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed']
@@ -30,7 +30,7 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
   const [conFrom, setConFrom] = useState<string | null>(null) // 1º componente clicado p/ conectar
   const [guias, setGuias] = useState<{ vx?: number; hy?: number }[]>([]) // guias de alinhamento
   // Menu de "criar conexão" (botão direito): posição na tela + alvo + posição relativa.
-  const [portaMenu, setPortaMenu] = useState<{ cx: number; cy: number; fid: string; px: number; py: number; removeIdx?: number; nomeAtual?: string } | null>(null)
+  const [portaMenu, setPortaMenu] = useState<{ cx: number; cy: number; fid: string; px: number; py: number; removeIdx?: number; removeBase?: number; nomeAtual?: string } | null>(null)
   const [portaNome, setPortaNome] = useState('') // nome digitado p/ conexão "Outro"
   const draftRef = useRef<string | null>(null)
   const startRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
@@ -169,20 +169,28 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
     e.preventDefault()
     if (f.tipo !== 'componente') return
     const r = svgRef.current!.getBoundingClientRect()
-    const px = e.clientX - r.left - f.x, py = e.clientY - r.top - f.y
+    const ax = e.clientX - r.left, ay = e.clientY - r.top   // absoluto no SVG
     setPortaNome('')
-    // Perto de uma porta existente → menu com "Remover"; senão → menu de criar.
-    const idx = (f.portas ?? []).findIndex(p => Math.hypot(p.x - px, p.y - py) <= 11)
-    if (idx >= 0) {
-      setPortaMenu({ cx: e.clientX, cy: e.clientY, fid: f.id, px, py, removeIdx: idx, nomeAtual: f.portas![idx].nome })
-    } else {
-      setPortaMenu({ cx: e.clientX, cy: e.clientY, fid: f.id, px: Math.round(px), py: Math.round(py) })
-    }
+    const base = { cx: e.clientX, cy: e.clientY, fid: f.id, px: Math.round(ax - f.x), py: Math.round(ay - f.y) }
+    // 1) perto de um terminal PADRÃO (não oculto)? → remover (ocultar)
+    const off = f.portasOff ?? []
+    const bIdx = pontosBase(f).findIndex((p, i) => !off.includes(i) && Math.hypot(p.x - ax, p.y - ay) <= 11)
+    if (bIdx >= 0) { setPortaMenu({ ...base, removeBase: bIdx }); return }
+    // 2) perto de uma porta nova? → remover
+    const cIdx = (f.portas ?? []).findIndex(p => Math.hypot((f.x + p.x) - ax, (f.y + p.y) - ay) <= 11)
+    if (cIdx >= 0) { setPortaMenu({ ...base, removeIdx: cIdx, nomeAtual: f.portas![cIdx].nome }); return }
+    // 3) senão → menu de criar
+    setPortaMenu(base)
   }
   function removerPorta() {
-    const pm = portaMenu; if (!pm || pm.removeIdx == null) return
+    const pm = portaMenu; if (!pm) return
     snapshot()
-    onChange(formas.map(z => z.id === pm.fid ? { ...z, portas: (z.portas ?? []).filter((_, i) => i !== pm.removeIdx) } : z))
+    onChange(formas.map(z => {
+      if (z.id !== pm.fid) return z
+      if (pm.removeBase != null) return { ...z, portasOff: [...(z.portasOff ?? []), pm.removeBase] }
+      if (pm.removeIdx != null) return { ...z, portas: (z.portas ?? []).filter((_, i) => i !== pm.removeIdx) }
+      return z
+    }))
     setPortaMenu(null)
   }
   function criarPorta(nome: string) {
@@ -396,7 +404,7 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
         <>
           <div className="fixed inset-0 z-[9998]" onClick={() => setPortaMenu(null)} onContextMenu={(e) => { e.preventDefault(); setPortaMenu(null) }} />
           <div className="fixed z-[9999] card p-1.5 shadow-2xl" style={{ left: portaMenu.cx, top: portaMenu.cy, background: '#141B28' }}>
-            {portaMenu.removeIdx != null ? (
+            {(portaMenu.removeIdx != null || portaMenu.removeBase != null) ? (
               <>
                 <p className="text-[9px] font-mono uppercase tracking-wider text-white/40 px-1.5 pb-1">
                   Conexão{portaMenu.nomeAtual ? ` "${portaMenu.nomeAtual}"` : ''}
