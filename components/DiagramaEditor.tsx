@@ -35,6 +35,7 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
   const draftRef = useRef<string | null>(null)
   const startRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
   const moveRef = useRef<{ id: string; ox: number; oy: number; isLine: boolean; snapped: boolean } | null>(null)
+  const resizeRef = useRef<{ id: string; corner: string; ox: number; oy: number } | null>(null)
   // Histórico (desfazer/refazer) e área de transferência de formas.
   const histRef = useRef<Forma[][]>([])
   const redoRef = useRef<Forma[][]>([])
@@ -116,8 +117,34 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
     svgRef.current?.setPointerCapture(e.pointerId)
   }
 
+  function startResize(e: React.PointerEvent, f: Forma, corner: string) {
+    e.stopPropagation()
+    setSel(f.id)
+    snapshot()
+    const { x, y } = pt(e)
+    resizeRef.current = { id: f.id, corner, ox: x, oy: y }
+    svgRef.current?.setPointerCapture(e.pointerId)
+  }
+
   function onSvgPointerMove(e: React.PointerEvent) {
     const { x, y } = pt(e)
+    if (resizeRef.current) {
+      const rz = resizeRef.current
+      const dx = x - rz.ox, dy = y - rz.oy
+      if (dx === 0 && dy === 0) return
+      onChange(formas.map(f => {
+        if (f.id !== rz.id) return f
+        const w0 = f.w ?? COMP_W, h0 = f.h ?? COMP_H
+        let nx = f.x, ny = f.y, nw = w0, nh = h0
+        if (rz.corner.includes('e')) nw = Math.max(20, w0 + dx)
+        if (rz.corner.includes('s')) nh = Math.max(16, h0 + dy)
+        if (rz.corner.includes('w')) { nw = Math.max(20, w0 - dx); nx = f.x + (w0 - nw) }
+        if (rz.corner.includes('n')) { nh = Math.max(16, h0 - dy); ny = f.y + (h0 - nh) }
+        return { ...f, x: nx, y: ny, w: nw, h: nh }
+      }))
+      rz.ox = x; rz.oy = y
+      return
+    }
     if (draftRef.current) {
       const id = draftRef.current
       const s = startRef.current
@@ -160,7 +187,23 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
       }
     }
     moveRef.current = null
+    resizeRef.current = null
     setGuias([])
+  }
+
+  // Alças de redimensionamento (cantos) de uma forma de caixa selecionada.
+  function alcas(f: Forma) {
+    if (f.id !== sel || tool !== 'select') return null
+    if (f.tipo !== 'componente' && f.tipo !== 'retangulo' && f.tipo !== 'elipse') return null
+    const cw = f.w ?? COMP_W, ch = f.h ?? COMP_H
+    const cantos: [string, number, number][] = [
+      ['nw', f.x, f.y], ['ne', f.x + cw, f.y], ['sw', f.x, f.y + ch], ['se', f.x + cw, f.y + ch],
+    ]
+    return cantos.map(([c, hx, hy]) => (
+      <rect key={c} x={hx - 4} y={hy - 4} width={8} height={8} fill="#6366f1" stroke="#fff" strokeWidth={1}
+        style={{ cursor: c === 'nw' || c === 'se' ? 'nwse-resize' : 'nesw-resize' }}
+        onPointerDown={(e) => startResize(e, f, c)} />
+    ))
   }
 
   // Botão direito num equipamento: perto de uma porta existente → remove;
@@ -364,6 +407,7 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
                 <rect x={f.x} y={f.y} width={f.w} height={f.h} rx={6} fill="#ffffff" stroke={stroke} strokeWidth={2} />
                 {f.texto && <text x={(f.x) + (f.w ?? 0) / 2} y={(f.y) + (f.h ?? 0) / 2} fontSize={13} fill="#111827" textAnchor="middle" dominantBaseline="central">{f.texto}</text>}
                 {isSel && <rect x={f.x - 2} y={f.y - 2} width={(f.w ?? 0) + 4} height={(f.h ?? 0) + 4} fill="none" stroke="#6366f1" strokeWidth={1} strokeDasharray="4 3" />}
+                {alcas(f)}
               </g>
             )
             if (f.tipo === 'elipse') return (
@@ -371,6 +415,7 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
                 <ellipse cx={f.x + (f.w ?? 0) / 2} cy={f.y + (f.h ?? 0) / 2} rx={Math.abs((f.w ?? 0) / 2)} ry={Math.abs((f.h ?? 0) / 2)} fill="#ffffff" stroke={stroke} strokeWidth={2} />
                 {f.texto && <text x={f.x + (f.w ?? 0) / 2} y={f.y + (f.h ?? 0) / 2} fontSize={13} fill="#111827" textAnchor="middle" dominantBaseline="central">{f.texto}</text>}
                 {isSel && <rect x={f.x - 2} y={f.y - 2} width={(f.w ?? 0) + 4} height={(f.h ?? 0) + 4} fill="none" stroke="#6366f1" strokeWidth={1} strokeDasharray="4 3" />}
+                {alcas(f)}
               </g>
             )
             if (f.tipo === 'linha') return (
@@ -383,6 +428,7 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
               <g key={f.id} {...comum} onContextMenu={(e) => addPorta(e, f)}>
                 <g dangerouslySetInnerHTML={{ __html: componenteSVG(f) }} />
                 {isSel && <rect x={f.x - 2} y={f.y - 2} width={(f.w ?? COMP_W) + 4} height={(f.h ?? COMP_H) + 4} fill="none" stroke="#6366f1" strokeWidth={1} strokeDasharray="4 3" />}
+                {alcas(f)}
               </g>
             )
             return (
