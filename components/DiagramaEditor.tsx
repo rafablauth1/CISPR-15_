@@ -172,8 +172,18 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
   }
   function criarPorta(nome: string) {
     const pm = portaMenu; if (!pm) return
+    const f = formas.find(z => z.id === pm.fid)
+    const cw = f?.w ?? COMP_W, ch = f?.h ?? COMP_H
+    // Gruda o conector na BORDA mais próxima do ponto clicado.
+    let px = Math.max(0, Math.min(cw, pm.px)), py = Math.max(0, Math.min(ch, pm.py))
+    const dist = [px, cw - px, py, ch - py]
+    const m = Math.min(...dist)
+    if (m === px) px = 0
+    else if (m === cw - px) px = cw
+    else if (m === py) py = 0
+    else py = ch
     snapshot()
-    onChange(formas.map(z => z.id === pm.fid ? { ...z, portas: [...(z.portas ?? []), { x: pm.px, y: pm.py, nome: nome || undefined }] } : z))
+    onChange(formas.map(z => z.id === pm.fid ? { ...z, portas: [...(z.portas ?? []), { x: px, y: py, nome: nome || undefined }] } : z))
     setSel(pm.fid); setPortaMenu(null)
   }
 
