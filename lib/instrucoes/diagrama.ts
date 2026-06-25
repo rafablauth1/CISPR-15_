@@ -139,7 +139,12 @@ export function conexaoSVG(c: Forma, byId: Record<string, Forma>): string {
     }
     p1 = p1 ?? best.p1; p2 = p2 ?? best.p2
   }
-  return linhaCaboSVG(p1.x, p1.y, p2.x, p2.y, c.cabo, undefined)
+  // Roteamento ortogonal que desvia dos componentes (menos os dois conectados).
+  const obst: Caixa[] = Object.values(byId)
+    .filter(f => f.tipo === 'componente' && f.id !== a.id && f.id !== b.id)
+    .map(f => ({ x: f.x, y: f.y, w: f.w ?? COMP_W, h: f.h ?? COMP_H }))
+  const pts = rotaCabo(p1, dirPorta(a, p1), p2, dirPorta(b, p2), obst)
+  return caboPolySVG(pts, c.cabo, undefined)
 }
 
 function esc(s: string): string {
@@ -200,6 +205,70 @@ function glifo(simbolo: string, gx: number, gy: number, cw: number, cor: string)
     case 'refrigerador':         return `<rect x="${cx - 8}" y="${gy + 1}" width="16" height="20" rx="2" ${sw(1.4)}/><line x1="${cx - 8}" y1="${gy + 9}" x2="${cx + 8}" y2="${gy + 9}" ${sw(1.2)}/><line x1="${cx - 4}" y1="${gy + 4}" x2="${cx - 4}" y2="${gy + 7}" ${sw(1.2)}/>`
     default:                     return `<rect x="${gx}" y="${gy + 2}" width="${cw}" height="16" rx="2" ${sw(1.4)}/>`
   }
+}
+
+// ── Roteamento ortogonal de cabos (desvia dos componentes) ──────────────────
+interface Caixa { x: number; y: number; w: number; h: number }
+type Dir = 'l' | 'r' | 't' | 'b'
+
+/** Em qual borda do componente está o ponto (p/ saber a direção de saída). */
+function dirPorta(f: Forma, p: { x: number; y: number }): Dir {
+  const w = f.w ?? COMP_W, h = f.h ?? COMP_H
+  const rx = p.x - f.x, ry = p.y - f.y
+  const ds: [Dir, number][] = [['l', rx], ['r', w - rx], ['t', ry], ['b', h - ry]]
+  return ds.sort((a, b) => a[1] - b[1])[0][0]
+}
+
+function afastar(p: { x: number; y: number }, d: Dir, s: number) {
+  return d === 'l' ? { x: p.x - s, y: p.y } : d === 'r' ? { x: p.x + s, y: p.y }
+    : d === 't' ? { x: p.x, y: p.y - s } : { x: p.x, y: p.y + s }
+}
+
+// Um segmento ortogonal cruza a caixa? (com leve margem interna p/ tolerar bordas)
+function segCruzaCaixa(x1: number, y1: number, x2: number, y2: number, b: Caixa): boolean {
+  const m = 2
+  const bx1 = b.x + m, by1 = b.y + m, bx2 = b.x + b.w - m, by2 = b.y + b.h - m
+  return Math.min(x1, x2) < bx2 && Math.max(x1, x2) > bx1 && Math.min(y1, y2) < by2 && Math.max(y1, y2) > by1
+}
+
+function rotaCruza(pts: { x: number; y: number }[], obst: Caixa[]): boolean {
+  for (let i = 0; i < pts.length - 1; i++)
+    for (const b of obst)
+      if (segCruzaCaixa(pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y, b)) return true
+  return false
+}
+
+function dedup(pts: { x: number; y: number }[]) {
+  return pts.filter((p, i) => i === 0 || p.x !== pts[i - 1].x || p.y !== pts[i - 1].y)
+}
+
+/** Rota ortogonal entre dois pontos (com stub na direção da porta), evitando obstáculos. */
+function rotaCabo(p1: { x: number; y: number }, d1: Dir, p2: { x: number; y: number }, d2: Dir, obst: Caixa[]) {
+  const S = 18
+  const e1 = afastar(p1, d1, S), e2 = afastar(p2, d2, S)
+  const cands: { x: number; y: number }[][] = []
+  for (const mx of [(e1.x + e2.x) / 2, e1.x, e2.x])
+    cands.push(dedup([p1, e1, { x: mx, y: e1.y }, { x: mx, y: e2.y }, e2, p2]))
+  for (const my of [(e1.y + e2.y) / 2, e1.y, e2.y])
+    cands.push(dedup([p1, e1, { x: e1.x, y: my }, { x: e2.x, y: my }, e2, p2]))
+  for (const c of cands) if (!rotaCruza(c, obst)) return c
+  return cands[0]
+}
+
+/** Polyline de um cabo (com Terra verde-amarelo) + rótulo no meio. */
+export function caboPolySVG(pts: { x: number; y: number }[], cabo?: string, fallback?: string): string {
+  const e = estiloCabo(cabo, fallback)
+  const d = pts.map((p, i) => (i ? 'L' : 'M') + p.x + ' ' + p.y).join(' ')
+  let path: string
+  if (cabo === 'terra') {
+    path = `<path d="${d}" fill="none" stroke="#eab308" stroke-width="${e.w}" stroke-linejoin="round"/>`
+         + `<path d="${d}" fill="none" stroke="#16a34a" stroke-width="${e.w}" stroke-dasharray="6 6" stroke-linejoin="round"/>`
+  } else {
+    const dash = e.dash ? ` stroke-dasharray="${e.dash}"` : ''
+    path = `<path d="${d}" fill="none" stroke="${e.cor}" stroke-width="${e.w}" stroke-linejoin="round"${dash}/>`
+  }
+  const mid = pts[Math.floor(pts.length / 2)] || pts[0]
+  return path + (e.rotulo ? `<text x="${mid.x}" y="${mid.y - 5}" font-size="10" fill="${e.cor}" text-anchor="middle" style="paint-order:stroke" stroke="#ffffff" stroke-width="3">${e.rotulo}</text>` : '')
 }
 
 /** Markup de um COMPONENTE de equipamento (caixa + símbolo + nome + terminais). */
