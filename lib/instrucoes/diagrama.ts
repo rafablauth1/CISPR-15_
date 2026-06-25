@@ -126,6 +126,7 @@ export function conexaoSVG(c: Forma, byId: Record<string, Forma>): string {
   if (!a || !b) return ''
   // Liga o par de pontos de conexão mais próximos entre os dois componentes.
   const pa = pontosConexao(a), pb = pontosConexao(b)
+  if (!pa.length || !pb.length) return ''   // componente sem nenhum ponto → sem cabo
   let best = { d: Infinity, p1: pa[0], p2: pb[0] }
   for (const p1 of pa) for (const p2 of pb) {
     const d = (p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2
