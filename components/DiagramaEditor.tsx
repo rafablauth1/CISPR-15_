@@ -4,7 +4,7 @@ import { useRef, useState } from 'react'
 import { MousePointer2, Square, Circle, Minus, Type as TypeIcon, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Forma, FormaTipo } from '@/lib/instrucoes/tipos'
-import { COR_PADRAO } from '@/lib/instrucoes/diagrama'
+import { COR_PADRAO, COMPONENTES, COMP_W, COMP_H, componenteSVG } from '@/lib/instrucoes/diagrama'
 
 type Tool = 'select' | FormaTipo
 const CORES = ['#1f2937', '#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed']
@@ -98,6 +98,20 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
     svgRef.current?.setPointerCapture(e.pointerId)
   }
 
+  // Solta um componente de equipamento no quadro (com leve cascata p/ não empilhar).
+  function addComponente(simbolo: string) {
+    const n = formas.filter(f => f.tipo === 'componente').length
+    const id = uid()
+    const nova: Forma = {
+      id, tipo: 'componente', simbolo,
+      x: 40 + (n % 5) * 28, y: 40 + (n % 5) * 24,
+      w: COMP_W, h: COMP_H, cor,
+    }
+    onChange([...formas, nova])
+    setSel(id)
+    setTool('select')
+  }
+
   function patchSel(patch: Partial<Forma>) {
     if (!sel) return
     onChange(formas.map(f => f.id === sel ? { ...f, ...patch } : f))
@@ -133,9 +147,20 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
         </span>
       </div>
 
-      {/* Editar texto da forma selecionada (texto / rótulo de retângulo/elipse) */}
-      {selecionada && (selecionada.tipo === 'texto' || selecionada.tipo === 'retangulo' || selecionada.tipo === 'elipse') && (
-        <input className="input text-[11px] py-1" placeholder={selecionada.tipo === 'texto' ? 'Texto' : 'Rótulo (opcional)'}
+      {/* Paleta de componentes de equipamento (clique p/ soltar no quadro) */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className="text-[10px] font-mono uppercase tracking-wider text-white/30 mr-1">Equipamentos</span>
+        {COMPONENTES.map(c => (
+          <button key={c.id} type="button" onClick={() => addComponente(c.id)} title={`Adicionar ${c.nome}`}
+            className="px-2 py-0.5 rounded-md text-[10px] bg-white/5 border border-white/10 text-white/60 hover:text-white hover:border-teal/40 transition-colors">
+            {c.nome}
+          </button>
+        ))}
+      </div>
+
+      {/* Editar texto/rótulo da forma selecionada */}
+      {selecionada && (selecionada.tipo === 'texto' || selecionada.tipo === 'retangulo' || selecionada.tipo === 'elipse' || selecionada.tipo === 'componente') && (
+        <input className="input text-[11px] py-1" placeholder={selecionada.tipo === 'componente' ? 'Nome do equipamento' : selecionada.tipo === 'texto' ? 'Texto' : 'Rótulo (opcional)'}
           value={selecionada.texto ?? ''} onChange={e => patchSel({ texto: e.target.value })} />
       )}
 
@@ -169,6 +194,12 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
               <g key={f.id} {...comum}>
                 <line x1={f.x} y1={f.y} x2={f.x2} y2={f.y2} stroke={stroke} strokeWidth={2.5} strokeLinecap="round" />
                 {isSel && <line x1={f.x} y1={f.y} x2={f.x2} y2={f.y2} stroke="#6366f1" strokeWidth={6} strokeOpacity={0.2} strokeLinecap="round" />}
+              </g>
+            )
+            if (f.tipo === 'componente') return (
+              <g key={f.id} {...comum}>
+                <g dangerouslySetInnerHTML={{ __html: componenteSVG(f) }} />
+                {isSel && <rect x={f.x - 2} y={f.y - 2} width={(f.w ?? COMP_W) + 4} height={(f.h ?? COMP_H) + 4} fill="none" stroke="#6366f1" strokeWidth={1} strokeDasharray="4 3" />}
               </g>
             )
             return (
