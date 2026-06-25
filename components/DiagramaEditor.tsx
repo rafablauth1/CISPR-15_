@@ -18,6 +18,13 @@ const FERRAMENTAS: { id: Tool; icon: React.ElementType; label: string }[] = [
   { id: 'texto',     icon: TypeIcon,      label: 'Texto' },
 ]
 function uid() { return Math.random().toString(36).slice(2) + Date.now().toString(36) }
+// Distância de um ponto p ao segmento a→b.
+function distSeg(p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }) {
+  const dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy
+  let t = l2 ? ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2 : 0
+  t = Math.max(0, Math.min(1, t))
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy))
+}
 
 export function DiagramaEditor({ formas, w, h, onChange }: {
   formas: Forma[]; w: number; h: number; onChange: (f: Forma[]) => void
@@ -134,18 +141,6 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
     setSel(c.id)
     snapshot()
     wpRef.current = { cid: c.id, idx }
-    svgRef.current?.setPointerCapture(e.pointerId)
-  }
-  // Insere uma nova dobra no trecho segIdx e já começa a arrastá-la.
-  function addWp(e: React.PointerEvent, c: Forma, segIdx: number) {
-    e.stopPropagation()
-    setSel(c.id)
-    snapshot()
-    const p = pt(e)
-    const wps = [...(c.waypoints ?? [])]
-    wps.splice(segIdx, 0, p)
-    onChange(formas.map(f => f.id === c.id ? { ...f, waypoints: wps } : f))
-    wpRef.current = { cid: c.id, idx: segIdx }
     svgRef.current?.setPointerCapture(e.pointerId)
   }
   function removeWp(c: Forma, idx: number) {
@@ -308,8 +303,25 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
       setConFrom(null)
       return
     }
+    // Cabo: 1º clique seleciona; já selecionado, clicar/arrastar no fio cria uma
+    // dobra no trecho mais próximo e a arrasta.
+    if (f.tipo === 'conexao') {
+      if (tool !== 'select' || sel !== f.id) { setSel(f.id); return }
+      const p = pt(e)
+      const pts = rotaConexao(f, byId)
+      const wps = f.waypoints ?? []
+      const anchors = pts.length >= 2 ? [pts[0], ...wps, pts[pts.length - 1]] : []
+      let segI = 0, bd = Infinity
+      for (let i = 0; i < anchors.length - 1; i++) { const d = distSeg(p, anchors[i], anchors[i + 1]); if (d < bd) { bd = d; segI = i } }
+      snapshot()
+      const novo = [...wps]; novo.splice(segI, 0, p)
+      onChange(formas.map(z => z.id === f.id ? { ...z, waypoints: novo } : z))
+      wpRef.current = { cid: f.id, idx: segI }
+      svgRef.current?.setPointerCapture(e.pointerId)
+      return
+    }
     setSel(f.id)
-    if (tool !== 'select' || f.tipo === 'conexao') return
+    if (tool !== 'select') return
     const { x, y } = pt(e)
     moveRef.current = { id: f.id, ox: x, oy: y, isLine: f.tipo === 'linha', snapped: false }
     svgRef.current?.setPointerCapture(e.pointerId)
@@ -434,20 +446,12 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
           {/* Camada de conexões (cabos) — atrás dos componentes */}
           {formas.filter(f => f.tipo === 'conexao').map(c => {
             const selC = c.id === sel
-            const pts = selC ? rotaConexao(c, byId) : []
             const wps = c.waypoints ?? []
-            const anchors = pts.length >= 2 ? [pts[0], ...wps, pts[pts.length - 1]] : []
             return (
               <g key={c.id}>
                 <g onPointerDown={(e) => startMove(e, c)}
-                  style={{ cursor: 'pointer', opacity: selC ? 0.6 : 1 }}
+                  style={{ cursor: selC ? 'move' : 'pointer', opacity: selC ? 0.6 : 1 }}
                   dangerouslySetInnerHTML={{ __html: conexaoSVG(c, byId) }} />
-                {selC && anchors.slice(0, -1).map((a, i) => {
-                  const b = anchors[i + 1]
-                  return <circle key={'add' + i} cx={(a.x + b.x) / 2} cy={(a.y + b.y) / 2} r={4}
-                    fill="#fff" stroke="#6366f1" strokeWidth={1.5} style={{ cursor: 'crosshair' }}
-                    onPointerDown={(e) => addWp(e, c, i)} />
-                })}
                 {selC && wps.map((w, k) => (
                   <circle key={'wp' + k} cx={w.x} cy={w.y} r={5} fill="#6366f1" stroke="#fff" strokeWidth={1.5}
                     style={{ cursor: 'move' }} onPointerDown={(e) => startWp(e, c, k)}
