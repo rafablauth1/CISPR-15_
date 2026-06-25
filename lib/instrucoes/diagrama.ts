@@ -242,17 +242,34 @@ function dedup(pts: { x: number; y: number }[]) {
   return pts.filter((p, i) => i === 0 || p.x !== pts[i - 1].x || p.y !== pts[i - 1].y)
 }
 
-/** Rota ortogonal entre dois pontos (com stub na direção da porta), evitando obstáculos. */
+function comprimento(pts: { x: number; y: number }[]) {
+  let s = 0
+  for (let i = 1; i < pts.length; i++) s += Math.abs(pts[i].x - pts[i - 1].x) + Math.abs(pts[i].y - pts[i - 1].y)
+  return s
+}
+
+/** Rota ortogonal entre dois pontos (stub na direção da porta), desviando dos obstáculos. */
 function rotaCabo(p1: { x: number; y: number }, d1: Dir, p2: { x: number; y: number }, d2: Dir, obst: Caixa[]) {
-  const S = 18
+  const S = 18, M = 12
   const e1 = afastar(p1, d1, S), e2 = afastar(p2, d2, S)
+  // Canais candidatos: meio, pontas, e rente às bordas de cada obstáculo (p/ contornar).
+  const xs = new Set<number>([(e1.x + e2.x) / 2, e1.x, e2.x])
+  const ys = new Set<number>([(e1.y + e2.y) / 2, e1.y, e2.y])
+  for (const b of obst) {
+    xs.add(b.x - M); xs.add(b.x + b.w + M)
+    ys.add(b.y - M); ys.add(b.y + b.h + M)
+  }
   const cands: { x: number; y: number }[][] = []
-  for (const mx of [(e1.x + e2.x) / 2, e1.x, e2.x])
-    cands.push(dedup([p1, e1, { x: mx, y: e1.y }, { x: mx, y: e2.y }, e2, p2]))
-  for (const my of [(e1.y + e2.y) / 2, e1.y, e2.y])
-    cands.push(dedup([p1, e1, { x: e1.x, y: my }, { x: e2.x, y: my }, e2, p2]))
-  for (const c of cands) if (!rotaCruza(c, obst)) return c
-  return cands[0]
+  for (const mx of xs) cands.push(dedup([p1, e1, { x: mx, y: e1.y }, { x: mx, y: e2.y }, e2, p2]))
+  for (const my of ys) cands.push(dedup([p1, e1, { x: e1.x, y: my }, { x: e2.x, y: my }, e2, p2]))
+  // "L" diretos (2 trechos)
+  cands.push(dedup([p1, e1, { x: e2.x, y: e1.y }, e2, p2]))
+  cands.push(dedup([p1, e1, { x: e1.x, y: e2.y }, e2, p2]))
+  // Pega a rota mais curta que NÃO cruza obstáculo; se nenhuma, a mais curta no geral.
+  const limpas = cands.filter(c => !rotaCruza(c, obst))
+  const pool = limpas.length ? limpas : cands
+  pool.sort((a, b) => comprimento(a) - comprimento(b))
+  return pool[0]
 }
 
 /** Polyline de um cabo (com Terra verde-amarelo) + rótulo no meio. */
