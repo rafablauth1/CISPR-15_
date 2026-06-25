@@ -64,11 +64,12 @@ const NOME_COMP: Record<string, string> = Object.fromEntries(COMPONENTES.map(c =
 // Tipos de cabo. Cores NEUTRAS (tons de cinza/ardósia) — diferenciados pelo
 // traço e pelo rótulo em cima da linha, não por cores berrantes.
 export const CABOS: { id: string; nome: string; rotulo: string; cor: string; dash: string }[] = [
-  { id: 'simples', nome: 'Simples',     rotulo: '',      cor: '#475569', dash: '' },
-  { id: 'rf',      nome: 'RF',          rotulo: 'RF',    cor: '#1f2937', dash: '' },
-  { id: 'alim',    nome: 'Alimentação', rotulo: 'Alim.', cor: '#57534e', dash: '' },
-  { id: 'rede',    nome: 'Rede',        rotulo: 'Rede',  cor: '#475569', dash: '7 4' },
-  { id: 'terra',   nome: 'Aterramento', rotulo: 'Terra', cor: '#44403c', dash: '2 4' },
+  { id: 'simples', nome: 'Simples',      rotulo: '',      cor: '#475569', dash: '' },
+  { id: 'rf',      nome: 'RF',           rotulo: 'RF',    cor: '#1f2937', dash: '' },
+  { id: 'rede',    nome: 'Rede',         rotulo: 'Rede',  cor: '#475569', dash: '7 4' },
+  { id: 'linha',   nome: 'Linha (Fase)', rotulo: 'Linha', cor: '#dc2626', dash: '' },
+  { id: 'neutro',  nome: 'Neutro',       rotulo: 'Neutro',cor: '#2563eb', dash: '' },
+  { id: 'terra',   nome: 'Terra',        rotulo: 'Terra', cor: '#16a34a', dash: '' },
 ]
 const CABO = Object.fromEntries(CABOS.map(c => [c.id, c]))
 
@@ -86,22 +87,46 @@ function rotuloLinha(x1: number, y1: number, x2: number, y2: number, texto: stri
   return `<text x="${mx}" y="${my - 5}" font-size="10" fill="${cor}" text-anchor="middle" style="paint-order:stroke" stroke="#ffffff" stroke-width="3">${texto}</text>`
 }
 
-function terminais(f: Forma) {
+/** SVG de uma linha de cabo (com o caso especial do Terra verde-amarelo) + rótulo. */
+export function linhaCaboSVG(x1: number, y1: number, x2: number, y2: number, cabo?: string, fallback?: string): string {
+  const e = estiloCabo(cabo, fallback)
+  let linha: string
+  if (cabo === 'terra') {
+    // Terra: verde-amarelo listrado (amarelo por baixo + verde tracejado por cima).
+    linha = `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#eab308" stroke-width="${e.w}" stroke-linecap="round"/>`
+          + `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#16a34a" stroke-width="${e.w}" stroke-dasharray="6 6"/>`
+  } else {
+    const dash = e.dash ? ` stroke-dasharray="${e.dash}"` : ''
+    linha = `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${e.cor}" stroke-width="${e.w}" stroke-linecap="round"${dash}/>`
+  }
+  return linha + rotuloLinha(x1, y1, x2, y2, e.rotulo, e.cor)
+}
+
+/** Pontos de conexão de um componente: terminais padrão + portas extras (clique direito). */
+export function pontosConexao(f: Forma): { x: number; y: number }[] {
   const w = f.w ?? COMP_W, h = f.h ?? COMP_H
-  return { lx: f.x, rx: f.x + w, cx: f.x + w / 2, cy: f.y + h / 2 }
+  const base = f.simbolo === 'acoplador-bi'
+    // Acoplador bidirecional: 1 porta em cada ponta (entrada/saída da linha
+    // principal) + 2 acopladas no meio, do mesmo lado (embaixo).
+    ? [{ x: f.x, y: f.y + h / 2 }, { x: f.x + w, y: f.y + h / 2 },
+       { x: f.x + w * 0.35, y: f.y + h }, { x: f.x + w * 0.65, y: f.y + h }]
+    : [{ x: f.x, y: f.y + h / 2 }, { x: f.x + w, y: f.y + h / 2 }]
+  const extra = (f.portas ?? []).map(p => ({ x: f.x + p.x, y: f.y + p.y }))
+  return [...base, ...extra]
 }
 
 /** Markup de UMA conexão (cabo) entre dois componentes — liga os terminais que se enfrentam. */
 export function conexaoSVG(c: Forma, byId: Record<string, Forma>): string {
   const a = byId[c.de || ''], b = byId[c.para || '']
   if (!a || !b) return ''
-  const ta = terminais(a), tb = terminais(b)
-  const aLeft = ta.cx <= tb.cx
-  const p1 = aLeft ? { x: ta.rx, y: ta.cy } : { x: ta.lx, y: ta.cy }
-  const p2 = aLeft ? { x: tb.lx, y: tb.cy } : { x: tb.rx, y: tb.cy }
-  const e = estiloCabo(c.cabo || 'rf')
-  const dash = e.dash ? ` stroke-dasharray="${e.dash}"` : ''
-  return `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="${e.cor}" stroke-width="${e.w}" stroke-linecap="round"${dash}/>` + rotuloLinha(p1.x, p1.y, p2.x, p2.y, e.rotulo, e.cor)
+  // Liga o par de pontos de conexão mais próximos entre os dois componentes.
+  const pa = pontosConexao(a), pb = pontosConexao(b)
+  let best = { d: Infinity, p1: pa[0], p2: pb[0] }
+  for (const p1 of pa) for (const p2 of pb) {
+    const d = (p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2
+    if (d < best.d) best = { d, p1, p2 }
+  }
+  return linhaCaboSVG(best.p1.x, best.p1.y, best.p2.x, best.p2.y, c.cabo, undefined)
 }
 
 function esc(s: string): string {
@@ -173,7 +198,7 @@ export function componenteSVG(f: Forma): string {
   const gx = x + (w - gw) / 2
   return `<g>`
     + `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="6" fill="#ffffff" stroke="${cor}" stroke-width="2"/>`
-    + `<circle cx="${x}" cy="${y + h / 2}" r="2.5" fill="${cor}"/><circle cx="${x + w}" cy="${y + h / 2}" r="2.5" fill="${cor}"/>`
+    + pontosConexao(f).map(p => `<circle cx="${p.x}" cy="${p.y}" r="3" fill="${cor}"/>`).join('')
     + glifo(f.simbolo || 'eut', gx, y + 8, gw, cor)
     + `<text x="${x + w / 2}" y="${y + h - 8}" font-size="11" fill="#111827" text-anchor="middle">${esc(nome)}</text>`
     + `</g>`
@@ -196,10 +221,7 @@ export function formaSVG(f: Forma): string {
     return `<ellipse cx="${x + w / 2}" cy="${y + h / 2}" rx="${Math.abs(w / 2)}" ry="${Math.abs(h / 2)}" fill="#ffffff" stroke="${cor}" stroke-width="2"/>${rotulo}`
   }
   if (f.tipo === 'linha') {
-    const e = estiloCabo(f.cabo, f.cor)
-    const x2 = f.x2 ?? x, y2 = f.y2 ?? y
-    const dash = e.dash ? ` stroke-dasharray="${e.dash}"` : ''
-    return `<line x1="${x}" y1="${y}" x2="${x2}" y2="${y2}" stroke="${e.cor}" stroke-width="${e.w}" stroke-linecap="round"${dash}/>` + rotuloLinha(x, y, x2, y2, e.rotulo, e.cor)
+    return linhaCaboSVG(x, y, f.x2 ?? x, f.y2 ?? y, f.cabo, f.cor)
   }
   if (f.tipo === 'componente') {
     return componenteSVG(f)

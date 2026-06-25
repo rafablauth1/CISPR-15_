@@ -4,7 +4,7 @@ import { useRef, useState } from 'react'
 import { MousePointer2, Square, Circle, Minus, Type as TypeIcon, Trash2, Cable, Undo2, Redo2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Forma } from '@/lib/instrucoes/tipos'
-import { COR_PADRAO, GRUPOS_COMP, CABOS, COMP_W, COMP_H, componenteSVG, conexaoSVG, estiloCabo } from '@/lib/instrucoes/diagrama'
+import { COR_PADRAO, GRUPOS_COMP, CABOS, COMP_W, COMP_H, componenteSVG, conexaoSVG, linhaCaboSVG } from '@/lib/instrucoes/diagrama'
 
 type Tool = 'select' | 'conectar' | 'retangulo' | 'elipse' | 'linha' | 'texto'
 const CORES = ['#1f2937', '#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed']
@@ -27,6 +27,7 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
   const [sel, setSel] = useState<string | null>(null)
   const [caboSel, setCaboSel] = useState('simples') // tipo de cabo ativo (p/ linha e conexão)
   const [conFrom, setConFrom] = useState<string | null>(null) // 1º componente clicado p/ conectar
+  const [guias, setGuias] = useState<{ vx?: number; hy?: number }[]>([]) // guias de alinhamento
   const draftRef = useRef<string | null>(null)
   const startRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
   const moveRef = useRef<{ id: string; ox: number; oy: number; isLine: boolean; snapped: boolean } | null>(null)
@@ -69,6 +70,30 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
     return { x: Math.round(e.clientX - r.left), y: Math.round(e.clientY - r.top) }
   }
 
+  // Alinhamento: encaixa a forma movida nas bordas/centros das outras e da página.
+  function alinhar(f: Forma, todas: Forma[]) {
+    const T = 6
+    const fw = f.w ?? COMP_W, fh = f.h ?? COMP_H
+    const alvosX: number[] = [0, w / 2, w], alvosY: number[] = [0, h / 2, h]
+    for (const o of todas) {
+      if (o.id === f.id || o.tipo === 'linha' || o.tipo === 'conexao') continue
+      const ow = o.w ?? COMP_W, oh = o.h ?? COMP_H
+      alvosX.push(o.x, o.x + ow / 2, o.x + ow)
+      alvosY.push(o.y, o.y + oh / 2, o.y + oh)
+    }
+    let x = f.x, y = f.y
+    const gs: { vx?: number; hy?: number }[] = []
+    for (const [mx, off] of [[f.x, 0], [f.x + fw / 2, fw / 2], [f.x + fw, fw]] as [number, number][]) {
+      const a = alvosX.find(v => Math.abs(mx - v) <= T)
+      if (a !== undefined) { x = a - off; gs.push({ vx: a }); break }
+    }
+    for (const [my, off] of [[f.y, 0], [f.y + fh / 2, fh / 2], [f.y + fh, fh]] as [number, number][]) {
+      const a = alvosY.find(v => Math.abs(my - v) <= T)
+      if (a !== undefined) { y = a - off; gs.push({ hy: a }); break }
+    }
+    return { x, y, gs }
+  }
+
   function onSvgPointerDown(e: React.PointerEvent) {
     if (e.target === svgRef.current && (tool === 'select' || tool === 'conectar')) { setSel(null); setConFrom(null); return }
     if (tool === 'select' || tool === 'conectar') return
@@ -101,10 +126,17 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
       const dx = x - m.ox, dy = y - m.oy
       if (dx === 0 && dy === 0) return
       if (!m.snapped) { snapshot(); m.snapped = true }   // histórico só no 1º movimento real
-      onChange(formas.map(f => f.id !== m.id ? f
+      let next = formas.map(f => f.id !== m.id ? f
         : m.isLine
           ? { ...f, x: f.x + dx, y: f.y + dy, x2: (f.x2 ?? f.x) + dx, y2: (f.y2 ?? f.y) + dy }
-          : { ...f, x: f.x + dx, y: f.y + dy }))
+          : { ...f, x: f.x + dx, y: f.y + dy })
+      const mov = next.find(f => f.id === m.id)!
+      if (mov.tipo !== 'linha' && mov.tipo !== 'conexao') {
+        const { x: sx, y: sy, gs } = alinhar(mov, next)
+        if (sx !== mov.x || sy !== mov.y) next = next.map(f => f.id === m.id ? { ...f, x: sx, y: sy } : f)
+        setGuias(gs)
+      }
+      onChange(next)
       m.ox = x; m.oy = y
     }
   }
@@ -124,6 +156,18 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
       }
     }
     moveRef.current = null
+    setGuias([])
+  }
+
+  // Botão direito num equipamento → adiciona uma porta de conexão no ponto clicado.
+  function addPorta(e: React.MouseEvent, f: Forma) {
+    e.preventDefault()
+    if (f.tipo !== 'componente') return
+    const r = svgRef.current!.getBoundingClientRect()
+    const px = Math.round(e.clientX - r.left - f.x), py = Math.round(e.clientY - r.top - f.y)
+    snapshot()
+    onChange(formas.map(z => z.id === f.id ? { ...z, portas: [...(z.portas ?? []), { x: px, y: py }] } : z))
+    setSel(f.id)
   }
 
   function startMove(e: React.PointerEvent, f: Forma) {
@@ -216,7 +260,7 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
         <span className="text-[10px] text-white/30">
           {tool === 'conectar'
             ? (conFrom ? 'Agora clique no 2º equipamento. ' : 'Clique no 1º equipamento. ')
-            : tool === 'select' ? 'Clique pra mover · Del/Ctrl+Z/C/V. ' : 'Arraste pra desenhar. '}
+            : tool === 'select' ? 'Mover · botão direito no equipamento = porta · Del/Ctrl+Z/C/V. ' : 'Arraste pra desenhar. '}
           {formas.length} item{formas.length !== 1 ? 's' : ''}
         </span>
       </div>
@@ -289,18 +333,14 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
                 {isSel && <rect x={f.x - 2} y={f.y - 2} width={(f.w ?? 0) + 4} height={(f.h ?? 0) + 4} fill="none" stroke="#6366f1" strokeWidth={1} strokeDasharray="4 3" />}
               </g>
             )
-            if (f.tipo === 'linha') {
-              const ec = estiloCabo(f.cabo, f.cor)
-              return (
+            if (f.tipo === 'linha') return (
               <g key={f.id} {...comum}>
                 {isSel && <line x1={f.x} y1={f.y} x2={f.x2} y2={f.y2} stroke="#6366f1" strokeWidth={7} strokeOpacity={0.25} strokeLinecap="round" />}
-                <line x1={f.x} y1={f.y} x2={f.x2} y2={f.y2} stroke={ec.cor} strokeWidth={ec.w} strokeDasharray={ec.dash || undefined} strokeLinecap="round" />
-                {ec.rotulo && <text x={(f.x + (f.x2 ?? f.x)) / 2} y={(f.y + (f.y2 ?? f.y)) / 2 - 5} fontSize={10} fill={ec.cor} textAnchor="middle" style={{ paintOrder: 'stroke' }} stroke="#fff" strokeWidth={3}>{ec.rotulo}</text>}
+                <g dangerouslySetInnerHTML={{ __html: linhaCaboSVG(f.x, f.y, f.x2 ?? f.x, f.y2 ?? f.y, f.cabo, f.cor) }} />
               </g>
-              )
-            }
+            )
             if (f.tipo === 'componente') return (
-              <g key={f.id} {...comum}>
+              <g key={f.id} {...comum} onContextMenu={(e) => addPorta(e, f)}>
                 <g dangerouslySetInnerHTML={{ __html: componenteSVG(f) }} />
                 {isSel && <rect x={f.x - 2} y={f.y - 2} width={(f.w ?? COMP_W) + 4} height={(f.h ?? COMP_H) + 4} fill="none" stroke="#6366f1" strokeWidth={1} strokeDasharray="4 3" />}
               </g>
@@ -312,6 +352,10 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
               </g>
             )
           })}
+          {/* Guias de alinhamento (aparecem ao arrastar) */}
+          {guias.map((g, i) => g.vx != null
+            ? <line key={i} x1={g.vx} y1={0} x2={g.vx} y2={h} stroke="#ec4899" strokeWidth={1} strokeDasharray="4 3" />
+            : <line key={i} x1={0} y1={g.hy} x2={w} y2={g.hy} stroke="#ec4899" strokeWidth={1} strokeDasharray="4 3" />)}
         </svg>
       </div>
     </div>
