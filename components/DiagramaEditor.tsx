@@ -31,6 +31,7 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
   const [guias, setGuias] = useState<{ vx?: number; hy?: number }[]>([]) // guias de alinhamento
   // Menu de "criar conexão" (botão direito): posição na tela + alvo + posição relativa.
   const [portaMenu, setPortaMenu] = useState<{ cx: number; cy: number; fid: string; px: number; py: number } | null>(null)
+  const [portaNome, setPortaNome] = useState('') // nome digitado p/ conexão "Outro"
   const draftRef = useRef<string | null>(null)
   const startRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
   const moveRef = useRef<{ id: string; ox: number; oy: number; isLine: boolean; snapped: boolean } | null>(null)
@@ -162,13 +163,21 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
     setGuias([])
   }
 
-  // Botão direito num equipamento → abre o menu "criar conexão" no ponto clicado.
+  // Botão direito num equipamento: perto de uma porta existente → remove;
+  // senão → abre o menu "criar conexão" no ponto clicado.
   function addPorta(e: React.MouseEvent, f: Forma) {
     e.preventDefault()
     if (f.tipo !== 'componente') return
     const r = svgRef.current!.getBoundingClientRect()
-    const px = Math.round(e.clientX - r.left - f.x), py = Math.round(e.clientY - r.top - f.y)
-    setPortaMenu({ cx: e.clientX, cy: e.clientY, fid: f.id, px, py })
+    const px = e.clientX - r.left - f.x, py = e.clientY - r.top - f.y
+    const idx = (f.portas ?? []).findIndex(p => Math.hypot(p.x - px, p.y - py) <= 9)
+    if (idx >= 0) {
+      snapshot()
+      onChange(formas.map(z => z.id === f.id ? { ...z, portas: (z.portas ?? []).filter((_, i) => i !== idx) } : z))
+      return
+    }
+    setPortaNome('')
+    setPortaMenu({ cx: e.clientX, cy: e.clientY, fid: f.id, px: Math.round(px), py: Math.round(py) })
   }
   function criarPorta(nome: string) {
     const pm = portaMenu; if (!pm) return
@@ -184,7 +193,7 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
     else py = ch
     snapshot()
     onChange(formas.map(z => z.id === pm.fid ? { ...z, portas: [...(z.portas ?? []), { x: px, y: py, nome: nome || undefined }] } : z))
-    setSel(pm.fid); setPortaMenu(null)
+    setSel(pm.fid); setPortaMenu(null); setPortaNome('')
   }
 
   function startMove(e: React.PointerEvent, f: Forma) {
@@ -388,10 +397,15 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
                   className="text-left px-2 py-1 rounded text-[11px] text-white/70 hover:bg-white/10 hover:text-white">{n}</button>
               ))}
             </div>
-            <button type="button" onClick={() => { const n = prompt('Nome da conexão:') ?? ''; if (n.trim()) criarPorta(n.trim()) }}
-              className="w-full text-left px-2 py-1 mt-0.5 rounded text-[11px] text-teal/80 hover:bg-white/10">Outro…</button>
+            <div className="flex gap-1 mt-1 px-0.5">
+              <input autoFocus value={portaNome} onChange={e => setPortaNome(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && portaNome.trim()) criarPorta(portaNome.trim()); if (e.key === 'Escape') setPortaMenu(null) }}
+                placeholder="outro nome…" className="input text-[11px] py-0.5 w-28" />
+              <button type="button" onClick={() => portaNome.trim() && criarPorta(portaNome.trim())}
+                className="px-2 py-0.5 rounded text-[11px] bg-teal/20 text-teal hover:bg-teal/30">OK</button>
+            </div>
             <button type="button" onClick={() => criarPorta('')}
-              className="w-full text-left px-2 py-1 rounded text-[11px] text-white/40 hover:bg-white/10">Sem nome</button>
+              className="w-full text-left px-2 py-1 mt-0.5 rounded text-[11px] text-white/40 hover:bg-white/10">Sem nome</button>
           </div>
         </>
       )}
