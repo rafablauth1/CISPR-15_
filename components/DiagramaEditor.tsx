@@ -8,6 +8,7 @@ import { COR_PADRAO, GRUPOS_COMP, CABOS, COMP_W, COMP_H, componenteSVG, conexaoS
 
 type Tool = 'select' | 'conectar' | 'retangulo' | 'elipse' | 'linha' | 'texto'
 const CORES = ['#1f2937', '#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed']
+const CONECTORES = ['Entrada', 'Saída', 'RF', 'Alim.', 'Linha', 'Neutro', 'Terra', 'Sinal'] // presets do menu
 const FERRAMENTAS: { id: Tool; icon: React.ElementType; label: string }[] = [
   { id: 'select',    icon: MousePointer2, label: 'Selecionar / mover' },
   { id: 'conectar',  icon: Cable,         label: 'Conectar (cabo entre equipamentos)' },
@@ -28,6 +29,8 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
   const [caboSel, setCaboSel] = useState('simples') // tipo de cabo ativo (p/ linha e conexão)
   const [conFrom, setConFrom] = useState<string | null>(null) // 1º componente clicado p/ conectar
   const [guias, setGuias] = useState<{ vx?: number; hy?: number }[]>([]) // guias de alinhamento
+  // Menu de "criar conexão" (botão direito): posição na tela + alvo + posição relativa.
+  const [portaMenu, setPortaMenu] = useState<{ cx: number; cy: number; fid: string; px: number; py: number } | null>(null)
   const draftRef = useRef<string | null>(null)
   const startRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
   const moveRef = useRef<{ id: string; ox: number; oy: number; isLine: boolean; snapped: boolean } | null>(null)
@@ -159,15 +162,19 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
     setGuias([])
   }
 
-  // Botão direito num equipamento → adiciona uma porta de conexão no ponto clicado.
+  // Botão direito num equipamento → abre o menu "criar conexão" no ponto clicado.
   function addPorta(e: React.MouseEvent, f: Forma) {
     e.preventDefault()
     if (f.tipo !== 'componente') return
     const r = svgRef.current!.getBoundingClientRect()
     const px = Math.round(e.clientX - r.left - f.x), py = Math.round(e.clientY - r.top - f.y)
+    setPortaMenu({ cx: e.clientX, cy: e.clientY, fid: f.id, px, py })
+  }
+  function criarPorta(nome: string) {
+    const pm = portaMenu; if (!pm) return
     snapshot()
-    onChange(formas.map(z => z.id === f.id ? { ...z, portas: [...(z.portas ?? []), { x: px, y: py }] } : z))
-    setSel(f.id)
+    onChange(formas.map(z => z.id === pm.fid ? { ...z, portas: [...(z.portas ?? []), { x: pm.px, y: pm.py, nome: nome || undefined }] } : z))
+    setSel(pm.fid); setPortaMenu(null)
   }
 
   function startMove(e: React.PointerEvent, f: Forma) {
@@ -358,6 +365,26 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
             : <line key={i} x1={0} y1={g.hy} x2={w} y2={g.hy} stroke="#ec4899" strokeWidth={1} strokeDasharray="4 3" />)}
         </svg>
       </div>
+
+      {/* Menu "criar conexão" (botão direito no equipamento) */}
+      {portaMenu && (
+        <>
+          <div className="fixed inset-0 z-[9998]" onClick={() => setPortaMenu(null)} onContextMenu={(e) => { e.preventDefault(); setPortaMenu(null) }} />
+          <div className="fixed z-[9999] card p-1.5 shadow-2xl" style={{ left: portaMenu.cx, top: portaMenu.cy, background: '#141B28' }}>
+            <p className="text-[9px] font-mono uppercase tracking-wider text-white/40 px-1.5 pb-1">Criar conexão</p>
+            <div className="grid grid-cols-2 gap-0.5">
+              {CONECTORES.map(n => (
+                <button key={n} type="button" onClick={() => criarPorta(n)}
+                  className="text-left px-2 py-1 rounded text-[11px] text-white/70 hover:bg-white/10 hover:text-white">{n}</button>
+              ))}
+            </div>
+            <button type="button" onClick={() => { const n = prompt('Nome da conexão:') ?? ''; if (n.trim()) criarPorta(n.trim()) }}
+              className="w-full text-left px-2 py-1 mt-0.5 rounded text-[11px] text-teal/80 hover:bg-white/10">Outro…</button>
+            <button type="button" onClick={() => criarPorta('')}
+              className="w-full text-left px-2 py-1 rounded text-[11px] text-white/40 hover:bg-white/10">Sem nome</button>
+          </div>
+        </>
+      )}
     </div>
   )
 }

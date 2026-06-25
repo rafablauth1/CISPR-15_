@@ -196,11 +196,15 @@ export function componenteSVG(f: Forma): string {
   const nome = f.texto || NOME_COMP[f.simbolo || ''] || 'Equip.'
   const gw = Math.min(w - 24, 60)
   const gx = x + (w - gw) / 2
+  const labelsPortas = (f.portas ?? []).map(p => p.nome
+    ? `<text x="${x + p.x}" y="${y + p.y - 5}" font-size="8" fill="${cor}" text-anchor="middle" style="paint-order:stroke" stroke="#ffffff" stroke-width="2.5">${esc(p.nome)}</text>`
+    : '').join('')
   return `<g>`
     + `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="6" fill="#ffffff" stroke="${cor}" stroke-width="2"/>`
     + pontosConexao(f).map(p => `<circle cx="${p.x}" cy="${p.y}" r="3" fill="${cor}"/>`).join('')
     + glifo(f.simbolo || 'eut', gx, y + 8, gw, cor)
     + `<text x="${x + w / 2}" y="${y + h - 8}" font-size="11" fill="#111827" text-anchor="middle">${esc(nome)}</text>`
+    + labelsPortas
     + `</g>`
 }
 
