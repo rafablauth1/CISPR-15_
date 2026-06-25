@@ -18,13 +18,6 @@ const FERRAMENTAS: { id: Tool; icon: React.ElementType; label: string }[] = [
   { id: 'texto',     icon: TypeIcon,      label: 'Texto' },
 ]
 function uid() { return Math.random().toString(36).slice(2) + Date.now().toString(36) }
-// Distância de um ponto p ao segmento a→b.
-function distSeg(p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }) {
-  const dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy
-  let t = l2 ? ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2 : 0
-  t = Math.max(0, Math.min(1, t))
-  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy))
-}
 
 export function DiagramaEditor({ formas, w, h, onChange }: {
   formas: Forma[]; w: number; h: number; onChange: (f: Forma[]) => void
@@ -136,17 +129,25 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
   }
 
   // Move a dobra idx de um cabo.
-  function startWp(e: React.PointerEvent, c: Forma, idx: number) {
+  // Pega uma dobra (canto) existente do cabo e arrasta. Se ainda não houver
+  // waypoints, materializa os cantos do roteamento automático primeiro.
+  function startBend(e: React.PointerEvent, c: Forma, idx: number) {
     e.stopPropagation()
     setSel(c.id)
     snapshot()
-    const w = c.waypoints?.[idx]
+    let wps = c.waypoints
+    if (!wps?.length) {
+      wps = rotaConexao(c, byId).slice(1, -1)
+      onChange(formas.map(z => z.id === c.id ? { ...z, waypoints: wps } : z))
+    }
+    const w = wps?.[idx]
     wpRef.current = { cid: c.id, idx, ox: w?.x ?? 0, oy: w?.y ?? 0, ax: null }
     svgRef.current?.setPointerCapture(e.pointerId)
   }
   function removeWp(c: Forma, idx: number) {
     snapshot()
-    onChange(formas.map(f => f.id === c.id ? { ...f, waypoints: (f.waypoints ?? []).filter((_, i) => i !== idx) } : f))
+    const wps = c.waypoints?.length ? c.waypoints : rotaConexao(c, byId).slice(1, -1)
+    onChange(formas.map(f => f.id === c.id ? { ...f, waypoints: wps.filter((_, i) => i !== idx) } : f))
   }
 
   function onSvgPointerMove(e: React.PointerEvent) {
@@ -221,6 +222,15 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
           ? Math.hypot((f.x2 ?? f.x) - f.x, (f.y2 ?? f.y) - f.y) < 5
           : (f.w ?? 0) < 5 && (f.h ?? 0) < 5
         if (tiny) { onChange(formas.filter(x => x.id !== id)); setSel(null) }
+      }
+    }
+    if (wpRef.current) {
+      // Normaliza: dobras = cantos atuais da rota (alças batem com o fio).
+      const cid = wpRef.current.cid
+      const c = formas.find(f => f.id === cid)
+      if (c) {
+        const cantos = rotaConexao(c, byId).slice(1, -1)
+        onChange(formas.map(f => f.id === cid ? { ...f, waypoints: cantos } : f))
       }
     }
     moveRef.current = null
@@ -308,23 +318,8 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
       setConFrom(null)
       return
     }
-    // Cabo: 1º clique seleciona; já selecionado, clicar/arrastar no fio cria uma
-    // dobra no trecho mais próximo e a arrasta.
-    if (f.tipo === 'conexao') {
-      if (tool !== 'select' || sel !== f.id) { setSel(f.id); return }
-      const p = pt(e)
-      const pts = rotaConexao(f, byId)
-      const wps = f.waypoints ?? []
-      const anchors = pts.length >= 2 ? [pts[0], ...wps, pts[pts.length - 1]] : []
-      let segI = 0, bd = Infinity
-      for (let i = 0; i < anchors.length - 1; i++) { const d = distSeg(p, anchors[i], anchors[i + 1]); if (d < bd) { bd = d; segI = i } }
-      snapshot()
-      const novo = [...wps]; novo.splice(segI, 0, p)
-      onChange(formas.map(z => z.id === f.id ? { ...z, waypoints: novo } : z))
-      wpRef.current = { cid: f.id, idx: segI, ox: p.x, oy: p.y, ax: null }
-      svgRef.current?.setPointerCapture(e.pointerId)
-      return
-    }
+    // Cabo: clicar só seleciona; as dobras (alças) é que se arrastam.
+    if (f.tipo === 'conexao') { setSel(f.id); return }
     setSel(f.id)
     if (tool !== 'select') return
     const { x, y } = pt(e)
@@ -451,15 +446,16 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
           {/* Camada de conexões (cabos) — atrás dos componentes */}
           {formas.filter(f => f.tipo === 'conexao').map(c => {
             const selC = c.id === sel
-            const wps = c.waypoints ?? []
+            // Alças = dobras existentes (waypoints, ou os cantos do roteamento auto).
+            const cantos = selC ? (c.waypoints?.length ? c.waypoints : rotaConexao(c, byId).slice(1, -1)) : []
             return (
               <g key={c.id}>
                 <g onPointerDown={(e) => startMove(e, c)}
-                  style={{ cursor: selC ? 'move' : 'pointer', opacity: selC ? 0.6 : 1 }}
+                  style={{ cursor: 'pointer', opacity: selC ? 0.6 : 1 }}
                   dangerouslySetInnerHTML={{ __html: conexaoSVG(c, byId) }} />
-                {selC && wps.map((w, k) => (
+                {cantos.map((w, k) => (
                   <circle key={'wp' + k} cx={w.x} cy={w.y} r={5} fill="#6366f1" stroke="#fff" strokeWidth={1.5}
-                    style={{ cursor: 'move' }} onPointerDown={(e) => startWp(e, c, k)}
+                    style={{ cursor: 'move' }} onPointerDown={(e) => startBend(e, c, k)}
                     onContextMenu={(e) => { e.preventDefault(); removeWp(c, k) }} />
                 ))}
               </g>
