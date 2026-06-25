@@ -2,28 +2,28 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { FileText, Loader2 } from 'lucide-react'
+import { FileText, Loader2, Pencil } from 'lucide-react'
+import Link from 'next/link'
 import type { TipoDocumento, Bloco } from '@/lib/instrucoes/tipos'
+import { blocosPadraoIT } from '@/lib/instrucoes/template-padrao'
 
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2) }
 
-function templateIT(): Bloco[] {
-  return [
-    { id: uid(), tipo: 'h1', numero: '1', texto: 'Objetivo' },
-    { id: uid(), tipo: 'p',  texto: '' },
-    { id: uid(), tipo: 'h1', numero: '2', texto: 'Campo de Aplicação' },
-    { id: uid(), tipo: 'p',  texto: '' },
-    { id: uid(), tipo: 'h1', numero: '3', texto: 'Documentos de Referência' },
-    { id: uid(), tipo: 'ul', itens: [''] },
-    { id: uid(), tipo: 'h1', numero: '4', texto: 'Definições e Siglas' },
-    { id: uid(), tipo: 'definicoes', itens: [{ sigla: '', definicao: '' }] },
-    { id: uid(), tipo: 'h1', numero: '5', texto: 'Equipamentos e Materiais' },
-    { id: uid(), tipo: 'ul', itens: [''] },
-    { id: uid(), tipo: 'h1', numero: '6', texto: 'Procedimento' },
-    { id: uid(), tipo: 'ol', itens: [''] },
-    { id: uid(), tipo: 'h1', numero: '7', texto: 'Registros' },
-    { id: uid(), tipo: 'p',  texto: '' },
-  ]
+// Clona blocos dando ids novos (não compartilhar ids entre documentos).
+function clonarBlocos(blocos: Bloco[]): Bloco[] {
+  return blocos.map(b => ({ ...JSON.parse(JSON.stringify(b)), id: uid() }))
+}
+
+// Modelo padrão de IT: usa o salvo (editável) e cai no padrão do código se faltar.
+async function templateIT(): Promise<Bloco[]> {
+  try {
+    const r = await fetch('/api/instrucoes/template', { cache: 'no-store' })
+    if (r.ok) {
+      const t = await r.json()
+      if (Array.isArray(t?.blocos) && t.blocos.length) return clonarBlocos(t.blocos)
+    }
+  } catch {}
+  return blocosPadraoIT()
 }
 
 function templatePC(): Bloco[] {
@@ -50,7 +50,7 @@ function templatePC(): Bloco[] {
 }
 
 const TIPOS: { tipo: TipoDocumento; label: string; desc: string }[] = [
-  { tipo: 'IT', label: 'Instrução de Trabalho', desc: '7 seções: objetivo, campo de aplicação, referências, definições, equipamentos, procedimento, registros.' },
+  { tipo: 'IT', label: 'Instrução de Trabalho', desc: 'Modelo padrão de checagem (12 seções + Anexo A) — editável. Toda IT nova começa por ele.' },
   { tipo: 'PC', label: 'Procedimento de Calibração', desc: '9 seções: objetivo, referências, definições, equipamentos, condições ambientais, procedimento, incerteza, critério, registro.' },
 ]
 
@@ -64,7 +64,7 @@ export default function NovaInstrucaoPage() {
   async function criar() {
     setCriando(true)
     try {
-      const blocos = tipo === 'IT' ? templateIT() : templatePC()
+      const blocos = tipo === 'IT' ? await templateIT() : templatePC()
       const res = await fetch('/api/instrucoes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -96,6 +96,9 @@ export default function NovaInstrucaoPage() {
           <h1 className="page-title">Novo IT / PC</h1>
           <p className="page-sub">Escolha o tipo para iniciar com o template padrão</p>
         </div>
+        <Link href="/procedimentos/instrucoes/modelo-padrao" className="btn-secondary text-[11px] gap-1.5">
+          <Pencil size={12}/> Editar modelo padrão
+        </Link>
       </div>
 
       {/* Tipo */}

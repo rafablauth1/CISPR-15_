@@ -598,6 +598,8 @@ export default function EditorInstrucaoPage() {
   const params = useParams()
   const router = useRouter()
   const id = params.id as string
+  // Edição do MODELO PADRÃO de IT (carrega/salva via /api/instrucoes/template).
+  const ehModelo = id === 'modelo-padrao'
 
   const [doc, setDoc] = useState<DocumentoIT | null>(null)
   const [saving, setSaving] = useState(false)
@@ -611,10 +613,26 @@ export default function EditorInstrucaoPage() {
   const [alterado, setAlterado] = useState(false)
 
   useEffect(() => {
-    fetch(`/api/instrucoes/${id}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d) { setDoc(d); setAlterado(false) } })
-      .catch(() => {})
+    if (ehModelo) {
+      // Modelo padrão: só tem blocos; embrulha num DocumentoIT p/ reusar o editor.
+      fetch('/api/instrucoes/template', { cache: 'no-store' })
+        .then(r => r.ok ? r.json() : null)
+        .then(t => {
+          const blocos = Array.isArray(t?.blocos) ? t.blocos : []
+          setDoc({
+            id: 'modelo-padrao', tipoDocumento: 'IT', codigo: 'MODELO PADRÃO',
+            titulo: 'Modelo padrão de IT (checagem)', revisao: '', dataRevisao: '',
+            revisadoPor: '', aprovadoPor: '', blocos, criadoEm: '', atualizadoEm: '',
+          })
+          setAlterado(false)
+        })
+        .catch(() => {})
+    } else {
+      fetch(`/api/instrucoes/${id}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d) { setDoc(d); setAlterado(false) } })
+        .catch(() => {})
+    }
     fetch('/api/grupos').then(r => r.json()).then(g => setGrupos(Array.isArray(g) ? g : [])).catch(() => {})
     fetch('/api/glossario').then(r => r.json()).then(g => setGlossario(Array.isArray(g) ? g : [])).catch(() => {})
   }, [id])
@@ -704,11 +722,15 @@ export default function EditorInstrucaoPage() {
     if (!doc) return
     setSaving(true); setErro('')
     try {
-      const res = await fetch(`/api/instrucoes/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(doc),
-      })
+      const res = ehModelo
+        ? await fetch('/api/instrucoes/template', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ blocos: doc.blocos }),
+          })
+        : await fetch(`/api/instrucoes/${id}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(doc),
+          })
       if (!res.ok) throw new Error(await res.text())
       setSaved(true); setAlterado(false)
     } catch (e: unknown) {
