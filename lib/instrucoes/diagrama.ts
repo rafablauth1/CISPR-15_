@@ -124,15 +124,22 @@ export function pontosConexao(f: Forma): { x: number; y: number }[] {
 export function conexaoSVG(c: Forma, byId: Record<string, Forma>): string {
   const a = byId[c.de || ''], b = byId[c.para || '']
   if (!a || !b) return ''
-  // Liga o par de pontos de conexão mais próximos entre os dois componentes.
-  const pa = pontosConexao(a), pb = pontosConexao(b)
-  if (!pa.length || !pb.length) return ''   // componente sem nenhum ponto → sem cabo
-  let best = { d: Infinity, p1: pa[0], p2: pb[0] }
-  for (const p1 of pa) for (const p2 of pb) {
-    const d = (p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2
-    if (d < best.d) best = { d, p1, p2 }
+  // Usa o ponto exato clicado (dePos/paraPos); senão, o par de pontos mais próximos.
+  let p1: { x: number; y: number } | undefined
+  let p2: { x: number; y: number } | undefined
+  if (c.dePos) p1 = { x: a.x + c.dePos.x, y: a.y + c.dePos.y }
+  if (c.paraPos) p2 = { x: b.x + c.paraPos.x, y: b.y + c.paraPos.y }
+  if (!p1 || !p2) {
+    const pa = pontosConexao(a), pb = pontosConexao(b)
+    if (!pa.length || !pb.length) return ''
+    let best = { d: Infinity, p1: pa[0], p2: pb[0] }
+    for (const a1 of pa) for (const b1 of pb) {
+      const d = (a1.x - b1.x) ** 2 + (a1.y - b1.y) ** 2
+      if (d < best.d) best = { d, p1: a1, p2: b1 }
+    }
+    p1 = p1 ?? best.p1; p2 = p2 ?? best.p2
   }
-  return linhaCaboSVG(best.p1.x, best.p1.y, best.p2.x, best.p2.y, c.cabo, undefined)
+  return linhaCaboSVG(p1.x, p1.y, p2.x, p2.y, c.cabo, undefined)
 }
 
 function esc(s: string): string {

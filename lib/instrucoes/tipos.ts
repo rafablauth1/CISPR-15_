@@ -26,6 +26,8 @@ export interface Forma {
   // p/ tipo 'conexao' (cabo entre dois componentes — segue ao mover):
   de?: string    // id do componente de origem
   para?: string  // id do componente de destino
+  dePos?: { x: number; y: number }   // ponto (offset px) na origem — a bolinha clicada
+  paraPos?: { x: number; y: number } // ponto (offset px) no destino
   cabo?: string  // tipo de cabo: 'simples' | 'rf' | 'rede' | 'linha' | 'neutro' | 'terra'
 }
 

@@ -4,7 +4,7 @@ import { useRef, useState } from 'react'
 import { MousePointer2, Square, Circle, Minus, Type as TypeIcon, Trash2, Cable, Undo2, Redo2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Forma } from '@/lib/instrucoes/tipos'
-import { COR_PADRAO, GRUPOS_COMP, CABOS, COMP_W, COMP_H, componenteSVG, conexaoSVG, linhaCaboSVG, pontosBase } from '@/lib/instrucoes/diagrama'
+import { COR_PADRAO, GRUPOS_COMP, CABOS, COMP_W, COMP_H, componenteSVG, conexaoSVG, linhaCaboSVG, pontosBase, pontosConexao } from '@/lib/instrucoes/diagrama'
 
 type Tool = 'select' | 'conectar' | 'retangulo' | 'elipse' | 'linha' | 'texto'
 const CORES = ['#1f2937', '#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed']
@@ -28,6 +28,7 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
   const [sel, setSel] = useState<string | null>(null)
   const [caboSel, setCaboSel] = useState('simples') // tipo de cabo ativo (p/ linha e conexão)
   const [conFrom, setConFrom] = useState<string | null>(null) // 1º componente clicado p/ conectar
+  const conFromPos = useRef<{ x: number; y: number } | null>(null) // bolinha do 1º clique
   const [guias, setGuias] = useState<{ vx?: number; hy?: number }[]>([]) // guias de alinhamento
   // Menu de "criar conexão" (botão direito): posição na tela + alvo + posição relativa.
   const [portaMenu, setPortaMenu] = useState<{ cx: number; cy: number; fid: string; px: number; py: number; removeIdx?: number; removeBase?: number; nomeAtual?: string } | null>(null)
@@ -255,13 +256,18 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
 
   function startMove(e: React.PointerEvent, f: Forma) {
     e.stopPropagation()
-    // Modo conectar: clica no 1º equipamento, depois no 2º → cria o cabo.
+    // Modo conectar: clica numa bolinha do 1º equipamento, depois no 2º → cria o cabo.
     if (tool === 'conectar') {
       if (f.tipo !== 'componente') return
-      if (!conFrom) { setConFrom(f.id); setSel(f.id); return }
+      const { x, y } = pt(e)
+      const pts = pontosConexao(f)
+      let np = pts[0], bd = Infinity
+      for (const p of pts) { const d = (p.x - x) ** 2 + (p.y - y) ** 2; if (d < bd) { bd = d; np = p } }
+      const pos = np ? { x: Math.round(np.x - f.x), y: Math.round(np.y - f.y) } : { x: Math.round(x - f.x), y: Math.round(y - f.y) }
+      if (!conFrom) { setConFrom(f.id); conFromPos.current = pos; setSel(f.id); return }
       if (conFrom === f.id) { setConFrom(null); return }
       snapshot()
-      onChange([...formas, { id: uid(), tipo: 'conexao', x: 0, y: 0, de: conFrom, para: f.id, cabo: caboSel }])
+      onChange([...formas, { id: uid(), tipo: 'conexao', x: 0, y: 0, de: conFrom, dePos: conFromPos.current ?? undefined, para: f.id, paraPos: pos, cabo: caboSel }])
       setConFrom(null)
       return
     }
