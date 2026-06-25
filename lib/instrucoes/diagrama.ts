@@ -121,17 +121,6 @@ export function pontosConexao(f: Forma): { x: number; y: number }[] {
 }
 
 /** Markup de UMA conexão (cabo) entre dois componentes — liga os terminais que se enfrentam. */
-// Torna uma sequência de pontos em caminho ORTOGONAL (insere cotovelo entre pares).
-function ortogonalizar(pts: { x: number; y: number }[]) {
-  const out = [pts[0]]
-  for (let i = 1; i < pts.length; i++) {
-    const a = out[out.length - 1], b = pts[i]
-    if (a.x !== b.x && a.y !== b.y) out.push({ x: b.x, y: a.y })
-    out.push(b)
-  }
-  return dedup(out)
-}
-
 /** Pontos da rota de uma conexão: dobras manuais (waypoints) ou roteamento automático. */
 export function rotaConexao(c: Forma, byId: Record<string, Forma>): { x: number; y: number }[] {
   const a = byId[c.de || ''], b = byId[c.para || '']
@@ -150,8 +139,8 @@ export function rotaConexao(c: Forma, byId: Record<string, Forma>): { x: number;
     }
     p1 = p1 ?? best.p1; p2 = p2 ?? best.p2
   }
-  // Dobras manuais → manda nelas; senão, roteamento automático com desvio.
-  if (c.waypoints?.length) return ortogonalizar([p1, ...c.waypoints, p2])
+  // Dobras manuais → polilinha direta pelos cantos (já ortogonais); senão, auto.
+  if (c.waypoints?.length) return dedup([p1, ...c.waypoints, p2])
   const obst: Caixa[] = Object.values(byId)
     .filter(f => f.tipo === 'componente')
     .map(f => ({ x: f.x, y: f.y, w: f.w ?? COMP_W, h: f.h ?? COMP_H }))

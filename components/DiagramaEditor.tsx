@@ -37,7 +37,8 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
   const startRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
   const moveRef = useRef<{ id: string; ox: number; oy: number; isLine: boolean; snapped: boolean } | null>(null)
   const resizeRef = useRef<{ id: string; corner: string; ox: number; oy: number } | null>(null)
-  const wpRef = useRef<{ cid: string; idx: number; ox: number; oy: number; ax: 'h' | 'v' | null } | null>(null) // arrastando dobra (travada num eixo)
+  // Arrastando um TRECHO (segmento k→k+1) de um cabo: translada o trecho inteiro.
+  const wpRef = useRef<{ cid: string; k: number; orient: 'h' | 'v'; base: number; startC: number } | null>(null)
   // Histórico (desfazer/refazer) e área de transferência de formas.
   const histRef = useRef<Forma[][]>([])
   const redoRef = useRef<Forma[][]>([])
@@ -129,39 +130,37 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
   }
 
   // Move a dobra idx de um cabo.
-  // Pega uma dobra (canto) existente do cabo e arrasta. Se ainda não houver
-  // waypoints, materializa os cantos do roteamento automático primeiro.
-  function startBend(e: React.PointerEvent, c: Forma, idx: number) {
+  // Cantos editáveis de um cabo: os waypoints, ou (na 1ª vez) os cantos do
+  // roteamento automático materializados.
+  function cantosCabo(c: Forma) {
+    return c.waypoints?.length ? c.waypoints : rotaConexao(c, byId).slice(1, -1)
+  }
+  // Pega o TRECHO entre os cantos k e k+1 e começa a arrastá-lo (translação).
+  function startSeg(e: React.PointerEvent, c: Forma, k: number) {
     e.stopPropagation()
     setSel(c.id)
     snapshot()
     let wps = c.waypoints
-    if (!wps?.length) {
-      wps = rotaConexao(c, byId).slice(1, -1)
-      onChange(formas.map(z => z.id === c.id ? { ...z, waypoints: wps } : z))
-    }
-    const w = wps?.[idx]
-    wpRef.current = { cid: c.id, idx, ox: w?.x ?? 0, oy: w?.y ?? 0, ax: null }
+    if (!wps?.length) { wps = cantosCabo(c); onChange(formas.map(z => z.id === c.id ? { ...z, waypoints: wps } : z)) }
+    const a = wps[k], b = wps[k + 1]
+    const orient: 'h' | 'v' = a.y === b.y ? 'h' : 'v'   // horizontal = mesma altura
+    const { x, y } = pt(e)
+    wpRef.current = { cid: c.id, k, orient, base: orient === 'h' ? a.y : a.x, startC: orient === 'h' ? y : x }
     svgRef.current?.setPointerCapture(e.pointerId)
-  }
-  function removeWp(c: Forma, idx: number) {
-    snapshot()
-    const wps = c.waypoints?.length ? c.waypoints : rotaConexao(c, byId).slice(1, -1)
-    onChange(formas.map(f => f.id === c.id ? { ...f, waypoints: wps.filter((_, i) => i !== idx) } : f))
   }
 
   function onSvgPointerMove(e: React.PointerEvent) {
     const { x, y } = pt(e)
     if (wpRef.current) {
       const w = wpRef.current
-      if (!w.ax) { const ddx = Math.abs(x - w.ox), ddy = Math.abs(y - w.oy); if (ddx > 4 || ddy > 4) w.ax = ddx >= ddy ? 'h' : 'v' }
-      // Travado num eixo: arrasta só na horizontal OU só na vertical (não torce).
-      const nx = w.ax === 'v' ? w.ox : x
-      const ny = w.ax === 'h' ? w.oy : y
+      // Translada o trecho inteiro na perpendicular (mantém ângulos retos).
+      const novoPerp = w.base + ((w.orient === 'h' ? y : x) - w.startC)
       onChange(formas.map(f => {
         if (f.id !== w.cid) return f
         const wps = [...(f.waypoints ?? [])]
-        wps[w.idx] = { x: nx, y: ny }
+        if (!wps[w.k] || !wps[w.k + 1]) return f
+        if (w.orient === 'h') { wps[w.k] = { ...wps[w.k], y: novoPerp }; wps[w.k + 1] = { ...wps[w.k + 1], y: novoPerp } }
+        else { wps[w.k] = { ...wps[w.k], x: novoPerp }; wps[w.k + 1] = { ...wps[w.k + 1], x: novoPerp } }
         return { ...f, waypoints: wps }
       }))
       return
@@ -222,15 +221,6 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
           ? Math.hypot((f.x2 ?? f.x) - f.x, (f.y2 ?? f.y) - f.y) < 5
           : (f.w ?? 0) < 5 && (f.h ?? 0) < 5
         if (tiny) { onChange(formas.filter(x => x.id !== id)); setSel(null) }
-      }
-    }
-    if (wpRef.current) {
-      // Normaliza: dobras = cantos atuais da rota (alças batem com o fio).
-      const cid = wpRef.current.cid
-      const c = formas.find(f => f.id === cid)
-      if (c) {
-        const cantos = rotaConexao(c, byId).slice(1, -1)
-        onChange(formas.map(f => f.id === cid ? { ...f, waypoints: cantos } : f))
       }
     }
     moveRef.current = null
@@ -446,18 +436,23 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
           {/* Camada de conexões (cabos) — atrás dos componentes */}
           {formas.filter(f => f.tipo === 'conexao').map(c => {
             const selC = c.id === sel
-            // Alças = dobras existentes (waypoints, ou os cantos do roteamento auto).
-            const cantos = selC ? (c.waypoints?.length ? c.waypoints : rotaConexao(c, byId).slice(1, -1)) : []
+            // Trechos editáveis = segmentos entre cantos consecutivos (sem os stubs das pontas).
+            const cantos = selC ? cantosCabo(c) : []
             return (
               <g key={c.id}>
                 <g onPointerDown={(e) => startMove(e, c)}
                   style={{ cursor: 'pointer', opacity: selC ? 0.6 : 1 }}
                   dangerouslySetInnerHTML={{ __html: conexaoSVG(c, byId) }} />
-                {cantos.map((w, k) => (
-                  <circle key={'wp' + k} cx={w.x} cy={w.y} r={5} fill="#6366f1" stroke="#fff" strokeWidth={1.5}
-                    style={{ cursor: 'move' }} onPointerDown={(e) => startBend(e, c, k)}
-                    onContextMenu={(e) => { e.preventDefault(); removeWp(c, k) }} />
-                ))}
+                {cantos.slice(0, -1).map((a, k) => {
+                  const b = cantos[k + 1]
+                  const horiz = a.y === b.y
+                  return (
+                    <rect key={'seg' + k} x={(a.x + b.x) / 2 - 5} y={(a.y + b.y) / 2 - 5} width={10} height={10} rx={2}
+                      fill="#6366f1" stroke="#fff" strokeWidth={1.5}
+                      style={{ cursor: horiz ? 'ns-resize' : 'ew-resize' }}
+                      onPointerDown={(e) => startSeg(e, c, k)} />
+                  )
+                })}
               </g>
             )
           })}
