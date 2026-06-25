@@ -194,9 +194,11 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
         <div className="flex gap-0.5 p-0.5 rounded-lg bg-white/5 border border-white/10">
           {FERRAMENTAS.map(({ id, icon: Icon, label }) => (
             <button key={id} type="button" title={label} onClick={() => setTool(id)}
-              className={cn('w-7 h-7 rounded-md flex items-center justify-center transition-colors',
+              className={cn('h-7 rounded-md flex items-center justify-center gap-1 transition-colors',
+                id === 'conectar' ? 'px-2' : 'w-7',
                 tool === id ? 'bg-brand/25 text-brand' : 'text-white/45 hover:text-white/80')}>
               <Icon size={14} />
+              {id === 'conectar' && <span className="text-[10px] font-medium">Conectar</span>}
             </button>
           ))}
         </div>
