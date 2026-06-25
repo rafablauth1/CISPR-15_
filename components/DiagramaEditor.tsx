@@ -1,15 +1,16 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { MousePointer2, Square, Circle, Minus, Type as TypeIcon, Trash2 } from 'lucide-react'
+import { MousePointer2, Square, Circle, Minus, Type as TypeIcon, Trash2, Cable, Undo2, Redo2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { Forma, FormaTipo } from '@/lib/instrucoes/tipos'
-import { COR_PADRAO, GRUPOS_COMP, COMP_W, COMP_H, componenteSVG } from '@/lib/instrucoes/diagrama'
+import type { Forma } from '@/lib/instrucoes/tipos'
+import { COR_PADRAO, GRUPOS_COMP, CABOS, COMP_W, COMP_H, componenteSVG, conexaoSVG } from '@/lib/instrucoes/diagrama'
 
-type Tool = 'select' | FormaTipo
+type Tool = 'select' | 'conectar' | 'retangulo' | 'elipse' | 'linha' | 'texto'
 const CORES = ['#1f2937', '#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed']
 const FERRAMENTAS: { id: Tool; icon: React.ElementType; label: string }[] = [
   { id: 'select',    icon: MousePointer2, label: 'Selecionar / mover' },
+  { id: 'conectar',  icon: Cable,         label: 'Conectar (cabo entre equipamentos)' },
   { id: 'retangulo', icon: Square,        label: 'Retângulo' },
   { id: 'elipse',    icon: Circle,        label: 'Elipse' },
   { id: 'linha',     icon: Minus,         label: 'Linha / fio' },
@@ -24,11 +25,44 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
   const [tool, setTool] = useState<Tool>('select')
   const [cor, setCor] = useState(COR_PADRAO)
   const [sel, setSel] = useState<string | null>(null)
+  const [caboSel, setCaboSel] = useState('rf')      // tipo de cabo ativo
+  const [conFrom, setConFrom] = useState<string | null>(null) // 1º componente clicado p/ conectar
   const draftRef = useRef<string | null>(null)
   const startRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
-  const moveRef = useRef<{ id: string; ox: number; oy: number; isLine: boolean } | null>(null)
+  const moveRef = useRef<{ id: string; ox: number; oy: number; isLine: boolean; snapped: boolean } | null>(null)
+  // Histórico (desfazer/refazer) e área de transferência de formas.
+  const histRef = useRef<Forma[][]>([])
+  const redoRef = useRef<Forma[][]>([])
+  const clipRef = useRef<Forma | null>(null)
 
   const selecionada = formas.find(f => f.id === sel) || null
+  const byId: Record<string, Forma> = Object.fromEntries(formas.map(f => [f.id, f]))
+
+  // Tira um snapshot ANTES de uma ação discreta (criar/mover/excluir/colar).
+  function snapshot() {
+    histRef.current.push(formas.map(f => ({ ...f })))
+    if (histRef.current.length > 80) histRef.current.shift()
+    redoRef.current = []
+  }
+  function undo() {
+    const prev = histRef.current.pop(); if (!prev) return
+    redoRef.current.push(formas.map(f => ({ ...f })))
+    onChange(prev); setSel(null)
+  }
+  function redo() {
+    const next = redoRef.current.pop(); if (!next) return
+    histRef.current.push(formas.map(f => ({ ...f })))
+    onChange(next)
+  }
+  function colar() {
+    const c = clipRef.current; if (!c) return
+    snapshot()
+    const id = uid()
+    const nova: Forma = { ...c, id, x: c.x + 18, y: c.y + 18 }
+    if (c.x2 != null) { nova.x2 = c.x2 + 18; nova.y2 = (c.y2 ?? 0) + 18 }
+    onChange([...formas, nova]); setSel(id)
+  }
+  function duplicar() { if (selecionada) { clipRef.current = { ...selecionada }; colar() } }
 
   function pt(e: React.PointerEvent) {
     const r = svgRef.current!.getBoundingClientRect()
@@ -36,14 +70,15 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
   }
 
   function onSvgPointerDown(e: React.PointerEvent) {
-    if (e.target === svgRef.current && tool === 'select') { setSel(null); return }
-    if (tool === 'select') return
+    if (e.target === svgRef.current && (tool === 'select' || tool === 'conectar')) { setSel(null); setConFrom(null); return }
+    if (tool === 'select' || tool === 'conectar') return
     const { x, y } = pt(e)
     const id = uid()
     const nova: Forma =
       tool === 'linha' ? { id, tipo: 'linha', x, y, x2: x, y2: y, cor } :
       tool === 'texto' ? { id, tipo: 'texto', x, y, texto: 'Texto', cor } :
                          { id, tipo: tool, x, y, w: 0, h: 0, cor }
+    snapshot()
     onChange([...formas, nova])
     setSel(id)
     if (tool === 'texto') { setTool('select'); return }
@@ -64,6 +99,8 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
     } else if (moveRef.current) {
       const m = moveRef.current
       const dx = x - m.ox, dy = y - m.oy
+      if (dx === 0 && dy === 0) return
+      if (!m.snapped) { snapshot(); m.snapped = true }   // histórico só no 1º movimento real
       onChange(formas.map(f => f.id !== m.id ? f
         : m.isLine
           ? { ...f, x: f.x + dx, y: f.y + dy, x2: (f.x2 ?? f.x) + dx, y2: (f.y2 ?? f.y) + dy }
@@ -91,10 +128,20 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
 
   function startMove(e: React.PointerEvent, f: Forma) {
     e.stopPropagation()
+    // Modo conectar: clica no 1º equipamento, depois no 2º → cria o cabo.
+    if (tool === 'conectar') {
+      if (f.tipo !== 'componente') return
+      if (!conFrom) { setConFrom(f.id); setSel(f.id); return }
+      if (conFrom === f.id) { setConFrom(null); return }
+      snapshot()
+      onChange([...formas, { id: uid(), tipo: 'conexao', x: 0, y: 0, de: conFrom, para: f.id, cabo: caboSel }])
+      setConFrom(null)
+      return
+    }
     setSel(f.id)
-    if (tool !== 'select') return
+    if (tool !== 'select' || f.tipo === 'conexao') return
     const { x, y } = pt(e)
-    moveRef.current = { id: f.id, ox: x, oy: y, isLine: f.tipo === 'linha' }
+    moveRef.current = { id: f.id, ox: x, oy: y, isLine: f.tipo === 'linha', snapped: false }
     svgRef.current?.setPointerCapture(e.pointerId)
   }
 
@@ -107,6 +154,7 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
       x: 40 + (n % 5) * 28, y: 40 + (n % 5) * 24,
       w: COMP_W, h: COMP_H, cor,
     }
+    snapshot()
     onChange([...formas, nova])
     setSel(id)
     setTool('select')
@@ -117,10 +165,30 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
     onChange(formas.map(f => f.id === sel ? { ...f, ...patch } : f))
   }
   function aplicarCor(c: string) { setCor(c); if (sel) patchSel({ cor: c }) }
-  function excluirSel() { if (!sel) return; onChange(formas.filter(f => f.id !== sel)); setSel(null) }
+  function excluirSel() {
+    if (!sel) return
+    snapshot()
+    // Remove a forma e, se for componente, os cabos ligados a ele.
+    onChange(formas.filter(f => f.id !== sel && f.de !== sel && f.para !== sel))
+    setSel(null)
+  }
+  // Atalhos de teclado no quadro (não atrapalha campos de texto).
+  function onKeyDown(e: React.KeyboardEvent) {
+    const tag = (e.target as HTMLElement)?.tagName
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return
+    const mod = e.ctrlKey || e.metaKey
+    const k = e.key.toLowerCase()
+    if (e.key === 'Delete' || e.key === 'Backspace') { if (sel) { e.preventDefault(); excluirSel() } }
+    else if (mod && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo() }
+    else if (mod && k === 'y') { e.preventDefault(); redo() }
+    else if (mod && k === 'c') { if (selecionada) clipRef.current = { ...selecionada } }
+    else if (mod && k === 'v') { e.preventDefault(); colar() }
+    else if (mod && k === 'd') { e.preventDefault(); duplicar() }
+    else if (e.key === 'Escape') { setConFrom(null); setSel(null) }
+  }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 outline-none" tabIndex={0} onKeyDown={onKeyDown}>
       {/* Barra de ferramentas */}
       <div className="flex items-center gap-2 flex-wrap">
         <div className="flex gap-0.5 p-0.5 rounded-lg bg-white/5 border border-white/10">
@@ -139,13 +207,31 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
               style={{ background: c, borderColor: 'rgba(255,255,255,0.2)' }} />
           ))}
         </div>
+        <button type="button" onClick={undo} title="Desfazer (Ctrl+Z)" className="btn-ghost text-[11px] py-1"><Undo2 size={12} /></button>
+        <button type="button" onClick={redo} title="Refazer (Ctrl+Y)" className="btn-ghost text-[11px] py-1"><Redo2 size={12} /></button>
         <button type="button" onClick={excluirSel} disabled={!sel}
           className="btn-ghost text-[11px] py-1 disabled:opacity-30"><Trash2 size={12} /> Excluir</button>
         <span className="text-[10px] text-white/30">
-          {tool === 'select' ? 'Clique numa forma para mover. ' : 'Arraste no quadro para desenhar. '}
-          {formas.length} forma{formas.length !== 1 ? 's' : ''}
+          {tool === 'conectar'
+            ? (conFrom ? 'Agora clique no 2º equipamento. ' : 'Clique no 1º equipamento. ')
+            : tool === 'select' ? 'Clique pra mover · Del/Ctrl+Z/C/V. ' : 'Arraste pra desenhar. '}
+          {formas.length} item{formas.length !== 1 ? 's' : ''}
         </span>
       </div>
+
+      {/* Tipo de cabo (quando conectando) */}
+      {tool === 'conectar' && (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-[10px] font-mono uppercase tracking-wider text-white/30 mr-1">Cabo</span>
+          {CABOS.map(c => (
+            <button key={c.id} type="button" onClick={() => setCaboSel(c.id)}
+              className={cn('flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] border transition-colors',
+                caboSel === c.id ? 'border-white/50 text-white' : 'border-white/10 text-white/50 hover:text-white/80')}>
+              <span className="w-3 h-0.5 rounded" style={{ background: c.cor }} />{c.nome}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Paleta de componentes por grupo (clique p/ soltar no quadro) */}
       <div className="space-y-1 max-h-32 overflow-y-auto pr-1 rounded-lg border border-white/8 p-2 bg-white/[0.02]">
@@ -173,8 +259,15 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
         <svg ref={svgRef} width={w} height={h}
           onPointerDown={onSvgPointerDown} onPointerMove={onSvgPointerMove} onPointerUp={onSvgPointerUp}
           style={{ display: 'block', touchAction: 'none', cursor: tool === 'select' ? 'default' : 'crosshair' }}>
+          {/* Camada de conexões (cabos) — atrás dos componentes */}
+          {formas.filter(f => f.tipo === 'conexao').map(c => (
+            <g key={c.id} onPointerDown={(e) => startMove(e, c)}
+              style={{ cursor: 'pointer', opacity: c.id === sel ? 0.5 : 1 }}
+              dangerouslySetInnerHTML={{ __html: conexaoSVG(c, byId) }} />
+          ))}
           {formas.map(f => {
-            const isSel = f.id === sel
+            if (f.tipo === 'conexao') return null
+            const isSel = f.id === sel || f.id === conFrom
             const stroke = f.cor || COR_PADRAO
             const comum = {
               onPointerDown: (e: React.PointerEvent) => startMove(e, f),

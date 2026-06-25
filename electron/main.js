@@ -551,6 +551,20 @@ function buildMenu(port) {
       ],
     },
     {
+      // Registra os atalhos padrão de edição (Ctrl+Z/Y/X/C/V/A) nos campos de texto.
+      label: 'Editar',
+      submenu: [
+        { role: 'undo',      label: 'Desfazer' },
+        { role: 'redo',      label: 'Refazer' },
+        { type: 'separator' },
+        { role: 'cut',       label: 'Recortar' },
+        { role: 'copy',      label: 'Copiar' },
+        { role: 'paste',     label: 'Colar' },
+        { role: 'delete',    label: 'Excluir' },
+        { role: 'selectAll', label: 'Selecionar tudo' },
+      ],
+    },
+    {
       label: 'Formulários',
       submenu: [
         {
@@ -564,7 +578,7 @@ function buildMenu(port) {
       submenu: [
         {
           label: 'Agenda de Execução',
-          accelerator: 'CmdOrCtrl+A',
+          accelerator: 'CmdOrCtrl+Shift+A',   // antes era Ctrl+A — sequestrava "selecionar tudo"
           click: () => openPage(BrowserWindow.getFocusedWindow(), '/agenda'),
         },
       ],

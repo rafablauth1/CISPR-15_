@@ -8,7 +8,7 @@ export type TipoBloco =
 
 // Formas de um diagrama (editor "Paint" do Maker de IT). Representado em SVG —
 // renderiza igual no editor, na visualização e no PDF.
-export type FormaTipo = 'retangulo' | 'elipse' | 'linha' | 'texto' | 'componente'
+export type FormaTipo = 'retangulo' | 'elipse' | 'linha' | 'texto' | 'componente' | 'conexao'
 export interface Forma {
   id: string
   tipo: FormaTipo
@@ -21,6 +21,10 @@ export interface Forma {
   texto?: string // texto / rótulo dentro de retângulo/elipse
   cor?: string
   simbolo?: string // p/ tipo 'componente': id do equipamento (gerador, lisn, antena…)
+  // p/ tipo 'conexao' (cabo entre dois componentes — segue ao mover):
+  de?: string    // id do componente de origem
+  para?: string  // id do componente de destino
+  cabo?: string  // tipo de cabo: 'rf' | 'alim' | 'rede' | 'terra'
 }
 
 // Estilo de fonte opcional por bloco (família e tamanho em pt). Quando ausente,

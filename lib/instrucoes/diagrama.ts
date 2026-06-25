@@ -62,6 +62,33 @@ export const GRUPOS_COMP: { grupo: string; itens: { id: string; nome: string }[]
 export const COMPONENTES = GRUPOS_COMP.flatMap(g => g.itens)
 const NOME_COMP: Record<string, string> = Object.fromEntries(COMPONENTES.map(c => [c.id, c.nome]))
 
+// Tipos de cabo (estilo da conexão entre componentes).
+export const CABOS: { id: string; nome: string; cor: string; dash: string }[] = [
+  { id: 'rf',    nome: 'Cabo RF',     cor: '#1f2937', dash: '' },
+  { id: 'alim',  nome: 'Alimentação', cor: '#dc2626', dash: '' },
+  { id: 'rede',  nome: 'Rede',        cor: '#2563eb', dash: '6 3' },
+  { id: 'terra', nome: 'Aterramento', cor: '#16a34a', dash: '2 3' },
+]
+const CABO = Object.fromEntries(CABOS.map(c => [c.id, c]))
+
+function terminais(f: Forma) {
+  const w = f.w ?? COMP_W, h = f.h ?? COMP_H
+  return { lx: f.x, rx: f.x + w, cx: f.x + w / 2, cy: f.y + h / 2 }
+}
+
+/** Markup de UMA conexão (cabo) entre dois componentes — liga os terminais que se enfrentam. */
+export function conexaoSVG(c: Forma, byId: Record<string, Forma>): string {
+  const a = byId[c.de || ''], b = byId[c.para || '']
+  if (!a || !b) return ''
+  const ta = terminais(a), tb = terminais(b)
+  const aLeft = ta.cx <= tb.cx
+  const p1 = aLeft ? { x: ta.rx, y: ta.cy } : { x: ta.lx, y: ta.cy }
+  const p2 = aLeft ? { x: tb.lx, y: tb.cy } : { x: tb.rx, y: tb.cy }
+  const cab = CABO[c.cabo || 'rf'] || CABO.rf
+  const dash = cab.dash ? ` stroke-dasharray="${cab.dash}"` : ''
+  return `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="${cab.cor}" stroke-width="2" stroke-linecap="round"${dash}/>`
+}
+
 function esc(s: string): string {
   return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
@@ -167,6 +194,10 @@ export function formaSVG(f: Forma): string {
 export function diagramaParaSVG(b: BlocoDiagrama): string {
   const w = b.w || DIAGRAMA_W
   const h = b.h || DIAGRAMA_H
-  const corpo = (b.formas || []).map(formaSVG).join('')
-  return `<svg viewBox="0 0 ${w} ${h}" width="100%" xmlns="http://www.w3.org/2000/svg" style="max-width:${w}px;border:1px solid #d1d5db;border-radius:8px;background:#ffffff">${corpo}</svg>`
+  const formas = b.formas || []
+  const byId: Record<string, Forma> = Object.fromEntries(formas.map(f => [f.id, f]))
+  // Conexões (cabos) primeiro, atrás dos componentes.
+  const cabos = formas.filter(f => f.tipo === 'conexao').map(f => conexaoSVG(f, byId)).join('')
+  const resto = formas.filter(f => f.tipo !== 'conexao').map(formaSVG).join('')
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" xmlns="http://www.w3.org/2000/svg" style="max-width:${w}px;border:1px solid #d1d5db;border-radius:8px;background:#ffffff">${cabos}${resto}</svg>`
 }
