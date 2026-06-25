@@ -44,7 +44,7 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
   const startRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
   const moveRef = useRef<{ id: string; ox: number; oy: number; isLine: boolean; snapped: boolean } | null>(null)
   const resizeRef = useRef<{ id: string; corner: string; ox: number; oy: number } | null>(null)
-  const wpRef = useRef<{ cid: string; idx: number } | null>(null) // arrastando a dobra idx de um cabo
+  const wpRef = useRef<{ cid: string; idx: number; ox: number; oy: number; ax: 'h' | 'v' | null } | null>(null) // arrastando dobra (travada num eixo)
   // Histórico (desfazer/refazer) e área de transferência de formas.
   const histRef = useRef<Forma[][]>([])
   const redoRef = useRef<Forma[][]>([])
@@ -140,7 +140,8 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
     e.stopPropagation()
     setSel(c.id)
     snapshot()
-    wpRef.current = { cid: c.id, idx }
+    const w = c.waypoints?.[idx]
+    wpRef.current = { cid: c.id, idx, ox: w?.x ?? 0, oy: w?.y ?? 0, ax: null }
     svgRef.current?.setPointerCapture(e.pointerId)
   }
   function removeWp(c: Forma, idx: number) {
@@ -151,11 +152,15 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
   function onSvgPointerMove(e: React.PointerEvent) {
     const { x, y } = pt(e)
     if (wpRef.current) {
-      const { cid, idx } = wpRef.current
+      const w = wpRef.current
+      if (!w.ax) { const ddx = Math.abs(x - w.ox), ddy = Math.abs(y - w.oy); if (ddx > 4 || ddy > 4) w.ax = ddx >= ddy ? 'h' : 'v' }
+      // Travado num eixo: arrasta só na horizontal OU só na vertical (não torce).
+      const nx = w.ax === 'v' ? w.ox : x
+      const ny = w.ax === 'h' ? w.oy : y
       onChange(formas.map(f => {
-        if (f.id !== cid) return f
+        if (f.id !== w.cid) return f
         const wps = [...(f.waypoints ?? [])]
-        wps[idx] = { x, y }
+        wps[w.idx] = { x: nx, y: ny }
         return { ...f, waypoints: wps }
       }))
       return
@@ -316,7 +321,7 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
       snapshot()
       const novo = [...wps]; novo.splice(segI, 0, p)
       onChange(formas.map(z => z.id === f.id ? { ...z, waypoints: novo } : z))
-      wpRef.current = { cid: f.id, idx: segI }
+      wpRef.current = { cid: f.id, idx: segI, ox: p.x, oy: p.y, ax: null }
       svgRef.current?.setPointerCapture(e.pointerId)
       return
     }
