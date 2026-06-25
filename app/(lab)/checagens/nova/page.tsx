@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus, Trash2, Loader2, Upload, ScanText, Save, FileSearch, Grid3x3, X, AlertTriangle, BookOpen } from 'lucide-react'
 import { DocumentoITView } from '@/components/DocumentoITView'
+import { ErrorBoundary } from '@/app/ErrorBoundary'
 import { cn } from '@/lib/utils'
 import { addM } from '@/lib/utils'
 import { extrairTextoArquivo } from '@/lib/useOCR'
@@ -1560,7 +1561,7 @@ export default function NovaChecagemPage() {
               </button>
             </div>
             <div className="overflow-auto rounded-xl">
-              <DocumentoITView doc={itConsulta} />
+              <ErrorBoundary><DocumentoITView doc={itConsulta} /></ErrorBoundary>
             </div>
           </div>
         </div>

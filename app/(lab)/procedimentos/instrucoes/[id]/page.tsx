@@ -19,6 +19,7 @@ import { DocumentoITView } from '@/components/DocumentoITView'
 import { documentoITtoHTML } from '@/lib/instrucoes/html'
 import { DiagramaEditor } from '@/components/DiagramaEditor'
 import { diagramaParaSVG, DIAGRAMA_W, DIAGRAMA_H } from '@/lib/instrucoes/diagrama'
+import { ErrorBoundary } from '@/app/ErrorBoundary'
 
 // Estilo de fonte/tamanho do bloco aplicado na pré-visualização do editor.
 function estiloBloco(b: Bloco, base?: CSSProperties): CSSProperties {
@@ -785,7 +786,7 @@ export default function EditorInstrucaoPage() {
 
       {preview ? (
         /* ── Preview Mode ── */
-        <DocumentoITView doc={doc} />
+        <ErrorBoundary><DocumentoITView doc={doc} /></ErrorBoundary>
       ) : (
         <>
           {/* ── Metadados ── */}

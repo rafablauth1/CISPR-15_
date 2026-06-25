@@ -37,7 +37,7 @@ export function DocumentoITView({ doc }: { doc: DocumentoIT }) {
 
       {/* Body */}
       <div className="px-8 py-6 space-y-3">
-        {doc.blocos.map(bloco => {
+        {(doc.blocos ?? []).map(bloco => {
           switch (bloco.tipo) {
             case 'h1': return (
               <p key={bloco.id} className="font-bold text-[11pt] mt-4" style={estiloBloco(bloco)}>
@@ -68,7 +68,7 @@ export function DocumentoITView({ doc }: { doc: DocumentoIT }) {
             )
             case 'ul': return (
               <ul key={bloco.id} className="ml-16 space-y-1" style={estiloBloco(bloco)}>
-                {bloco.itens.map((item, i) => (
+                {(bloco.itens ?? []).map((item, i) => (
                   <li key={i} className="text-[10pt] flex gap-2">
                     <span>•</span><span style={{ textAlign: 'justify' }}>{item}</span>
                   </li>
@@ -77,7 +77,7 @@ export function DocumentoITView({ doc }: { doc: DocumentoIT }) {
             )
             case 'ol': return (
               <ol key={bloco.id} className="ml-8 space-y-1" style={estiloBloco(bloco)}>
-                {bloco.itens.map((item, i) => (
+                {(bloco.itens ?? []).map((item, i) => (
                   <li key={i} className="text-[10pt] flex gap-3">
                     <span className="flex-shrink-0">{i + 1})</span>
                     <span style={{ textAlign: 'justify' }}>{item}</span>
@@ -93,21 +93,21 @@ export function DocumentoITView({ doc }: { doc: DocumentoIT }) {
             )
             case 'tabela': return (
               <table key={bloco.id} className="w-full text-[9pt] border-collapse my-2" style={estiloBloco(bloco)}>
-                {bloco.cabecalho.some(Boolean) && (
+                {(bloco.cabecalho ?? []).some(Boolean) && (
                   <thead>
-                    <tr>{bloco.cabecalho.map((h, i) => <th key={i} className="border border-gray-400 px-2 py-1 text-left bg-gray-100">{h}</th>)}</tr>
+                    <tr>{(bloco.cabecalho ?? []).map((h, i) => <th key={i} className="border border-gray-400 px-2 py-1 text-left bg-gray-100">{h}</th>)}</tr>
                   </thead>
                 )}
                 <tbody>
-                  {bloco.linhas.map((linha, r) => (
-                    <tr key={r}>{linha.map((c, i) => <td key={i} className="border border-gray-300 px-2 py-1">{c}</td>)}</tr>
+                  {(bloco.linhas ?? []).map((linha, r) => (
+                    <tr key={r}>{(linha ?? []).map((c, i) => <td key={i} className="border border-gray-300 px-2 py-1">{c}</td>)}</tr>
                   ))}
                 </tbody>
               </table>
             )
             case 'definicoes': return (
               <div key={bloco.id} className="space-y-0.5 my-2" style={estiloBloco(bloco)}>
-                {bloco.itens.map((item, i) => (
+                {(bloco.itens ?? []).map((item, i) => (
                   <p key={i} className="text-[10pt] font-mono">
                     <strong>{item.sigla}</strong>{item.sigla && item.definicao ? ' – ' : ''}{item.definicao}
                   </p>

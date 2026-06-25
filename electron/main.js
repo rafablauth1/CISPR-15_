@@ -45,6 +45,23 @@ const ICON_PATH = app.isPackaged
 
 app.setAppUserModelId('br.pucrs.labelo.cispr15')
 
+/* ─── Modo PORTÁTIL ───────────────────────────────────────────────────────────
+   Se houver um marcador ".portable" ao lado do executável, grava TODOS os dados
+   (userData → dados, agenda, settings, server.log) DENTRO da pasta do app, e não
+   em %APPDATA%. Resolve o PC corporativo onde %APPDATA% é bloqueado/redirecionado
+   e "nada salva". Deve rodar ANTES de qualquer app.getPath('userData'). */
+if (app.isPackaged) {
+  try {
+    const exeDir = path.dirname(app.getPath('exe'))
+    if (fs.existsSync(path.join(exeDir, '.portable'))) {
+      const dataDir = path.join(exeDir, 'dados-app')
+      fs.mkdirSync(dataDir, { recursive: true })
+      fs.accessSync(dataDir, fs.constants.W_OK)   // confirma que dá pra escrever aqui
+      app.setPath('userData', dataDir)
+    }
+  } catch { /* sem permissão ao lado do exe → mantém %APPDATA% */ }
+}
+
 if (app.isPackaged) {
   app.commandLine.appendSwitch('disable-background-networking')
   app.commandLine.appendSwitch('disable-component-update')
