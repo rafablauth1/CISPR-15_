@@ -15,11 +15,9 @@ import {
   type BlocoH1, type BlocoH2, type BlocoH3, type BlocoP, type BlocoDestaque,
   type BlocoUL, type BlocoOL, type BlocoImg, type BlocoTabela, type BlocoDefinicoes, type BlocoDiagrama,
 } from '@/lib/instrucoes/tipos'
-import { DocumentoITView } from '@/components/DocumentoITView'
 import { documentoITtoHTML } from '@/lib/instrucoes/html'
 import { DiagramaEditor } from '@/components/DiagramaEditor'
 import { diagramaParaSVG, DIAGRAMA_W, DIAGRAMA_H } from '@/lib/instrucoes/diagrama'
-import { ErrorBoundary } from '@/app/ErrorBoundary'
 
 // Estilo de fonte/tamanho do bloco aplicado na pré-visualização do editor.
 function estiloBloco(b: Bloco, base?: CSSProperties): CSSProperties {
@@ -785,8 +783,14 @@ export default function EditorInstrucaoPage() {
       </div>
 
       {preview ? (
-        /* ── Preview Mode ── */
-        <ErrorBoundary><DocumentoITView doc={doc} /></ErrorBoundary>
+        /* ── Preview Mode ── visualização = MESMO HTML do PDF (A4), em iframe
+           isolado. Robusto e idêntico ao que sai impresso. */
+        <iframe
+          title="Visualização da IT"
+          srcDoc={documentoITtoHTML(doc)}
+          className="w-full bg-white rounded-xl border border-white/10"
+          style={{ height: '82vh' }}
+        />
       ) : (
         <>
           {/* ── Metadados ── */}

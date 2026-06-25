@@ -3,8 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus, Trash2, Loader2, Upload, ScanText, Save, FileSearch, Grid3x3, X, AlertTriangle, BookOpen } from 'lucide-react'
-import { DocumentoITView } from '@/components/DocumentoITView'
-import { ErrorBoundary } from '@/app/ErrorBoundary'
+import { documentoITtoHTML } from '@/lib/instrucoes/html'
 import { cn } from '@/lib/utils'
 import { addM } from '@/lib/utils'
 import { extrairTextoArquivo } from '@/lib/useOCR'
@@ -1560,9 +1559,12 @@ export default function NovaChecagemPage() {
                 <X size={13}/> Fechar
               </button>
             </div>
-            <div className="overflow-auto rounded-xl">
-              <ErrorBoundary><DocumentoITView doc={itConsulta} /></ErrorBoundary>
-            </div>
+            <iframe
+              title="Instrução de Trabalho"
+              srcDoc={documentoITtoHTML(itConsulta)}
+              className="w-full bg-white rounded-xl border border-white/10"
+              style={{ height: '78vh' }}
+            />
           </div>
         </div>
       )}

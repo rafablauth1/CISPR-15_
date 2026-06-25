@@ -5,6 +5,9 @@ import { TAXONOMIA_DEFAULT, SIGLAS_LAB_OFICIAIS } from '@/lib/taxonomia/tipos'
 
 const ARQUIVO = 'taxonomia.json'
 
+// Evita pré-renderização estática (que faria o PUT de áreas/siglas dar 405 no app).
+export const dynamic = 'force-dynamic'
+
 export async function GET() {
   const tax = lerJSON<Taxonomia>(ARQUIVO, TAXONOMIA_DEFAULT)
   // Garante que as siglas oficiais sempre existam (sem mexer nas já vinculadas).

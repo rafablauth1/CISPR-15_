@@ -4,6 +4,10 @@ import { boardPadrao, type BoardCheck } from '@/lib/check/tipos'
 
 const ARQUIVO = 'check.json'
 
+// Sem isto, o build empacotado pré-renderiza a rota como ESTÁTICA e o PUT
+// (salvar o board) retorna 405 — funciona no `next dev`, mas não no app.
+export const dynamic = 'force-dynamic'
+
 export async function GET() {
   // null → primeira execução: devolve o board padrão (seed) sem persistir.
   // Persiste no primeiro PUT (quando o usuário mexe em algo).

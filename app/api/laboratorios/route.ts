@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { lerLaboratorios, salvarLaboratorios, type LaboratorioCal } from '@/lib/laboratorios/registro'
 
+// Evita pré-renderização estática (que faria o PUT de laboratórios dar 405 no app).
+export const dynamic = 'force-dynamic'
+
 export async function GET() {
   return NextResponse.json(lerLaboratorios())
 }
