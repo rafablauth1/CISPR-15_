@@ -293,6 +293,7 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
               <g key={f.id} {...comum}>
                 {isSel && <line x1={f.x} y1={f.y} x2={f.x2} y2={f.y2} stroke="#6366f1" strokeWidth={7} strokeOpacity={0.25} strokeLinecap="round" />}
                 <line x1={f.x} y1={f.y} x2={f.x2} y2={f.y2} stroke={ec.cor} strokeWidth={ec.w} strokeDasharray={ec.dash || undefined} strokeLinecap="round" />
+                {ec.rotulo && <text x={(f.x + (f.x2 ?? f.x)) / 2} y={(f.y + (f.y2 ?? f.y)) / 2 - 5} fontSize={10} fill={ec.cor} textAnchor="middle" style={{ paintOrder: 'stroke' }} stroke="#fff" strokeWidth={3}>{ec.rotulo}</text>}
               </g>
               )
             }

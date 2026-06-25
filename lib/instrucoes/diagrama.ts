@@ -61,21 +61,29 @@ export const GRUPOS_COMP: { grupo: string; itens: { id: string; nome: string }[]
 export const COMPONENTES = GRUPOS_COMP.flatMap(g => g.itens)
 const NOME_COMP: Record<string, string> = Object.fromEntries(COMPONENTES.map(c => [c.id, c.nome]))
 
-// Tipos de cabo (estilo da linha/conexão). Cada um com cor e traço distintos.
-export const CABOS: { id: string; nome: string; cor: string; dash: string }[] = [
-  { id: 'simples', nome: 'Simples',     cor: COR_PADRAO, dash: '' },
-  { id: 'rf',      nome: 'RF',          cor: '#0f172a',  dash: '' },
-  { id: 'alim',    nome: 'Alimentação', cor: '#dc2626',  dash: '' },
-  { id: 'rede',    nome: 'Rede',        cor: '#2563eb',  dash: '7 4' },
-  { id: 'terra',   nome: 'Aterramento', cor: '#16a34a',  dash: '2 4' },
+// Tipos de cabo. Cores NEUTRAS (tons de cinza/ardósia) — diferenciados pelo
+// traço e pelo rótulo em cima da linha, não por cores berrantes.
+export const CABOS: { id: string; nome: string; rotulo: string; cor: string; dash: string }[] = [
+  { id: 'simples', nome: 'Simples',     rotulo: '',      cor: '#475569', dash: '' },
+  { id: 'rf',      nome: 'RF',          rotulo: 'RF',    cor: '#1f2937', dash: '' },
+  { id: 'alim',    nome: 'Alimentação', rotulo: 'Alim.', cor: '#57534e', dash: '' },
+  { id: 'rede',    nome: 'Rede',        rotulo: 'Rede',  cor: '#475569', dash: '7 4' },
+  { id: 'terra',   nome: 'Aterramento', rotulo: 'Terra', cor: '#44403c', dash: '2 4' },
 ]
 const CABO = Object.fromEntries(CABOS.map(c => [c.id, c]))
 
-/** Estilo de uma linha/cabo: cor e traço pelo tipo (ou a cor própria, se 'simples'). */
-export function estiloCabo(cabo: string | undefined, fallback?: string): { cor: string; dash: string; w: number } {
+/** Estilo de uma linha/cabo: cor, traço, espessura e rótulo curto pelo tipo. */
+export function estiloCabo(cabo: string | undefined, fallback?: string): { cor: string; dash: string; w: number; rotulo: string } {
   const c = cabo ? CABO[cabo] : undefined
-  if (!c || cabo === 'simples') return { cor: fallback || COR_PADRAO, dash: '', w: 2.5 }
-  return { cor: c.cor, dash: c.dash, w: cabo === 'rf' ? 3 : 2.5 }
+  if (!c || cabo === 'simples') return { cor: fallback || COR_PADRAO, dash: '', w: 2.5, rotulo: '' }
+  return { cor: c.cor, dash: c.dash, w: cabo === 'rf' ? 3 : 2.5, rotulo: c.rotulo }
+}
+
+/** Rótulo (nomezinho) centralizado em cima de uma linha de (x1,y1)→(x2,y2). */
+function rotuloLinha(x1: number, y1: number, x2: number, y2: number, texto: string, cor: string): string {
+  if (!texto) return ''
+  const mx = (x1 + x2) / 2, my = (y1 + y2) / 2
+  return `<text x="${mx}" y="${my - 5}" font-size="10" fill="${cor}" text-anchor="middle" style="paint-order:stroke" stroke="#ffffff" stroke-width="3">${texto}</text>`
 }
 
 function terminais(f: Forma) {
@@ -93,7 +101,7 @@ export function conexaoSVG(c: Forma, byId: Record<string, Forma>): string {
   const p2 = aLeft ? { x: tb.lx, y: tb.cy } : { x: tb.rx, y: tb.cy }
   const e = estiloCabo(c.cabo || 'rf')
   const dash = e.dash ? ` stroke-dasharray="${e.dash}"` : ''
-  return `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="${e.cor}" stroke-width="${e.w}" stroke-linecap="round"${dash}/>`
+  return `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="${e.cor}" stroke-width="${e.w}" stroke-linecap="round"${dash}/>` + rotuloLinha(p1.x, p1.y, p2.x, p2.y, e.rotulo, e.cor)
 }
 
 function esc(s: string): string {
@@ -113,9 +121,9 @@ function glifo(simbolo: string, gx: number, gy: number, cw: number, cor: string)
   const term = (cx0: number) => `<circle cx="${cx0}" cy="${cy}" r="2.5" fill="${cor}"/>`
   switch (simbolo) {
     case 'gerador':       return sine()
-    case 'gerador-nivel': return sine() + `<text x="${cx}" y="${gy + 24}" font-size="7" fill="${cor}" text-anchor="middle">dBµV</text>`
-    case 'analisador':    return peaks()
-    case 'receptor':      return peaks() + `<line x1="${cx}" y1="${gy}" x2="${cx}" y2="${gy + 2}" ${sw(1.4)}/>`
+    case 'gerador-nivel': return sine() + `<text x="${cx}" y="${gy + 24}" font-size="7" fill="${cor}" text-anchor="middle">dBm</text>`
+    case 'analisador':    return peaks() + `<text x="${cx}" y="${gy + 26}" font-size="7" fill="${cor}" text-anchor="middle">dBm</text>`
+    case 'receptor':      return peaks() + `<text x="${cx}" y="${gy + 26}" font-size="7" fill="${cor}" text-anchor="middle">dBµV</text>`
     case 'medidor':       return disp('MED')
     case 'amplificador':  return `<polygon points="${gx + 6},${gy + 2} ${gx + 6},${gy + 20} ${gx + cw - 6},${gy + 11}" ${sw(1.8)}/>`
     case 'lisn':          return `<path d="M${gx} ${cy} a4 4 0 1 1 8 0 a4 4 0 1 1 8 0 a4 4 0 1 1 8 0 a4 4 0 1 1 8 0" ${sw(1.8)}/>`
@@ -189,8 +197,9 @@ export function formaSVG(f: Forma): string {
   }
   if (f.tipo === 'linha') {
     const e = estiloCabo(f.cabo, f.cor)
+    const x2 = f.x2 ?? x, y2 = f.y2 ?? y
     const dash = e.dash ? ` stroke-dasharray="${e.dash}"` : ''
-    return `<line x1="${x}" y1="${y}" x2="${f.x2 ?? x}" y2="${f.y2 ?? y}" stroke="${e.cor}" stroke-width="${e.w}" stroke-linecap="round"${dash}/>`
+    return `<line x1="${x}" y1="${y}" x2="${x2}" y2="${y2}" stroke="${e.cor}" stroke-width="${e.w}" stroke-linecap="round"${dash}/>` + rotuloLinha(x, y, x2, y2, e.rotulo, e.cor)
   }
   if (f.tipo === 'componente') {
     return componenteSVG(f)
