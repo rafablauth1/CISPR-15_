@@ -4,7 +4,7 @@ import { useRef, useState } from 'react'
 import { MousePointer2, Square, Circle, Minus, Type as TypeIcon, Trash2, Cable, Undo2, Redo2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Forma } from '@/lib/instrucoes/tipos'
-import { COR_PADRAO, GRUPOS_COMP, CABOS, COMP_W, COMP_H, componenteSVG, conexaoSVG } from '@/lib/instrucoes/diagrama'
+import { COR_PADRAO, GRUPOS_COMP, CABOS, COMP_W, COMP_H, componenteSVG, conexaoSVG, estiloCabo } from '@/lib/instrucoes/diagrama'
 
 type Tool = 'select' | 'conectar' | 'retangulo' | 'elipse' | 'linha' | 'texto'
 const CORES = ['#1f2937', '#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed']
@@ -25,7 +25,7 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
   const [tool, setTool] = useState<Tool>('select')
   const [cor, setCor] = useState(COR_PADRAO)
   const [sel, setSel] = useState<string | null>(null)
-  const [caboSel, setCaboSel] = useState('rf')      // tipo de cabo ativo
+  const [caboSel, setCaboSel] = useState('simples') // tipo de cabo ativo (p/ linha e conexão)
   const [conFrom, setConFrom] = useState<string | null>(null) // 1º componente clicado p/ conectar
   const draftRef = useRef<string | null>(null)
   const startRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
@@ -75,7 +75,7 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
     const { x, y } = pt(e)
     const id = uid()
     const nova: Forma =
-      tool === 'linha' ? { id, tipo: 'linha', x, y, x2: x, y2: y, cor } :
+      tool === 'linha' ? { id, tipo: 'linha', x, y, x2: x, y2: y, cor, cabo: caboSel } :
       tool === 'texto' ? { id, tipo: 'texto', x, y, texto: 'Texto', cor } :
                          { id, tipo: tool, x, y, w: 0, h: 0, cor }
     snapshot()
@@ -219,8 +219,8 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
         </span>
       </div>
 
-      {/* Tipo de cabo (quando conectando) */}
-      {tool === 'conectar' && (
+      {/* Tipo de cabo (ao desenhar linha ou conectar) */}
+      {(tool === 'conectar' || tool === 'linha') && (
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-[10px] font-mono uppercase tracking-wider text-white/30 mr-1">Cabo</span>
           {CABOS.map(c => (
@@ -287,12 +287,15 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
                 {isSel && <rect x={f.x - 2} y={f.y - 2} width={(f.w ?? 0) + 4} height={(f.h ?? 0) + 4} fill="none" stroke="#6366f1" strokeWidth={1} strokeDasharray="4 3" />}
               </g>
             )
-            if (f.tipo === 'linha') return (
+            if (f.tipo === 'linha') {
+              const ec = estiloCabo(f.cabo, f.cor)
+              return (
               <g key={f.id} {...comum}>
-                <line x1={f.x} y1={f.y} x2={f.x2} y2={f.y2} stroke={stroke} strokeWidth={2.5} strokeLinecap="round" />
-                {isSel && <line x1={f.x} y1={f.y} x2={f.x2} y2={f.y2} stroke="#6366f1" strokeWidth={6} strokeOpacity={0.2} strokeLinecap="round" />}
+                {isSel && <line x1={f.x} y1={f.y} x2={f.x2} y2={f.y2} stroke="#6366f1" strokeWidth={7} strokeOpacity={0.25} strokeLinecap="round" />}
+                <line x1={f.x} y1={f.y} x2={f.x2} y2={f.y2} stroke={ec.cor} strokeWidth={ec.w} strokeDasharray={ec.dash || undefined} strokeLinecap="round" />
               </g>
-            )
+              )
+            }
             if (f.tipo === 'componente') return (
               <g key={f.id} {...comum}>
                 <g dangerouslySetInnerHTML={{ __html: componenteSVG(f) }} />

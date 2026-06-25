@@ -25,7 +25,6 @@ export const GRUPOS_COMP: { grupo: string; itens: { id: string; nome: string }[]
     { id: 'filtro-linha',     nome: 'Filtro de linha' },
     { id: 'acoplador-rede',   nome: 'Acoplador de rede' },
     { id: 'acoplador-bi',     nome: 'Acoplador bidirecional' },
-    { id: 'cabo-rf',          nome: 'Cabo de RF' },
     { id: 'terminacao',       nome: 'Terminação' },
     { id: 'eut',              nome: 'EUT' },
   ] },
@@ -62,14 +61,22 @@ export const GRUPOS_COMP: { grupo: string; itens: { id: string; nome: string }[]
 export const COMPONENTES = GRUPOS_COMP.flatMap(g => g.itens)
 const NOME_COMP: Record<string, string> = Object.fromEntries(COMPONENTES.map(c => [c.id, c.nome]))
 
-// Tipos de cabo (estilo da conexão entre componentes).
+// Tipos de cabo (estilo da linha/conexão). Cada um com cor e traço distintos.
 export const CABOS: { id: string; nome: string; cor: string; dash: string }[] = [
-  { id: 'rf',    nome: 'Cabo RF',     cor: '#1f2937', dash: '' },
-  { id: 'alim',  nome: 'Alimentação', cor: '#dc2626', dash: '' },
-  { id: 'rede',  nome: 'Rede',        cor: '#2563eb', dash: '6 3' },
-  { id: 'terra', nome: 'Aterramento', cor: '#16a34a', dash: '2 3' },
+  { id: 'simples', nome: 'Simples',     cor: COR_PADRAO, dash: '' },
+  { id: 'rf',      nome: 'RF',          cor: '#0f172a',  dash: '' },
+  { id: 'alim',    nome: 'Alimentação', cor: '#dc2626',  dash: '' },
+  { id: 'rede',    nome: 'Rede',        cor: '#2563eb',  dash: '7 4' },
+  { id: 'terra',   nome: 'Aterramento', cor: '#16a34a',  dash: '2 4' },
 ]
 const CABO = Object.fromEntries(CABOS.map(c => [c.id, c]))
+
+/** Estilo de uma linha/cabo: cor e traço pelo tipo (ou a cor própria, se 'simples'). */
+export function estiloCabo(cabo: string | undefined, fallback?: string): { cor: string; dash: string; w: number } {
+  const c = cabo ? CABO[cabo] : undefined
+  if (!c || cabo === 'simples') return { cor: fallback || COR_PADRAO, dash: '', w: 2.5 }
+  return { cor: c.cor, dash: c.dash, w: cabo === 'rf' ? 3 : 2.5 }
+}
 
 function terminais(f: Forma) {
   const w = f.w ?? COMP_W, h = f.h ?? COMP_H
@@ -84,9 +91,9 @@ export function conexaoSVG(c: Forma, byId: Record<string, Forma>): string {
   const aLeft = ta.cx <= tb.cx
   const p1 = aLeft ? { x: ta.rx, y: ta.cy } : { x: ta.lx, y: ta.cy }
   const p2 = aLeft ? { x: tb.lx, y: tb.cy } : { x: tb.rx, y: tb.cy }
-  const cab = CABO[c.cabo || 'rf'] || CABO.rf
-  const dash = cab.dash ? ` stroke-dasharray="${cab.dash}"` : ''
-  return `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="${cab.cor}" stroke-width="2" stroke-linecap="round"${dash}/>`
+  const e = estiloCabo(c.cabo || 'rf')
+  const dash = e.dash ? ` stroke-dasharray="${e.dash}"` : ''
+  return `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="${e.cor}" stroke-width="${e.w}" stroke-linecap="round"${dash}/>`
 }
 
 function esc(s: string): string {
@@ -181,7 +188,9 @@ export function formaSVG(f: Forma): string {
     return `<ellipse cx="${x + w / 2}" cy="${y + h / 2}" rx="${Math.abs(w / 2)}" ry="${Math.abs(h / 2)}" fill="#ffffff" stroke="${cor}" stroke-width="2"/>${rotulo}`
   }
   if (f.tipo === 'linha') {
-    return `<line x1="${x}" y1="${y}" x2="${f.x2 ?? x}" y2="${f.y2 ?? y}" stroke="${cor}" stroke-width="2.5" stroke-linecap="round"/>`
+    const e = estiloCabo(f.cabo, f.cor)
+    const dash = e.dash ? ` stroke-dasharray="${e.dash}"` : ''
+    return `<line x1="${x}" y1="${y}" x2="${f.x2 ?? x}" y2="${f.y2 ?? y}" stroke="${e.cor}" stroke-width="${e.w}" stroke-linecap="round"${dash}/>`
   }
   if (f.tipo === 'componente') {
     return componenteSVG(f)
