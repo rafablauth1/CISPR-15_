@@ -11,54 +11,114 @@ export const COR_PADRAO = '#1f2937'
 export const COMP_W = 120
 export const COMP_H = 64
 
-// Paleta de componentes de equipamento (estilo Proteus) p/ a área EMC.
-export const COMPONENTES: { id: string; nome: string }[] = [
-  { id: 'gerador',      nome: 'Gerador RF' },
-  { id: 'analisador',   nome: 'Analisador' },
-  { id: 'receptor',     nome: 'Receptor EMI' },
-  { id: 'lisn',         nome: 'LISN' },
-  { id: 'antena',       nome: 'Antena' },
-  { id: 'amplificador', nome: 'Amplificador' },
-  { id: 'atenuador',    nome: 'Atenuador' },
-  { id: 'filtro',       nome: 'Filtro' },
-  { id: 'eut',          nome: 'EUT' },
-  { id: 'medidor',      nome: 'Medidor' },
+// Paleta de componentes (estilo Proteus), dividida em grupos.
+export const GRUPOS_COMP: { grupo: string; itens: { id: string; nome: string }[] }[] = [
+  { grupo: 'RF / EMC', itens: [
+    { id: 'gerador',          nome: 'Gerador RF' },
+    { id: 'gerador-nivel',    nome: 'Gerador de nível' },
+    { id: 'analisador',       nome: 'Analisador de espectro' },
+    { id: 'receptor',         nome: 'Receptor EMI' },
+    { id: 'amplificador',     nome: 'Amplificador' },
+    { id: 'lisn',             nome: 'LISN' },
+    { id: 'antena',           nome: 'Antena' },
+    { id: 'atenuador',        nome: 'Atenuador' },
+    { id: 'filtro-linha',     nome: 'Filtro de linha' },
+    { id: 'acoplador-rede',   nome: 'Acoplador de rede' },
+    { id: 'acoplador-bi',     nome: 'Acoplador bidirecional' },
+    { id: 'cabo-rf',          nome: 'Cabo de RF' },
+    { id: 'terminacao',       nome: 'Terminação' },
+    { id: 'eut',              nome: 'EUT' },
+  ] },
+  { grupo: 'Elétrica', itens: [
+    { id: 'multimetro',          nome: 'Multímetro' },
+    { id: 'multimetro-varredura',nome: 'Multímetro de varredura' },
+    { id: 'wattimetro',          nome: 'Wattímetro digital' },
+    { id: 'fonte-tensao',        nome: 'Fonte de tensão' },
+    { id: 'osciloscopio',        nome: 'Osciloscópio digital' },
+    { id: 'data-logger',         nome: 'Data Logger' },
+    { id: 'analisador-bateria',  nome: 'Analisador de bateria' },
+    { id: 'tacometro',           nome: 'Tacômetro' },
+  ] },
+  { grupo: 'Ambiente / Físicas', itens: [
+    { id: 'termohigrometro', nome: 'Termo-higrômetro' },
+    { id: 'termometro',      nome: 'Termômetro digital' },
+    { id: 'barometro',       nome: 'Barômetro' },
+    { id: 'manometro',       nome: 'Manômetro' },
+    { id: 'cronometro',      nome: 'Cronômetro digital' },
+  ] },
+  { grupo: 'Volumétrica / Química', itens: [
+    { id: 'balao',      nome: 'Balão volumétrico' },
+    { id: 'proveta',    nome: 'Proveta' },
+    { id: 'micropipeta',nome: 'Micropipeta' },
+    { id: 'ph',         nome: 'Medidor de pH' },
+    { id: 'balanca',    nome: 'Balança' },
+  ] },
+  { grupo: 'Dimensional / Diversos', itens: [
+    { id: 'paquimetro',  nome: 'Paquímetro digital' },
+    { id: 'forno',       nome: 'Forno' },
+    { id: 'refrigerador',nome: 'Refrigerador' },
+  ] },
 ]
+export const COMPONENTES = GRUPOS_COMP.flatMap(g => g.itens)
 const NOME_COMP: Record<string, string> = Object.fromEntries(COMPONENTES.map(c => [c.id, c.nome]))
 
 function esc(s: string): string {
   return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
-// Glifo (símbolo) de cada equipamento, desenhado dentro de uma caixa cx×ch a
-// partir de (gx,gy). Coordenadas relativas pequenas — fica nítido em qualquer escala.
+// Glifo (símbolo) de cada equipamento, desenhado dentro de (gx,gy)..(gx+cw, gy+~22).
+// Desenhos simples ("humildes"), nítidos em qualquer escala.
 function glifo(simbolo: string, gx: number, gy: number, cw: number, cor: string): string {
-  const cy = gy + 11
-  const c = (x: number, y: number, r = 2) => `<circle cx="${x}" cy="${y}" r="${r}" fill="${cor}"/>`
+  const cx = gx + cw / 2, cy = gy + 11
+  const sw = (w = 1.6) => `stroke="${cor}" stroke-width="${w}" fill="none"`
+  const disp = (t: string) => `<rect x="${gx}" y="${gy + 2}" width="${cw}" height="16" rx="2" ${sw(1.4)}/><text x="${cx}" y="${gy + 14}" font-size="9" fill="${cor}" text-anchor="middle">${t}</text>`
+  const dial = (t = '') => `<circle cx="${cx}" cy="${cy}" r="9" ${sw(1.4)}/><line x1="${cx}" y1="${cy}" x2="${cx + 6}" y2="${cy - 5}" ${sw(1.4)}/>` + (t ? `<text x="${cx}" y="${gy + 24}" font-size="7" fill="${cor}" text-anchor="middle">${t}</text>` : '')
+  const sine = () => `<path d="M${gx} ${cy} q ${cw * 0.12} -8 ${cw * 0.25} 0 t ${cw * 0.25} 0 t ${cw * 0.25} 0" ${sw(1.8)}/>`
+  const screen = () => `<rect x="${gx}" y="${gy + 2}" width="${cw}" height="18" rx="2" ${sw(1.4)}/>`
+  const peaks = () => screen() + `<polyline points="${gx + 3},${gy + 18} ${gx + cw * 0.3},${gy + 7} ${gx + cw * 0.45},${gy + 16} ${gx + cw * 0.65},${gy + 5} ${gx + cw * 0.8},${gy + 17} ${gx + cw - 3},${gy + 12}" ${sw(1.4)}/>`
+  const term = (cx0: number) => `<circle cx="${cx0}" cy="${cy}" r="2.5" fill="${cor}"/>`
   switch (simbolo) {
-    case 'gerador': // onda senoidal
-      return `<path d="M${gx} ${cy} q ${cw * 0.12} -10 ${cw * 0.25} 0 t ${cw * 0.25} 0 t ${cw * 0.25} 0" fill="none" stroke="${cor}" stroke-width="2"/>`
-    case 'analisador':
-    case 'receptor':
-    case 'medidor': // tela com picos de espectro
-      return `<rect x="${gx}" y="${gy + 2}" width="${cw}" height="18" rx="2" fill="none" stroke="${cor}" stroke-width="1.5"/>`
-        + `<polyline points="${gx + 3},${gy + 18} ${gx + cw * 0.3},${gy + 7} ${gx + cw * 0.45},${gy + 16} ${gx + cw * 0.65},${gy + 5} ${gx + cw * 0.8},${gy + 17} ${gx + cw - 3},${gy + 12}" fill="none" stroke="${cor}" stroke-width="1.5"/>`
-    case 'lisn': // bobina (indutor)
-      return `<path d="M${gx} ${cy} a4 4 0 1 1 8 0 a4 4 0 1 1 8 0 a4 4 0 1 1 8 0 a4 4 0 1 1 8 0" fill="none" stroke="${cor}" stroke-width="1.8"/>`
-    case 'antena': // dipolo
-      return `<line x1="${gx + cw / 2}" y1="${gy + 20}" x2="${gx + cw / 2}" y2="${gy + 8}" stroke="${cor}" stroke-width="1.8"/>`
-        + `<line x1="${gx + cw / 2 - 10}" y1="${gy + 2}" x2="${gx + cw / 2 + 10}" y2="${gy + 2}" stroke="${cor}" stroke-width="1.8"/>`
-        + `<line x1="${gx + cw / 2}" y1="${gy + 8}" x2="${gx + cw / 2 - 8}" y2="${gy + 2}" stroke="${cor}" stroke-width="1.8"/>`
-        + `<line x1="${gx + cw / 2}" y1="${gy + 8}" x2="${gx + cw / 2 + 8}" y2="${gy + 2}" stroke="${cor}" stroke-width="1.8"/>`
-    case 'amplificador': // triângulo
-      return `<polygon points="${gx + 4},${gy + 2} ${gx + 4},${gy + 20} ${gx + 26},${gy + 11}" fill="none" stroke="${cor}" stroke-width="1.8"/>`
-    case 'atenuador': // caixa com "dB"
-      return `<rect x="${gx}" y="${gy + 4}" width="${cw}" height="14" rx="2" fill="none" stroke="${cor}" stroke-width="1.5"/><text x="${gx + cw / 2}" y="${gy + 14}" font-size="10" fill="${cor}" text-anchor="middle">−dB</text>`
-    case 'filtro': // resposta passa-baixa
-      return `<path d="M${gx} ${gy + 4} h ${cw * 0.5} q ${cw * 0.15} 0 ${cw * 0.2} 14 l ${cw * 0.3} 0" fill="none" stroke="${cor}" stroke-width="1.8"/>`
-    case 'eut': // caixa do equipamento sob ensaio
-    default:
-      return `<rect x="${gx}" y="${gy + 2}" width="${cw}" height="16" rx="2" fill="none" stroke="${cor}" stroke-width="1.5"/>`
+    case 'gerador':       return sine()
+    case 'gerador-nivel': return sine() + `<text x="${cx}" y="${gy + 24}" font-size="7" fill="${cor}" text-anchor="middle">dBµV</text>`
+    case 'analisador':    return peaks()
+    case 'receptor':      return peaks() + `<line x1="${cx}" y1="${gy}" x2="${cx}" y2="${gy + 2}" ${sw(1.4)}/>`
+    case 'medidor':       return disp('MED')
+    case 'amplificador':  return `<polygon points="${gx + 6},${gy + 2} ${gx + 6},${gy + 20} ${gx + cw - 6},${gy + 11}" ${sw(1.8)}/>`
+    case 'lisn':          return `<path d="M${gx} ${cy} a4 4 0 1 1 8 0 a4 4 0 1 1 8 0 a4 4 0 1 1 8 0 a4 4 0 1 1 8 0" ${sw(1.8)}/>`
+    case 'antena':        return `<line x1="${cx}" y1="${gy + 20}" x2="${cx}" y2="${gy + 8}" ${sw(1.8)}/><line x1="${cx - 10}" y1="${gy + 2}" x2="${cx + 10}" y2="${gy + 2}" ${sw(1.8)}/><line x1="${cx}" y1="${gy + 8}" x2="${cx - 8}" y2="${gy + 2}" ${sw(1.8)}/><line x1="${cx}" y1="${gy + 8}" x2="${cx + 8}" y2="${gy + 2}" ${sw(1.8)}/>`
+    case 'atenuador':     return `<rect x="${gx}" y="${gy + 4}" width="${cw}" height="14" rx="2" ${sw(1.4)}/><text x="${cx}" y="${gy + 14}" font-size="10" fill="${cor}" text-anchor="middle">−dB</text>`
+    case 'filtro-linha':  return `<path d="M${gx} ${gy + 4} h ${cw * 0.5} q ${cw * 0.15} 0 ${cw * 0.2} 14 l ${cw * 0.3} 0" ${sw(1.8)}/>`
+    case 'acoplador-rede':return `<line x1="${gx}" y1="${gy + 6}" x2="${gx + cw}" y2="${gy + 6}" ${sw(1.6)}/><line x1="${gx}" y1="${gy + 16}" x2="${gx + cw}" y2="${gy + 16}" ${sw(1.6)}/><line x1="${cx - 8}" y1="${gy + 6}" x2="${cx - 8}" y2="${gy + 16}" ${sw(1.2)}/><line x1="${cx + 8}" y1="${gy + 6}" x2="${cx + 8}" y2="${gy + 16}" ${sw(1.2)}/>`
+    case 'acoplador-bi':  return `<rect x="${gx}" y="${gy + 4}" width="${cw}" height="14" rx="2" ${sw(1.4)}/><text x="${cx}" y="${gy + 15}" font-size="11" fill="${cor}" text-anchor="middle">⇄</text>`
+    case 'cabo-rf':       return `<line x1="${gx}" y1="${cy}" x2="${gx + cw}" y2="${cy}" ${sw(2)}/>` + term(gx) + term(gx + cw)
+    case 'terminacao':    return `<line x1="${gx}" y1="${cy}" x2="${cx}" y2="${cy}" ${sw(1.6)}/><line x1="${cx}" y1="${gy + 4}" x2="${cx}" y2="${gy + 18}" ${sw(1.6)}/><line x1="${cx + 5}" y1="${gy + 6}" x2="${cx + 5}" y2="${gy + 16}" ${sw(1.4)}/><line x1="${cx + 10}" y1="${gy + 8}" x2="${cx + 10}" y2="${gy + 14}" ${sw(1.2)}/>`
+    case 'eut':           return `<rect x="${gx}" y="${gy + 2}" width="${cw}" height="16" rx="2" ${sw(1.4)}/><text x="${cx}" y="${gy + 14}" font-size="9" fill="${cor}" text-anchor="middle">EUT</text>`
+    // Elétrica
+    case 'multimetro':           return disp('V Ω')
+    case 'multimetro-varredura': return disp('V~ ⟳')
+    case 'wattimetro':           return disp('W')
+    case 'fonte-tensao':         return `<line x1="${cx - 9}" y1="${gy + 4}" x2="${cx - 9}" y2="${gy + 18}" ${sw(2)}/><line x1="${cx - 3}" y1="${gy + 7}" x2="${cx - 3}" y2="${gy + 15}" ${sw(1.4)}/><text x="${cx + 8}" y="${gy + 15}" font-size="10" fill="${cor}" text-anchor="middle">V⎓</text>`
+    case 'osciloscopio':         return screen() + sine()
+    case 'data-logger':          return disp('LOG')
+    case 'analisador-bateria':   return `<rect x="${gx}" y="${gy + 5}" width="${cw - 4}" height="12" rx="1" ${sw(1.4)}/><rect x="${gx + cw - 4}" y="${gy + 8}" width="3" height="6" fill="${cor}"/><text x="${cx}" y="${gy + 14}" font-size="8" fill="${cor}" text-anchor="middle">+ −</text>`
+    case 'tacometro':            return dial('rpm')
+    // Ambiente / físicas
+    case 'termohigrometro':      return `<line x1="${gx + 8}" y1="${gy + 2}" x2="${gx + 8}" y2="${gy + 15}" ${sw(1.6)}/><circle cx="${gx + 8}" cy="${gy + 18}" r="3" fill="${cor}"/><path d="M${gx + cw - 14} ${gy + 4} q 5 7 0 10 q -5 -3 0 -10" ${sw(1.4)}/>`
+    case 'termometro':           return `<line x1="${cx}" y1="${gy + 2}" x2="${cx}" y2="${gy + 15}" ${sw(1.8)}/><circle cx="${cx}" cy="${gy + 18}" r="3.5" fill="${cor}"/>`
+    case 'barometro':            return dial('hPa')
+    case 'manometro':            return dial('bar')
+    case 'cronometro':           return `<circle cx="${cx}" cy="${gy + 13}" r="8" ${sw(1.4)}/><line x1="${cx}" y1="${gy + 2}" x2="${cx}" y2="${gy + 5}" ${sw(1.6)}/><line x1="${cx}" y1="${gy + 13}" x2="${cx + 4}" y2="${gy + 9}" ${sw(1.4)}/>`
+    // Volumétrica / química
+    case 'balao':                return `<path d="M${cx - 3} ${gy + 2} h 6 v 5 l 7 11 a 9 9 0 1 1 -20 0 l 7 -11 z" ${sw(1.5)}/>`
+    case 'proveta':              return `<rect x="${cx - 7}" y="${gy + 2}" width="14" height="19" rx="1" ${sw(1.4)}/><line x1="${cx + 1}" y1="${gy + 7}" x2="${cx + 5}" y2="${gy + 7}" ${sw(1)}/><line x1="${cx + 1}" y1="${gy + 12}" x2="${cx + 5}" y2="${gy + 12}" ${sw(1)}/>`
+    case 'micropipeta':          return `<rect x="${cx - 3}" y="${gy + 2}" width="6" height="6" rx="1" ${sw(1.4)}/><path d="M${cx - 3} ${gy + 8} h 6 l -2 12 h -2 z" ${sw(1.4)}/>`
+    case 'ph':                   return `<path d="M${cx - 6} ${gy + 6} q 6 9 0 12 q -6 -3 0 -12" ${sw(1.5)}/><text x="${cx + 9}" y="${gy + 16}" font-size="9" fill="${cor}" text-anchor="middle">pH</text>`
+    case 'balanca':              return `<line x1="${gx + 6}" y1="${gy + 6}" x2="${gx + cw - 6}" y2="${gy + 6}" ${sw(1.6)}/><line x1="${cx}" y1="${gy + 6}" x2="${cx}" y2="${gy + 18}" ${sw(1.4)}/><path d="M${gx + 2} ${gy + 6} l 4 8 h -8 z" ${sw(1.2)}/><path d="M${gx + cw - 2} ${gy + 6} l -4 8 h 8 z" ${sw(1.2)}/>`
+    // Dimensional / diversos
+    case 'paquimetro':           return `<line x1="${gx}" y1="${gy + 8}" x2="${gx + cw}" y2="${gy + 8}" ${sw(1.6)}/><line x1="${gx + 2}" y1="${gy + 8}" x2="${gx + 2}" y2="${gy + 16}" ${sw(1.6)}/><line x1="${gx + cw * 0.6}" y1="${gy + 8}" x2="${gx + cw * 0.6}" y2="${gy + 16}" ${sw(1.6)}/>`
+    case 'forno':                return `<rect x="${gx}" y="${gy + 2}" width="${cw}" height="18" rx="2" ${sw(1.4)}/><path d="M${cx - 8} ${gy + 16} q 4 -4 0 -8 m 8 8 q 4 -4 0 -8" ${sw(1.3)}/>`
+    case 'refrigerador':         return `<rect x="${cx - 8}" y="${gy + 1}" width="16" height="20" rx="2" ${sw(1.4)}/><line x1="${cx - 8}" y1="${gy + 9}" x2="${cx + 8}" y2="${gy + 9}" ${sw(1.2)}/><line x1="${cx - 4}" y1="${gy + 4}" x2="${cx - 4}" y2="${gy + 7}" ${sw(1.2)}/>`
+    default:                     return `<rect x="${gx}" y="${gy + 2}" width="${cw}" height="16" rx="2" ${sw(1.4)}/>`
   }
 }
 

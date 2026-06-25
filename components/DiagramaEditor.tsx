@@ -4,7 +4,7 @@ import { useRef, useState } from 'react'
 import { MousePointer2, Square, Circle, Minus, Type as TypeIcon, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Forma, FormaTipo } from '@/lib/instrucoes/tipos'
-import { COR_PADRAO, COMPONENTES, COMP_W, COMP_H, componenteSVG } from '@/lib/instrucoes/diagrama'
+import { COR_PADRAO, GRUPOS_COMP, COMP_W, COMP_H, componenteSVG } from '@/lib/instrucoes/diagrama'
 
 type Tool = 'select' | FormaTipo
 const CORES = ['#1f2937', '#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed']
@@ -147,14 +147,18 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
         </span>
       </div>
 
-      {/* Paleta de componentes de equipamento (clique p/ soltar no quadro) */}
-      <div className="flex items-center gap-1.5 flex-wrap">
-        <span className="text-[10px] font-mono uppercase tracking-wider text-white/30 mr-1">Equipamentos</span>
-        {COMPONENTES.map(c => (
-          <button key={c.id} type="button" onClick={() => addComponente(c.id)} title={`Adicionar ${c.nome}`}
-            className="px-2 py-0.5 rounded-md text-[10px] bg-white/5 border border-white/10 text-white/60 hover:text-white hover:border-teal/40 transition-colors">
-            {c.nome}
-          </button>
+      {/* Paleta de componentes por grupo (clique p/ soltar no quadro) */}
+      <div className="space-y-1 max-h-32 overflow-y-auto pr-1 rounded-lg border border-white/8 p-2 bg-white/[0.02]">
+        {GRUPOS_COMP.map(g => (
+          <div key={g.grupo} className="flex items-start gap-1.5 flex-wrap">
+            <span className="text-[9px] font-mono uppercase tracking-wider text-teal/60 w-full">{g.grupo}</span>
+            {g.itens.map(c => (
+              <button key={c.id} type="button" onClick={() => addComponente(c.id)} title={`Adicionar ${c.nome}`}
+                className="px-2 py-0.5 rounded-md text-[10px] bg-white/5 border border-white/10 text-white/60 hover:text-white hover:border-teal/40 transition-colors">
+                {c.nome}
+              </button>
+            ))}
+          </div>
         ))}
       </div>
 
