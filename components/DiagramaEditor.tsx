@@ -4,7 +4,7 @@ import { useRef, useState } from 'react'
 import { MousePointer2, Square, Circle, Minus, Type as TypeIcon, Trash2, Cable, Undo2, Redo2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Forma } from '@/lib/instrucoes/tipos'
-import { COR_PADRAO, GRUPOS_COMP, CABOS, COMP_W, COMP_H, componenteSVG, conexaoSVG, linhaCaboSVG, pontosBase, pontosConexao } from '@/lib/instrucoes/diagrama'
+import { COR_PADRAO, GRUPOS_COMP, CABOS, COMP_W, COMP_H, componenteSVG, conexaoSVG, linhaCaboSVG, pontosBase, pontosConexao, rotaConexao } from '@/lib/instrucoes/diagrama'
 
 type Tool = 'select' | 'conectar' | 'retangulo' | 'elipse' | 'linha' | 'texto'
 const CORES = ['#1f2937', '#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed']
@@ -37,6 +37,7 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
   const startRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
   const moveRef = useRef<{ id: string; ox: number; oy: number; isLine: boolean; snapped: boolean } | null>(null)
   const resizeRef = useRef<{ id: string; corner: string; ox: number; oy: number } | null>(null)
+  const wpRef = useRef<{ cid: string } | null>(null) // arrastando a dobra de um cabo
   // Histórico (desfazer/refazer) e área de transferência de formas.
   const histRef = useRef<Forma[][]>([])
   const redoRef = useRef<Forma[][]>([])
@@ -127,8 +128,21 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
     svgRef.current?.setPointerCapture(e.pointerId)
   }
 
+  function startWp(e: React.PointerEvent, c: Forma) {
+    e.stopPropagation()
+    setSel(c.id)
+    snapshot()
+    wpRef.current = { cid: c.id }
+    svgRef.current?.setPointerCapture(e.pointerId)
+  }
+
   function onSvgPointerMove(e: React.PointerEvent) {
     const { x, y } = pt(e)
+    if (wpRef.current) {
+      const cid = wpRef.current.cid
+      onChange(formas.map(f => f.id === cid ? { ...f, waypoints: [{ x, y }] } : f))
+      return
+    }
     if (resizeRef.current) {
       const rz = resizeRef.current
       const dx = x - rz.ox, dy = y - rz.oy
@@ -189,6 +203,7 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
     }
     moveRef.current = null
     resizeRef.current = null
+    wpRef.current = null
     setGuias([])
   }
 
@@ -395,11 +410,21 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
           onPointerDown={onSvgPointerDown} onPointerMove={onSvgPointerMove} onPointerUp={onSvgPointerUp}
           style={{ display: 'block', touchAction: 'none', cursor: tool === 'select' ? 'default' : 'crosshair' }}>
           {/* Camada de conexões (cabos) — atrás dos componentes */}
-          {formas.filter(f => f.tipo === 'conexao').map(c => (
-            <g key={c.id} onPointerDown={(e) => startMove(e, c)}
-              style={{ cursor: 'pointer', opacity: c.id === sel ? 0.5 : 1 }}
-              dangerouslySetInnerHTML={{ __html: conexaoSVG(c, byId) }} />
-          ))}
+          {formas.filter(f => f.tipo === 'conexao').map(c => {
+            const pts = c.id === sel ? rotaConexao(c, byId) : []
+            const hp = c.waypoints?.[0] ?? pts[Math.floor(pts.length / 2)]
+            return (
+              <g key={c.id}>
+                <g onPointerDown={(e) => startMove(e, c)}
+                  style={{ cursor: 'pointer', opacity: c.id === sel ? 0.6 : 1 }}
+                  dangerouslySetInnerHTML={{ __html: conexaoSVG(c, byId) }} />
+                {c.id === sel && hp && (
+                  <circle cx={hp.x} cy={hp.y} r={5} fill="#6366f1" stroke="#fff" strokeWidth={1.5}
+                    style={{ cursor: 'move' }} onPointerDown={(e) => startWp(e, c)} />
+                )}
+              </g>
+            )
+          })}
           {formas.map(f => {
             if (f.tipo === 'conexao') return null
             const isSel = f.id === sel || f.id === conFrom

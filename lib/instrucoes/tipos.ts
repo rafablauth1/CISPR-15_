@@ -28,6 +28,7 @@ export interface Forma {
   para?: string  // id do componente de destino
   dePos?: { x: number; y: number }   // ponto (offset px) na origem — a bolinha clicada
   paraPos?: { x: number; y: number } // ponto (offset px) no destino
+  waypoints?: { x: number; y: number }[] // dobras manuais (sobrepõem o roteamento automático)
   cabo?: string  // tipo de cabo: 'simples' | 'rf' | 'rede' | 'linha' | 'neutro' | 'terra'
 }
 

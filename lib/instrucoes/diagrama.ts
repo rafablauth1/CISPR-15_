@@ -121,17 +121,28 @@ export function pontosConexao(f: Forma): { x: number; y: number }[] {
 }
 
 /** Markup de UMA conexão (cabo) entre dois componentes — liga os terminais que se enfrentam. */
-export function conexaoSVG(c: Forma, byId: Record<string, Forma>): string {
+// Torna uma sequência de pontos em caminho ORTOGONAL (insere cotovelo entre pares).
+function ortogonalizar(pts: { x: number; y: number }[]) {
+  const out = [pts[0]]
+  for (let i = 1; i < pts.length; i++) {
+    const a = out[out.length - 1], b = pts[i]
+    if (a.x !== b.x && a.y !== b.y) out.push({ x: b.x, y: a.y })
+    out.push(b)
+  }
+  return dedup(out)
+}
+
+/** Pontos da rota de uma conexão: dobras manuais (waypoints) ou roteamento automático. */
+export function rotaConexao(c: Forma, byId: Record<string, Forma>): { x: number; y: number }[] {
   const a = byId[c.de || ''], b = byId[c.para || '']
-  if (!a || !b) return ''
-  // Usa o ponto exato clicado (dePos/paraPos); senão, o par de pontos mais próximos.
+  if (!a || !b) return []
   let p1: { x: number; y: number } | undefined
   let p2: { x: number; y: number } | undefined
   if (c.dePos) p1 = { x: a.x + c.dePos.x, y: a.y + c.dePos.y }
   if (c.paraPos) p2 = { x: b.x + c.paraPos.x, y: b.y + c.paraPos.y }
   if (!p1 || !p2) {
     const pa = pontosConexao(a), pb = pontosConexao(b)
-    if (!pa.length || !pb.length) return ''
+    if (!pa.length || !pb.length) return []
     let best = { d: Infinity, p1: pa[0], p2: pb[0] }
     for (const a1 of pa) for (const b1 of pb) {
       const d = (a1.x - b1.x) ** 2 + (a1.y - b1.y) ** 2
@@ -139,12 +150,17 @@ export function conexaoSVG(c: Forma, byId: Record<string, Forma>): string {
     }
     p1 = p1 ?? best.p1; p2 = p2 ?? best.p2
   }
-  // Roteamento ortogonal que desvia de TODOS os componentes (inclusive os dois
-  // ligados — os stubs saem pela borda, então não contam como cruzamento).
+  // Dobras manuais → manda nelas; senão, roteamento automático com desvio.
+  if (c.waypoints?.length) return ortogonalizar([p1, ...c.waypoints, p2])
   const obst: Caixa[] = Object.values(byId)
     .filter(f => f.tipo === 'componente')
     .map(f => ({ x: f.x, y: f.y, w: f.w ?? COMP_W, h: f.h ?? COMP_H }))
-  const pts = rotaCabo(p1, dirPorta(a, p1), p2, dirPorta(b, p2), obst)
+  return rotaCabo(p1, dirPorta(a, p1), p2, dirPorta(b, p2), obst)
+}
+
+export function conexaoSVG(c: Forma, byId: Record<string, Forma>): string {
+  const pts = rotaConexao(c, byId)
+  if (pts.length < 2) return ''
   return caboPolySVG(pts, c.cabo, undefined)
 }
 
