@@ -139,9 +139,10 @@ export function conexaoSVG(c: Forma, byId: Record<string, Forma>): string {
     }
     p1 = p1 ?? best.p1; p2 = p2 ?? best.p2
   }
-  // Roteamento ortogonal que desvia dos componentes (menos os dois conectados).
+  // Roteamento ortogonal que desvia de TODOS os componentes (inclusive os dois
+  // ligados — os stubs saem pela borda, então não contam como cruzamento).
   const obst: Caixa[] = Object.values(byId)
-    .filter(f => f.tipo === 'componente' && f.id !== a.id && f.id !== b.id)
+    .filter(f => f.tipo === 'componente')
     .map(f => ({ x: f.x, y: f.y, w: f.w ?? COMP_W, h: f.h ?? COMP_H }))
   const pts = rotaCabo(p1, dirPorta(a, p1), p2, dirPorta(b, p2), obst)
   return caboPolySVG(pts, c.cabo, undefined)
@@ -231,8 +232,10 @@ function segCruzaCaixa(x1: number, y1: number, x2: number, y2: number, b: Caixa)
   return Math.min(x1, x2) < bx2 && Math.max(x1, x2) > bx1 && Math.min(y1, y2) < by2 && Math.max(y1, y2) > by1
 }
 
+// Cruza algum obstáculo? Ignora o 1º e o último trecho (são os stubs que saem
+// das portas, encostando de propósito nos componentes ligados).
 function rotaCruza(pts: { x: number; y: number }[], obst: Caixa[]): boolean {
-  for (let i = 0; i < pts.length - 1; i++)
+  for (let i = 1; i <= pts.length - 3; i++)
     for (const b of obst)
       if (segCruzaCaixa(pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y, b)) return true
   return false
@@ -265,6 +268,17 @@ function rotaCabo(p1: { x: number; y: number }, d1: Dir, p2: { x: number; y: num
   // "L" diretos (2 trechos)
   cands.push(dedup([p1, e1, { x: e2.x, y: e1.y }, e2, p2]))
   cands.push(dedup([p1, e1, { x: e1.x, y: e2.y }, e2, p2]))
+  // Contornos por cima/baixo/lados de TODOS os obstáculos (garante a volta).
+  if (obst.length) {
+    const top = Math.min(...obst.map(b => b.y)) - 24
+    const bot = Math.max(...obst.map(b => b.y + b.h)) + 24
+    const lef = Math.min(...obst.map(b => b.x)) - 24
+    const rig = Math.max(...obst.map(b => b.x + b.w)) + 24
+    cands.push(dedup([p1, e1, { x: e1.x, y: top }, { x: e2.x, y: top }, e2, p2]))
+    cands.push(dedup([p1, e1, { x: e1.x, y: bot }, { x: e2.x, y: bot }, e2, p2]))
+    cands.push(dedup([p1, e1, { x: lef, y: e1.y }, { x: lef, y: e2.y }, e2, p2]))
+    cands.push(dedup([p1, e1, { x: rig, y: e1.y }, { x: rig, y: e2.y }, e2, p2]))
+  }
   // Pega a rota mais curta que NÃO cruza obstáculo; se nenhuma, a mais curta no geral.
   const limpas = cands.filter(c => !rotaCruza(c, obst))
   const pool = limpas.length ? limpas : cands
