@@ -30,7 +30,7 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
   const [conFrom, setConFrom] = useState<string | null>(null) // 1º componente clicado p/ conectar
   const [guias, setGuias] = useState<{ vx?: number; hy?: number }[]>([]) // guias de alinhamento
   // Menu de "criar conexão" (botão direito): posição na tela + alvo + posição relativa.
-  const [portaMenu, setPortaMenu] = useState<{ cx: number; cy: number; fid: string; px: number; py: number } | null>(null)
+  const [portaMenu, setPortaMenu] = useState<{ cx: number; cy: number; fid: string; px: number; py: number; removeIdx?: number; nomeAtual?: string } | null>(null)
   const [portaNome, setPortaNome] = useState('') // nome digitado p/ conexão "Outro"
   const draftRef = useRef<string | null>(null)
   const startRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
@@ -170,14 +170,20 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
     if (f.tipo !== 'componente') return
     const r = svgRef.current!.getBoundingClientRect()
     const px = e.clientX - r.left - f.x, py = e.clientY - r.top - f.y
-    const idx = (f.portas ?? []).findIndex(p => Math.hypot(p.x - px, p.y - py) <= 9)
-    if (idx >= 0) {
-      snapshot()
-      onChange(formas.map(z => z.id === f.id ? { ...z, portas: (z.portas ?? []).filter((_, i) => i !== idx) } : z))
-      return
-    }
     setPortaNome('')
-    setPortaMenu({ cx: e.clientX, cy: e.clientY, fid: f.id, px: Math.round(px), py: Math.round(py) })
+    // Perto de uma porta existente → menu com "Remover"; senão → menu de criar.
+    const idx = (f.portas ?? []).findIndex(p => Math.hypot(p.x - px, p.y - py) <= 11)
+    if (idx >= 0) {
+      setPortaMenu({ cx: e.clientX, cy: e.clientY, fid: f.id, px, py, removeIdx: idx, nomeAtual: f.portas![idx].nome })
+    } else {
+      setPortaMenu({ cx: e.clientX, cy: e.clientY, fid: f.id, px: Math.round(px), py: Math.round(py) })
+    }
+  }
+  function removerPorta() {
+    const pm = portaMenu; if (!pm || pm.removeIdx == null) return
+    snapshot()
+    onChange(formas.map(z => z.id === pm.fid ? { ...z, portas: (z.portas ?? []).filter((_, i) => i !== pm.removeIdx) } : z))
+    setPortaMenu(null)
   }
   function criarPorta(nome: string) {
     const pm = portaMenu; if (!pm) return
@@ -390,22 +396,36 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
         <>
           <div className="fixed inset-0 z-[9998]" onClick={() => setPortaMenu(null)} onContextMenu={(e) => { e.preventDefault(); setPortaMenu(null) }} />
           <div className="fixed z-[9999] card p-1.5 shadow-2xl" style={{ left: portaMenu.cx, top: portaMenu.cy, background: '#141B28' }}>
-            <p className="text-[9px] font-mono uppercase tracking-wider text-white/40 px-1.5 pb-1">Criar conexão</p>
-            <div className="grid grid-cols-2 gap-0.5">
-              {CONECTORES.map(n => (
-                <button key={n} type="button" onClick={() => criarPorta(n)}
-                  className="text-left px-2 py-1 rounded text-[11px] text-white/70 hover:bg-white/10 hover:text-white">{n}</button>
-              ))}
-            </div>
-            <div className="flex gap-1 mt-1 px-0.5">
-              <input autoFocus value={portaNome} onChange={e => setPortaNome(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && portaNome.trim()) criarPorta(portaNome.trim()); if (e.key === 'Escape') setPortaMenu(null) }}
-                placeholder="outro nome…" className="input text-[11px] py-0.5 w-28" />
-              <button type="button" onClick={() => portaNome.trim() && criarPorta(portaNome.trim())}
-                className="px-2 py-0.5 rounded text-[11px] bg-teal/20 text-teal hover:bg-teal/30">OK</button>
-            </div>
-            <button type="button" onClick={() => criarPorta('')}
-              className="w-full text-left px-2 py-1 mt-0.5 rounded text-[11px] text-white/40 hover:bg-white/10">Sem nome</button>
+            {portaMenu.removeIdx != null ? (
+              <>
+                <p className="text-[9px] font-mono uppercase tracking-wider text-white/40 px-1.5 pb-1">
+                  Conexão{portaMenu.nomeAtual ? ` "${portaMenu.nomeAtual}"` : ''}
+                </p>
+                <button type="button" onClick={removerPorta}
+                  className="w-full flex items-center gap-1.5 px-2 py-1 rounded text-[11px] text-red-300 hover:bg-red-500/15">
+                  <Trash2 size={12} /> Remover conexão
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="text-[9px] font-mono uppercase tracking-wider text-white/40 px-1.5 pb-1">Criar conexão</p>
+                <div className="grid grid-cols-2 gap-0.5">
+                  {CONECTORES.map(n => (
+                    <button key={n} type="button" onClick={() => criarPorta(n)}
+                      className="text-left px-2 py-1 rounded text-[11px] text-white/70 hover:bg-white/10 hover:text-white">{n}</button>
+                  ))}
+                </div>
+                <div className="flex gap-1 mt-1 px-0.5">
+                  <input autoFocus value={portaNome} onChange={e => setPortaNome(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && portaNome.trim()) criarPorta(portaNome.trim()); if (e.key === 'Escape') setPortaMenu(null) }}
+                    placeholder="outro nome…" className="input text-[11px] py-0.5 w-28" />
+                  <button type="button" onClick={() => portaNome.trim() && criarPorta(portaNome.trim())}
+                    className="px-2 py-0.5 rounded text-[11px] bg-teal/20 text-teal hover:bg-teal/30">OK</button>
+                </div>
+                <button type="button" onClick={() => criarPorta('')}
+                  className="w-full text-left px-2 py-1 mt-0.5 rounded text-[11px] text-white/40 hover:bg-white/10">Sem nome</button>
+              </>
+            )}
           </div>
         </>
       )}
