@@ -21,6 +21,7 @@ export interface Forma {
   texto?: string // texto / rótulo dentro de retângulo/elipse
   cor?: string
   simbolo?: string // p/ tipo 'componente': id do equipamento (gerador, lisn, antena…)
+  rot?: number     // rotação do componente em graus (0/90/180/270)
   portas?: { x: number; y: number; nome?: string }[] // portas extras (offset px do canto sup-esq; com nome)
   portasOff?: number[] // índices dos terminais PADRÃO removidos (ocultos)
   // p/ tipo 'conexao' (cabo entre dois componentes — segue ao mover):

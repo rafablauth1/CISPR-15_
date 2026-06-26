@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { MousePointer2, Square, Circle, Minus, Type as TypeIcon, Trash2, Cable, Undo2, Redo2 } from 'lucide-react'
+import { MousePointer2, Square, Circle, Minus, Type as TypeIcon, Trash2, Cable, Undo2, Redo2, RotateCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Forma } from '@/lib/instrucoes/tipos'
 import { COR_PADRAO, GRUPOS_COMP, CABOS, COMP_W, COMP_H, componenteSVG, conexaoSVG, linhaCaboSVG, pontosBase, pontosConexao, rotaConexao } from '@/lib/instrucoes/diagrama'
@@ -344,6 +344,12 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
     onChange(formas.filter(f => f.id !== sel && f.de !== sel && f.para !== sel))
     setSel(null)
   }
+  // Gira o componente selecionado em 90°.
+  function girarSel() {
+    if (!selecionada || selecionada.tipo !== 'componente') return
+    snapshot()
+    onChange(formas.map(f => f.id === sel ? { ...f, rot: (((f.rot ?? 0) + 90) % 360) } : f))
+  }
   // Atalhos de teclado no quadro (não atrapalha campos de texto).
   function onKeyDown(e: React.KeyboardEvent) {
     const tag = (e.target as HTMLElement)?.tagName
@@ -351,6 +357,7 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
     const mod = e.ctrlKey || e.metaKey
     const k = e.key.toLowerCase()
     if (e.key === 'Delete' || e.key === 'Backspace') { if (sel) { e.preventDefault(); excluirSel() } }
+    else if (!mod && k === 'r') { e.preventDefault(); girarSel() }
     else if (mod && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo() }
     else if (mod && k === 'y') { e.preventDefault(); redo() }
     else if (mod && k === 'c') { if (selecionada) clipRef.current = { ...selecionada } }
@@ -383,6 +390,8 @@ export function DiagramaEditor({ formas, w, h, onChange }: {
         </div>
         <button type="button" onClick={undo} title="Desfazer (Ctrl+Z)" className="btn-ghost text-[11px] py-1"><Undo2 size={12} /></button>
         <button type="button" onClick={redo} title="Refazer (Ctrl+Y)" className="btn-ghost text-[11px] py-1"><Redo2 size={12} /></button>
+        <button type="button" onClick={girarSel} disabled={selecionada?.tipo !== 'componente'} title="Girar 90° (R)"
+          className="btn-ghost text-[11px] py-1 disabled:opacity-30"><RotateCw size={12} /></button>
         <button type="button" onClick={excluirSel} disabled={!sel}
           className="btn-ghost text-[11px] py-1 disabled:opacity-30"><Trash2 size={12} /> Excluir</button>
         <span className="text-[10px] text-white/30">

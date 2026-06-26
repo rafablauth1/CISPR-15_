@@ -112,12 +112,23 @@ export function pontosBase(f: Forma): { x: number; y: number }[] {
     : [{ x: f.x, y: f.y + h / 2 }, { x: f.x + w, y: f.y + h / 2 }]
 }
 
-/** Pontos de conexão: terminais padrão (menos os ocultos) + portas extras. */
+/** Roda um ponto em torno de (cx,cy) por `deg` graus. */
+function rotPt(p: { x: number; y: number }, cx: number, cy: number, deg: number) {
+  if (!deg) return p
+  const r = (deg * Math.PI) / 180, cos = Math.cos(r), sin = Math.sin(r)
+  const dx = p.x - cx, dy = p.y - cy
+  return { x: cx + dx * cos - dy * sin, y: cy + dx * sin + dy * cos }
+}
+
+/** Pontos de conexão (já rotacionados): terminais padrão (menos ocultos) + portas. */
 export function pontosConexao(f: Forma): { x: number; y: number }[] {
   const off = f.portasOff ?? []
   const base = pontosBase(f).filter((_, i) => !off.includes(i))
   const extra = (f.portas ?? []).map(p => ({ x: f.x + p.x, y: f.y + p.y }))
-  return [...base, ...extra]
+  const pts = [...base, ...extra]
+  if (!f.rot) return pts
+  const cx = f.x + (f.w ?? COMP_W) / 2, cy = f.y + (f.h ?? COMP_H) / 2
+  return pts.map(p => rotPt(p, cx, cy, f.rot!))
 }
 
 /** Markup de UMA conexão (cabo) entre dois componentes — liga os terminais que se enfrentam. */
@@ -317,9 +328,13 @@ export function componenteSVG(f: Forma): string {
   const labelsPortas = (f.portas ?? []).map(p => p.nome
     ? `<text x="${x + p.x}" y="${y + p.y - 5}" font-size="8" fill="${cor}" text-anchor="middle" style="paint-order:stroke" stroke="#ffffff" stroke-width="2.5">${esc(p.nome)}</text>`
     : '').join('')
-  return `<g>`
+  // Pontos SEM rotação (o grupo é girado pelo transform abaixo).
+  const off = f.portasOff ?? []
+  const dots = [...pontosBase(f).filter((_, i) => !off.includes(i)), ...(f.portas ?? []).map(p => ({ x: x + p.x, y: y + p.y }))]
+  const tr = f.rot ? ` transform="rotate(${f.rot} ${x + w / 2} ${y + h / 2})"` : ''
+  return `<g${tr}>`
     + `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="6" fill="#ffffff" stroke="${cor}" stroke-width="2"/>`
-    + pontosConexao(f).map(p => `<circle cx="${p.x}" cy="${p.y}" r="3" fill="${cor}"/>`).join('')
+    + dots.map(p => `<circle cx="${p.x}" cy="${p.y}" r="3" fill="${cor}"/>`).join('')
     + glifo(f.simbolo || 'eut', gx, y + 8, gw, cor)
     + `<text x="${x + w / 2}" y="${y + h - 8}" font-size="11" fill="#111827" text-anchor="middle">${esc(nome)}</text>`
     + labelsPortas
