@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { lerJSON, escreverJSON } from '@/lib/dados'
+import { createRepo } from '@/lib/repo'
 import type { EquipamentoEMC } from '@/lib/equipamentos/tipos'
-
-const ARQUIVO = 'equipamentos.json'
 
 const DEFAULTS: EquipamentoEMC[] = [
   { id: '1', tag: '1528EMC', nome: 'Analisador de Espectro R&S', grupoId: 'medidores', subgrupoId: 'analisador-espectro', status: 'ativo', grandezas: [], ultimaCalibracao: '2025-12-01', proximaCalibracao: '2026-12-01', intervaloCalibracao: 12 },
@@ -12,17 +10,16 @@ const DEFAULTS: EquipamentoEMC[] = [
   { id: '5', tag: '3055EMC', nome: 'Gerador de Sinal', grupoId: 'geradores', subgrupoId: 'gerador-sinal-rf', status: 'ativo', grandezas: [], ultimaCalibracao: '2025-06-14', proximaCalibracao: '2026-06-14', intervaloCalibracao: 12 },
 ]
 
+const repo = createRepo<EquipamentoEMC>('equipamentos.json', DEFAULTS)
+
 export async function GET() {
-  return NextResponse.json(lerJSON<EquipamentoEMC[]>(ARQUIVO, DEFAULTS))
+  return NextResponse.json(repo.all())
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json() as Omit<EquipamentoEMC, 'id'>
-    const lista = lerJSON<EquipamentoEMC[]>(ARQUIVO, DEFAULTS)
-    const novo: EquipamentoEMC = { ...body, id: Date.now().toString() }
-    escreverJSON(ARQUIVO, [...lista, novo])
-    return NextResponse.json(novo, { status: 201 })
+    return NextResponse.json(repo.create(body), { status: 201 })
   } catch (e: unknown) {
     return NextResponse.json({ error: String(e) }, { status: 500 })
   }
@@ -37,9 +34,8 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'Informe nome ou ids.' }, { status: 400 })
     }
     const ids = new Set(body.ids ?? [])
-    const lista = lerJSON<EquipamentoEMC[]>(ARQUIVO, DEFAULTS)
     let n = 0
-    const nova = lista.map(e => {
+    repo.update(lista => lista.map(e => {
       const match = (body.nome && e.nome === body.nome) || ids.has(e.id)
       if (!match) return e
       n++
@@ -48,8 +44,7 @@ export async function PATCH(req: NextRequest) {
         grupoId:    (body.grupoId    ?? e.grupoId)    as EquipamentoEMC['grupoId'],
         subgrupoId: (body.subgrupoId ?? e.subgrupoId) as EquipamentoEMC['subgrupoId'],
       }
-    })
-    escreverJSON(ARQUIVO, nova)
+    }))
     return NextResponse.json({ ok: true, atualizados: n })
   } catch (e: unknown) {
     return NextResponse.json({ error: String(e) }, { status: 500 })
@@ -60,15 +55,12 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   try {
     const body = (await req.json().catch(() => ({}))) as { all?: boolean; ids?: string[] }
-    if (body.all) { escreverJSON(ARQUIVO, []); return NextResponse.json({ ok: true, removidos: 'todos' }) }
+    if (body.all) { repo.clear(); return NextResponse.json({ ok: true, removidos: 'todos' }) }
     if (!Array.isArray(body.ids) || !body.ids.length) {
       return NextResponse.json({ error: 'Informe os ids.' }, { status: 400 })
     }
-    const set = new Set(body.ids)
-    const lista = lerJSON<EquipamentoEMC[]>(ARQUIVO, DEFAULTS)
-    const nova = lista.filter(e => !set.has(e.id))
-    escreverJSON(ARQUIVO, nova)
-    return NextResponse.json({ ok: true, removidos: lista.length - nova.length })
+    const removidos = repo.remove(body.ids)
+    return NextResponse.json({ ok: true, removidos })
   } catch (e: unknown) {
     return NextResponse.json({ error: String(e) }, { status: 500 })
   }
