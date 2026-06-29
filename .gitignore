@@ -30,3 +30,8 @@ tmp_test/
 # quadro Check (interno/temporário): fila de demandas gerada pelo /check.html
 DEMANDAS.md
 check-demandas.md
+
+# artefatos de escrita atomica (lib/dados.ts)
+dados/*.bak
+dados/*.tmp.*
+dados/*.lock
