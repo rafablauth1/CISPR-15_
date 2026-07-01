@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Plus, ChevronRight, Zap, Gauge, Waves, Radio, SlidersHorizontal, Thermometer, FolderInput, Loader2, CheckCircle2, AlertTriangle, XCircle, ArrowUpDown, ArrowUp, ArrowDown, FileWarning, X, Search, Trash2, Lock, Cpu } from 'lucide-react'
+import { Plus, ChevronRight, Zap, Gauge, Waves, Radio, SlidersHorizontal, Thermometer, FolderInput, Loader2, CheckCircle2, AlertTriangle, XCircle, ArrowUpDown, ArrowUp, ArrowDown, FileWarning, X, Search, Trash2, Lock, Cpu, RefreshCw } from 'lucide-react'
 import { FilterDropdown } from '@/components/FilterDropdown'
 import { Paginacao } from '@/components/Paginacao'
 import { fmt, diasAte } from '@/lib/utils'
@@ -152,6 +152,7 @@ export default function EquipamentosPage() {
   const [fSit, setFSit] = useState<string[]>([])                    // filtro por situação (cadastrável)
   const [fLabRasc, setFLabRasc] = useState<string[]>([])            // filtro por laboratório (CAL)
   const [rescanLoading, setRescanLoading] = useState(false)
+  const [verificando, setVerificando] = useState(false)   // "verificar certificados novos"
   const [porPagina, setPorPagina] = useState(25)
   const [pagina, setPagina] = useState(1)
   const [porPagRasc, setPorPagRasc] = useState(25)
@@ -270,6 +271,44 @@ export default function EquipamentosPage() {
       carregarRascunho()
     } catch (e) { alert('Erro: ' + String(e)) }
     finally { setImpProgresso(null) }
+  }
+
+  // Verifica se apareceu certificado/análise crítica NOVO nas subpastas (por TAG)
+  // da pasta-mãe e atualiza SÓ os equipamentos existentes. É READ-ONLY na pasta:
+  // apenas lê os PDFs (scanBatch); nunca cria, move, apaga ou edita arquivos lá.
+  async function verificarCertificadosNovos(trocarPasta = false) {
+    const api = (window as unknown as { electronAPI?: LabAPI }).electronAPI
+    if (!api?.listMae || !api?.scanBatch) { alert('Disponível apenas no aplicativo (Electron).'); return }
+    let pasta = trocarPasta ? '' : (localStorage.getItem('pastaMaeCerts') || '')
+    if (!pasta) {
+      if (!api.browseFolder) { alert('Selecione a pasta dos certificados.'); return }
+      const sel = await api.browseFolder('Pasta dos certificados — uma subpasta por TAG do padrão')
+      if (!sel || sel.canceled || !sel.folderPath) return
+      pasta = sel.folderPath
+      try { localStorage.setItem('pastaMaeCerts', pasta) } catch {}
+    }
+    setVerificando(true)
+    try {
+      const lista = await api.listMae(pasta)
+      if (!lista.ok || !lista.folders) { alert(lista.error || 'Falha ao ler a pasta.'); return }
+      const CHUNK = 25
+      const scans: { folder: string; text?: string; certPath?: string | null }[] = []
+      for (let i = 0; i < lista.folders.length; i += CHUNK) {
+        const lote = lista.folders.slice(i, i + CHUNK)
+        const scan = await api.scanBatch(lote)
+        if (scan.ok && scan.resultados) scans.push(...scan.resultados.map(r => ({ folder: r.folder, text: r.text, certPath: r.certPath })))
+      }
+      const r = await fetch('/api/equipamentos/atualizar-certificados', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ itens: scans }),
+      })
+      const j = await r.json()
+      if (!r.ok) { alert(j.error || 'Falha ao atualizar.'); return }
+      fetch('/api/equipamentos').then(x => x.json()).then(e => setEquips(Array.isArray(e) ? e : [])).catch(() => {})
+      alert(j.total
+        ? `${j.total} atualização(ões):\n\n` + j.atualizados.map((a: { tag: string; oque: string; de: string; para: string }) => `${a.tag} — ${a.oque}: ${a.de} → ${a.para}`).join('\n')
+        : 'Nenhum certificado/análise crítica novo encontrado.')
+    } catch (e) { alert('Erro: ' + String(e)) }
+    finally { setVerificando(false) }
   }
 
   const temFiltro = fAreas.length + fSiglas.length + fGrupos.length + fSubs.length + fPend.length > 0 || !!busca.trim()
@@ -455,6 +494,11 @@ export default function EquipamentosPage() {
           <button type="button" onClick={importarPastaMae} disabled={!!impProgresso} className="btn-secondary">
             {impProgresso ? <Loader2 size={13} className="animate-spin"/> : <FolderInput size={13}/>}
             {impProgresso ? 'Importando…' : 'Importar pasta-mãe'}
+          </button>
+          <button type="button" onClick={(e) => verificarCertificadosNovos(e.shiftKey)} disabled={verificando} className="btn-secondary"
+            title="Lê a pasta dos certificados (só leitura) e atualiza os vencidos que tiverem certificado/análise crítica novo. Shift+clique = trocar a pasta.">
+            {verificando ? <Loader2 size={13} className="animate-spin"/> : <RefreshCw size={13}/>}
+            {verificando ? 'Verificando…' : 'Verificar certificados novos'}
           </button>
           <Link href="/checagens/nova" className="btn-secondary"><Plus size={13}/> Nova Checagem</Link>
           <button type="button" onClick={excluirTudo} title="Excluir TODOS os equipamentos e certificados (com senha)"
