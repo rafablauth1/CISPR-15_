@@ -389,7 +389,7 @@ function waitForServer(port, timeoutMs = 120_000, proc) {
 
 async function writeWithRetry(filePath, data, retries = 4) {
   for (let i = 0; i <= retries; i++) {
-    try { fs.writeFileSync(filePath, data); return }
+    try { await fs.promises.writeFile(filePath, data); return }  // async: não trava a UI
     catch (err) {
       if (i === retries) throw err
       await new Promise(r => setTimeout(r, 400 * (i + 1)))
@@ -411,26 +411,15 @@ async function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js'),
-      spellcheck: true,
+      // Corretor ortográfico DESLIGADO: estava travando a digitação/células
+      // (o spellchecker do Chromium engasgava ao carregar dicionário). Menu de
+      // contexto com Recortar/Copiar/Colar continua funcionando abaixo.
+      spellcheck: false,
     },
   })
 
-  /* Corretor ortográfico (pt-BR, com en-US de apoio) + sugestões no menu de
-     contexto — funciona nos campos de texto do app (estilo Word). */
-  try { win.webContents.session.setSpellCheckerLanguages(['pt-BR', 'en-US']) } catch {}
   win.webContents.on('context-menu', (_e, params) => {
     const tpl = []
-    if (params.misspelledWord) {
-      for (const s of params.dictionarySuggestions) {
-        tpl.push({ label: s, click: () => win.webContents.replaceMisspelling(s) })
-      }
-      tpl.push({ type: 'separator' })
-      tpl.push({
-        label: 'Adicionar ao dicionário',
-        click: () => win.webContents.session.addWordToSpellCheckerDictionary(params.misspelledWord),
-      })
-      tpl.push({ type: 'separator' })
-    }
     if (params.isEditable || params.selectionText) {
       tpl.push({ role: 'cut',       label: 'Recortar',        enabled: params.editFlags.canCut })
       tpl.push({ role: 'copy',      label: 'Copiar',          enabled: params.editFlags.canCopy })
