@@ -6,14 +6,20 @@
 
 **Sistema de gestão de ensaios EMC e laboratório — LABELO / PUCRS**
 
-![Versão](https://img.shields.io/badge/versão-1.0.82-E6B73C?style=flat-square)
-![Plataforma](https://img.shields.io/badge/plataforma-Windows-blue?style=flat-square)
-![Electron](https://img.shields.io/badge/Electron-31-47848F?style=flat-square&logo=electron)
-![Next.js](https://img.shields.io/badge/Next.js-14-black?style=flat-square&logo=next.js)
+[![Release](https://img.shields.io/github/v/release/rafablauth1/CISPR-15_?style=flat-square&label=release&color=E6B73C)](https://github.com/rafablauth1/CISPR-15_/releases/latest)
+![Código](https://img.shields.io/badge/código-1.0.97-555?style=flat-square)
+![Plataforma](https://img.shields.io/badge/plataforma-Windows-0078D6?style=flat-square&logo=windows&logoColor=white)
+![Electron](https://img.shields.io/badge/Electron-31-47848F?style=flat-square&logo=electron&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-14-000000?style=flat-square&logo=next.js&logoColor=white)
 
 </div>
 
 ---
+
+> **Canal de distribuição.** As versões instaláveis do CISPR 15 LABELO são publicadas nas
+> [Releases](https://github.com/rafablauth1/CISPR-15_/releases) deste repositório, consultadas pelo menu
+> **Ajuda → Verificar atualizações** dos PCs instalados. O código aqui corresponde à linha 1.0.x; o
+> desenvolvimento continua em repositório privado.
 
 ## Visão geral
 
